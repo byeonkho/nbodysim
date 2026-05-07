@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.*;
 import personal.spacesim.dtos.SimulationRequestDTO;
 import personal.spacesim.dtos.SimulationResponseDTO;
 import personal.spacesim.services.SimulationSessionService;
-import personal.spacesim.simulation.Simulation;
 import java.util.List;
 
 @RestController
@@ -62,21 +61,4 @@ public class SimulationController {
         return ResponseEntity.ok(responseDTO);
     }
 
-    @GetMapping("/getAllSimIDs")
-    public ResponseEntity<List<String>> getAllSimIDs() {
-        List<Simulation> simulations = simulationSessionService.getAllSimulations();
-        List<String> sessionIDs = simulations.stream()
-                .map(Simulation::getSessionID)
-                .toList();
-        return ResponseEntity.ok(sessionIDs);
-    }
-
-    @GetMapping("/checkIfExists")
-    public ResponseEntity<Boolean> checkIfExists(@RequestParam String sessionID) {
-        Simulation simulation = simulationSessionService.getSimulation(sessionID);
-        if (simulation != null) {
-            return ResponseEntity.ok(true);
-        }
-        return ResponseEntity.ok(false);
-    }
 }
