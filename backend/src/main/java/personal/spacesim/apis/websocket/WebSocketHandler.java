@@ -90,6 +90,10 @@ public class WebSocketHandler extends TextWebSocketHandler {
                 return;
             }
 
+            // Bind the sim sessionID to this WS session so afterConnectionClosed can clean up.
+            // The WS session.getId() is unrelated to the UUID from /initialize.
+            session.getAttributes().put("sessionID", sessionID);
+
             // run the simulation and construct the response
             WebSocketResponseDTO responseDTO = simulationSessionService.runSimulation(
                     sessionID
@@ -127,7 +131,10 @@ public class WebSocketHandler extends TextWebSocketHandler {
             WebSocketSession session,
             CloseStatus status
     ) {
-        System.out.println("WebSocket connection closed: " + session.getId() + " with status: " + status);
-        simulationSessionService.removeSimulation(session.getId());
+        logger.info("WebSocket connection closed: {} with status: {}", session.getId(), status);
+        String sessionID = (String) session.getAttributes().get("sessionID");
+        if (sessionID != null) {
+            simulationSessionService.removeSimulation(sessionID);
+        }
     }
 }
