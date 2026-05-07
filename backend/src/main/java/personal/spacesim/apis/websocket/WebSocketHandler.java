@@ -94,6 +94,10 @@ public class WebSocketHandler extends TextWebSocketHandler {
             // The WS session.getId() is unrelated to the UUID from /initialize.
             session.getAttributes().put("sessionID", sessionID);
 
+            // Cancel any pending grace-period removal — this handles reconnects
+            // where the client re-attaches before the 30s window expires.
+            simulationSessionService.cancelScheduledRemoval(sessionID);
+
             // run the simulation and construct the response
             WebSocketResponseDTO responseDTO = simulationSessionService.runSimulation(
                     sessionID
@@ -134,7 +138,7 @@ public class WebSocketHandler extends TextWebSocketHandler {
         logger.info("WebSocket connection closed: {} with status: {}", session.getId(), status);
         String sessionID = (String) session.getAttributes().get("sessionID");
         if (sessionID != null) {
-            simulationSessionService.removeSimulation(sessionID);
+            simulationSessionService.scheduleSimulationRemoval(sessionID);
         }
     }
 }

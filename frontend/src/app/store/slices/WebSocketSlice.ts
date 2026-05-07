@@ -29,6 +29,9 @@ export const webSocketSlice = createSlice({
     setErrorMessage: (state, action: PayloadAction<string>) => {
       state.errorMessage = action.payload;
     },
+    clearErrorMessage: (state) => {
+      state.errorMessage = null;
+    },
     setRequestInProgress: (state, action: PayloadAction<boolean>) => {
       state.isRequestInProgress = action.payload;
     },
@@ -43,6 +46,7 @@ export const {
   connected,
   disconnected,
   setErrorMessage,
+  clearErrorMessage,
   setRequestInProgress,
 } = webSocketSlice.actions;
 

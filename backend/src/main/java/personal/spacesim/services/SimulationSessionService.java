@@ -17,14 +17,22 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 @Component
 public class SimulationSessionService {
 
     private final Logger logger = LoggerFactory.getLogger(SimulationSessionService.class);
 
+    private static final int CLEANUP_GRACE_SECONDS = 30;
+
     // TODO logic for memory management (max size of map)
     private final ConcurrentHashMap<String, Simulation> simulationMap;
+    private final ConcurrentHashMap<String, ScheduledFuture<?>> pendingRemovals;
+    private final ScheduledExecutorService cleanupScheduler;
     private final SimulationFactory simulationFactory;
     private final WebSocketResponseSizeSerializer webSocketResponseSizeSerializer;
 
@@ -34,6 +42,12 @@ public class SimulationSessionService {
     ) {
         this.simulationFactory = simulationFactory;
         this.simulationMap = new ConcurrentHashMap<>();
+        this.pendingRemovals = new ConcurrentHashMap<>();
+        this.cleanupScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "sim-cleanup");
+            t.setDaemon(true);
+            return t;
+        });
         this.webSocketResponseSizeSerializer = webSocketResponseSizeSerializer;
     }
 
@@ -82,6 +96,24 @@ public class SimulationSessionService {
 
     public List<Simulation> getAllSimulations() {
         return new ArrayList<>(simulationMap.values());
+    }
+
+    public void scheduleSimulationRemoval(String sessionID) {
+        ScheduledFuture<?> future = cleanupScheduler.schedule(() -> {
+            pendingRemovals.remove(sessionID);
+            removeSimulation(sessionID);
+            logger.info("Grace period elapsed — removed simulation {}", sessionID);
+        }, CLEANUP_GRACE_SECONDS, TimeUnit.SECONDS);
+        pendingRemovals.put(sessionID, future);
+        logger.info("Scheduled simulation removal for {} in {}s", sessionID, CLEANUP_GRACE_SECONDS);
+    }
+
+    public void cancelScheduledRemoval(String sessionID) {
+        ScheduledFuture<?> future = pendingRemovals.remove(sessionID);
+        if (future != null) {
+            future.cancel(false);
+            logger.info("Cancelled scheduled removal for {} (client reconnected)", sessionID);
+        }
     }
 
     public void removeSimulation(String sessionID) {
