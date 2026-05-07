@@ -6,14 +6,14 @@ import org.springframework.stereotype.Component;
 public class IntegratorFactory {
 
     public Integrator createIntegrator(String type) {
-        switch (type.toLowerCase()) {
-            case "euler":
-                return new EulerIntegrator();
-            case "rungekutta":
-                return new RungeKuttaIntegrator();
-            // Add more cases for other integrator types
-            default:
-                throw new IllegalArgumentException("Unknown integrator type: " + type);
-        }
+        return switch (type.toLowerCase()) {
+            case "euler" -> new EulerIntegrator();
+            // Other integrators will be added in subsequent P0.3 phases:
+            //   - "rungekutta" → RK4Integrator (phase 3)
+            //   - "dp853"      → DormandPrince853Integrator (phase 4)
+            case "rungekutta" -> throw new UnsupportedOperationException(
+                "Runge-Kutta integrator is being rebuilt; use 'euler' until phase 3 lands.");
+            default -> throw new IllegalArgumentException("Unknown integrator type: " + type);
+        };
     }
 }
