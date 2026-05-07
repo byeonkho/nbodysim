@@ -11,7 +11,7 @@ import personal.spacesim.simulation.state.NBodyDerivatives;
  * <ul>
  *   <li>{@link EulerIntegrator}: 1 derivative evaluation per step,
  *       first-order accuracy</li>
- *   <li>RK4 (planned, P0.3 phase 3): 4 evaluations per step, fourth-order</li>
+ *   <li>{@link RK4Integrator}: 4 evaluations per step, fourth-order</li>
  *   <li>DormandPrince853 (planned, P0.3 phase 4): adaptive step sizing,
  *       eighth-order accuracy via Hipparchus</li>
  * </ul>
@@ -20,7 +20,7 @@ import personal.spacesim.simulation.state.NBodyDerivatives;
  * (e.g. UI dropdowns, factory mappings). Permits list grows as integrators
  * land.
  */
-public sealed interface Integrator permits EulerIntegrator {
+public sealed interface Integrator permits EulerIntegrator, RK4Integrator {
 
     /**
      * Advance {@code state} forward by {@code dt} using {@code derivatives}.
