@@ -3,6 +3,7 @@ package personal.spacesim.simulation;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.hipparchus.geometry.euclidean.threed.Vector3D;
 import org.orekit.frames.Frame;
 import org.orekit.time.AbsoluteDate;
 import personal.spacesim.constants.PhysicsConstants;
@@ -99,11 +100,26 @@ public class Simulation {
     }
 
     private List<CelestialBodySnapshot> snapshotCelestialBodies(List<CelestialBodyWrapper> originalList) {
+        // The Sun is integrated like any other body (true N-body physics) and so
+        // wobbles slightly in absolute coordinates under planetary tug. For
+        // visualization we want the Sun anchored at origin, so we subtract its
+        // position/velocity from every body's snapshot. If no Sun is in the
+        // system (custom scenarios), the snapshot uses raw integrator state.
+        Vector3D originPos = Vector3D.ZERO;
+        Vector3D originVel = Vector3D.ZERO;
+        for (CelestialBodyWrapper body : originalList) {
+            if (body.getName().equalsIgnoreCase("sun")) {
+                originPos = body.getPosition();
+                originVel = body.getVelocity();
+                break;
+            }
+        }
+
         List<CelestialBodySnapshot> copy = new ArrayList<>();
         for (CelestialBodyWrapper body : originalList) {
             CelestialBodySnapshot snapshot = new CelestialBodySnapshot();
-            snapshot.setPosition(body.getPosition());
-            snapshot.setVelocity(body.getVelocity());
+            snapshot.setPosition(body.getPosition().subtract(originPos));
+            snapshot.setVelocity(body.getVelocity().subtract(originVel));
             snapshot.setName(body.getName());
             copy.add(snapshot);
         }
