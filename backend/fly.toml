@@ -16,7 +16,9 @@ primary_region = "syd"      # change to your preferred region
   force_https = true
   auto_stop_machines = "stop"
   auto_start_machines = true
-  min_machines_running = 0
+  # Keep at least one machine warm so first-load doesn't pay a 5–10s cold start.
+  # Costs slightly more than min=0 but matters for the portfolio first impression.
+  min_machines_running = 1
 
   # Allow long-lived WebSocket connections
   [http_service.concurrency]

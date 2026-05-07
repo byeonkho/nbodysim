@@ -42,6 +42,8 @@ Currently a working local prototype. The simulation runs end-to-end, multiple in
 - Frontend deployment to **Vercel** with backend URL injected at build time.
 - Auth or rate limiting on the public REST surface (currently open compute oracle).
 - Tightened CORS — env-driven allowlist, no wildcard.
+- Cloudflare proxy in front of Fly.io for DDoS protection and bot detection (defends against IP-rotation attacks that per-IP rate limiting alone can't stop).
+- Sentry for error tracking and uptime monitoring (backend + frontend SDKs; uptime checks on health + frontend URLs).
 - README with screenshots, architecture diagram, and live demo link.
 - GitHub Actions CI: build, lint, type-check, run tests on PR.
 

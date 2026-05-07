@@ -42,9 +42,23 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private static final int BURST_LIMIT_PER_MINUTE = 60;
     private static final int DAILY_LIMIT = 500;
+    private static final int GLOBAL_DAILY_LIMIT = 5000;
     private static final long IDLE_BUCKET_TTL_MS = 24L * 60 * 60 * 1000;
 
     private final ConcurrentHashMap<String, IpBuckets> buckets = new ConcurrentHashMap<>();
+
+    // Global ceiling across all IPs. Protects the bandwidth budget against
+    // attackers rotating IPs (residential proxies, IPv6, Tor) — per-IP limits
+    // alone are trivially defeated by anyone willing to spend $10/mo on a
+    // proxy farm. When this is exhausted, every request gets 429 regardless
+    // of source. Sized at ~50% of free Fly bandwidth (5000 chunks × 4MB =
+    // ~20GB/day vs 160GB/month budget).
+    private final Bucket globalBucket = Bucket.builder()
+            .addLimit(Bandwidth.classic(
+                    GLOBAL_DAILY_LIMIT,
+                    Refill.intervally(GLOBAL_DAILY_LIMIT, Duration.ofDays(1))
+            ))
+            .build();
 
     @Override
     protected void doFilterInternal(
@@ -74,6 +88,16 @@ public class RateLimitFilter extends OncePerRequestFilter {
         ConsumptionProbe daily = ipBuckets.daily.tryConsumeAndReturnRemaining(1);
         if (!daily.isConsumed()) {
             sendTooManyRequests(request, response, daily.getNanosToWaitForRefill(), ip, "daily");
+            return;
+        }
+
+        // Global cap is checked LAST so per-IP tokens spent above are still
+        // accounted for. Order also means a single bad IP can't deny service
+        // by burning the global bucket on requests it would have been
+        // rate-limited from anyway.
+        ConsumptionProbe global = globalBucket.tryConsumeAndReturnRemaining(1);
+        if (!global.isConsumed()) {
+            sendTooManyRequests(request, response, global.getNanosToWaitForRefill(), ip, "global");
             return;
         }
 
