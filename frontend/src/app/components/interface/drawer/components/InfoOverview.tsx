@@ -1,6 +1,7 @@
 import React from "react";
 import { useSelector } from "react-redux";
 import { RootState } from "@/app/store/Store";
+import { CelestialBody } from "@/app/store/slices/SimulationSlice";
 import {
   Paper,
   Table,
@@ -64,7 +65,7 @@ const InfoOverview: React.FC = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {currentSnapshot.map((body: any) => (
+              {currentSnapshot.map((body: CelestialBody) => (
                 <TableRow key={body.name}>
                   <TableCell>
                     <Typography variant="body2">{body.name}</Typography>

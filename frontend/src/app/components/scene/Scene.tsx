@@ -6,7 +6,7 @@ import Camera from "@/app/components/scene/Camera";
 import Sphere from "@/app/components/scene/Sphere";
 import Trail from "@/app/components/scene/Trail";
 import AnimationController from "@/app/components/scene/AnimationController";
-import React, { useEffect, useState } from "react";
+import React, { useMemo } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { bodyProperties } from "@/app/constants/SimConstants";
 import * as THREE from "three";
@@ -37,9 +37,6 @@ const Scene = () => {
   const celestialBodyPropertiesList = useSelector(
     selectCelestialBodyPropertiesList,
   );
-  const [celestialBodyRadiusMap, setCelestialBodyRadiusMap] = useState(
-    new Map<string, number>(),
-  );
   const simulationSnapshot: CelestialBody[] = useSelector(
     selectCurrentSimulationSnapshot,
   );
@@ -50,34 +47,22 @@ const Scene = () => {
   const showAxes: boolean = useSelector(selectShowAxes);
   const simulationScale: SimulationScale = useSelector(selectSimulationScale);
 
-  // get derived radii of bodies from initial radius constants and scale to simulation parameter
-  useEffect(() => {
-    if (
-      !celestialBodyPropertiesList ||
-      celestialBodyPropertiesList.length === 0
-    )
-      return;
-
-    const celestialBodyRadiusMap = new Map<string, number>();
-
-    for (const celestialBodyProperties of celestialBodyPropertiesList) {
-      if (
-        celestialBodyProperties.name &&
-        celestialBodyProperties.radius !== undefined
-      ) {
-        celestialBodyRadiusMap.set(
-          celestialBodyProperties.name,
-          celestialBodyProperties.radius / simulationScale.radiusScale,
-        );
+  // Derived radii: body radius / current scale's radiusScale, indexed by name.
+  // useMemo (not useEffect) — this is derived state, not a side effect.
+  const celestialBodyRadiusMap = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!celestialBodyPropertiesList) return map;
+    for (const props of celestialBodyPropertiesList) {
+      if (props.name && props.radius !== undefined) {
+        map.set(props.name, props.radius / simulationScale.radiusScale);
       }
     }
-
-    setCelestialBodyRadiusMap(celestialBodyRadiusMap);
+    return map;
   }, [celestialBodyPropertiesList, simulationScale]);
 
   return (
     <Canvas
-      onPointerMissed={(e: MouseEvent) => {
+      onPointerMissed={() => {
         dispatch(setIsBodyActive(false));
       }}
       style={{ width: "100%", height: "100%" }}

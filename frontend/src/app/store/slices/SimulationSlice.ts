@@ -242,7 +242,7 @@ export const simulationSlice = createSlice({
       state.timeState.currentTimeStepKey = action.payload;
     },
     setSpeedMultiplier: (state, action: PayloadAction<string>) => {
-      let { speedMultiplier } = state.timeState;
+      const { speedMultiplier } = state.timeState;
       let newMultiplier: number = speedMultiplier;
       if (action.payload === "increase") {
         if (speedMultiplier < -1) {

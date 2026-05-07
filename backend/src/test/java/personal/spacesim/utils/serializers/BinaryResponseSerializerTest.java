@@ -69,15 +69,16 @@ class BinaryResponseSerializerTest {
         AbsoluteDate date = new AbsoluteDate(2024, 6, 5, 0, 0, 0.0, utc);
         long expectedMillis = date.toDate(utc).getTime();
 
-        CelestialBodySnapshot earth = new CelestialBodySnapshot();
-        earth.setName("Earth");
-        earth.setPosition(new Vector3D(1.0, 2.0, 3.0));
-        earth.setVelocity(new Vector3D(4.0, 5.0, 6.0));
-
-        CelestialBodySnapshot moon = new CelestialBodySnapshot();
-        moon.setName("Moon");
-        moon.setPosition(new Vector3D(7.0, 8.0, 9.0));
-        moon.setVelocity(new Vector3D(10.0, 11.0, 12.0));
+        CelestialBodySnapshot earth = new CelestialBodySnapshot(
+                "Earth",
+                new Vector3D(1.0, 2.0, 3.0),
+                new Vector3D(4.0, 5.0, 6.0)
+        );
+        CelestialBodySnapshot moon = new CelestialBodySnapshot(
+                "Moon",
+                new Vector3D(7.0, 8.0, 9.0),
+                new Vector3D(10.0, 11.0, 12.0)
+        );
 
         Map<AbsoluteDate, List<CelestialBodySnapshot>> data = new LinkedHashMap<>();
         data.put(date, List.of(earth, moon));
@@ -124,10 +125,7 @@ class BinaryResponseSerializerTest {
         TimeScale utc = TimeScalesFactory.getUTC();
         AbsoluteDate date = new AbsoluteDate(2024, 1, 1, 0, 0, 0.0, utc);
 
-        CelestialBodySnapshot body = new CelestialBodySnapshot();
-        body.setName("Α");
-        body.setPosition(Vector3D.ZERO);
-        body.setVelocity(Vector3D.ZERO);
+        CelestialBodySnapshot body = new CelestialBodySnapshot("Α", Vector3D.ZERO, Vector3D.ZERO);
 
         Map<AbsoluteDate, List<CelestialBodySnapshot>> data =
                 Collections.singletonMap(date, List.of(body));

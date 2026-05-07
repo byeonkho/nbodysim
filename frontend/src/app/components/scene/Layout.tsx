@@ -1,7 +1,6 @@
 import React from "react";
 import { Box } from "@mui/material";
 import { useSelector } from "react-redux";
-import { RootState } from "@/app/store/Store";
 
 // Import your components
 import Scene from "@/app/components/scene/Scene";
@@ -19,11 +18,6 @@ import {
 } from "@/app/store/slices/SimulationSlice";
 
 const Layout: React.FC = () => {
-  // Example: retrieving a session ID from Redux state
-  const sessionID = useSelector(
-    (state: RootState) =>
-      state.simulation.simulationParameters.simulationMetaData?.sessionID,
-  );
   const simulationScale = useSelector(selectSimulationScale);
   const showAxes = useSelector(selectShowAxes);
   const showGrid = useSelector(selectShowGrid);

@@ -5,7 +5,7 @@ import { useSelector } from "react-redux";
 
 interface FadeNotificationProps {
   message: string;
-  trigger: any;
+  trigger: unknown;
   key?: string;
 }
 
@@ -17,21 +17,22 @@ const FadeNotification: React.FC<FadeNotificationProps> = ({
   const [float, setFloat] = useState(false); // controls vertical movement
   const simulationData = useSelector(selectSimulationDataSize); // only allow visibility if data loaded
 
+  // Show the notification, then schedule a fade-out — legitimate use of
+  // setState in an effect (transient UI tied to prop changes).
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (message && simulationData) {
       setVisible(true);
-      // Reset float state for each new message.
       setFloat(false);
-      // After 500ms, trigger the upward movement.
       const floatTimer = setTimeout(() => setFloat(true), 500);
-      // After 1000ms, hide the notification.
       const timer = setTimeout(() => setVisible(false), 1000);
       return () => {
         clearTimeout(timer);
         clearTimeout(floatTimer);
       };
     }
-  }, [trigger, message]);
+  }, [trigger, message, simulationData]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   return (
     <Fade in={visible} timeout={{ enter: 100, exit: 1500 }}>

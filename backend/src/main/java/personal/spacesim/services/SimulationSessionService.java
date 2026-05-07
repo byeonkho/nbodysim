@@ -8,9 +8,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import personal.spacesim.dtos.SimulationResponseDTO;
 import personal.spacesim.dtos.SimulationResponseMetadata;
-import personal.spacesim.dtos.SimulationChunkResponse;
 import personal.spacesim.simulation.Simulation;
 import personal.spacesim.simulation.SimulationFactory;
+import personal.spacesim.simulation.body.CelestialBodySnapshot;
 import personal.spacesim.simulation.body.CelestialBodyWrapper;
 
 import java.util.ArrayList;
@@ -81,7 +81,7 @@ public class SimulationSessionService {
         lastAccessedAt.remove(sessionID);
     }
 
-    public SimulationChunkResponse runSimulation(String sessionID) {
+    public Map<AbsoluteDate, List<CelestialBodySnapshot>> runSimulation(String sessionID) {
         Simulation simulation = getSimulation(sessionID);
         if (simulation == null) {
             throw new IllegalArgumentException("Simulation not found for session ID: " + sessionID);

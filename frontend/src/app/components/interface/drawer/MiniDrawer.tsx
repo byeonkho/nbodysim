@@ -243,6 +243,7 @@ export default function MiniDrawer() {
                 in={true}
                 mountOnEnter
                 unmountOnExit
+                // eslint-disable-next-line react-hooks/refs -- MUI Slide takes a ref-like container; portal target genuinely is a ref
                 container={containerRef.current}
               >
                 <Box sx={{ position: "absolute", width: "20%" }}>
@@ -258,6 +259,7 @@ export default function MiniDrawer() {
                 in={true}
                 mountOnEnter
                 unmountOnExit
+                // eslint-disable-next-line react-hooks/refs -- MUI Slide takes a ref-like container; portal target genuinely is a ref
                 container={containerRef.current}
               >
                 <Box sx={{ position: "absolute", width: "30%" }}>

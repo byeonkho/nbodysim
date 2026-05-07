@@ -5,9 +5,17 @@ import {
 } from "@/app/store/slices/SimulationSlice";
 import { REST_URL } from "@/app/utils/backendUrls";
 
+interface InitializeRequest {
+  celestialBodyNames: string[];
+  date: string;
+  frame: string;
+  integrator: string;
+  timeStepUnit: string;
+}
+
 export const initializeCelestialBodies = async (
   dispatch: AppDispatch,
-  requestBody: any,
+  requestBody: InitializeRequest,
 ) => {
   try {
     const response = await fetch(`${REST_URL}/initialize`, {

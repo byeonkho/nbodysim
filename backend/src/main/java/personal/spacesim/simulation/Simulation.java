@@ -7,7 +7,6 @@ import org.hipparchus.geometry.euclidean.threed.Vector3D;
 import org.orekit.frames.Frame;
 import org.orekit.time.AbsoluteDate;
 import personal.spacesim.constants.PhysicsConstants;
-import personal.spacesim.dtos.SimulationChunkResponse;
 import personal.spacesim.simulation.body.CelestialBodySnapshot;
 import personal.spacesim.simulation.body.CelestialBodyWrapper;
 import personal.spacesim.simulation.state.GlobalState;
@@ -65,7 +64,7 @@ public class Simulation {
         newState.unpackInto(celestialBodies);
     }
 
-    public SimulationChunkResponse run() {
+    public Map<AbsoluteDate, List<CelestialBodySnapshot>> run() {
         long startTime = System.nanoTime();
         Map<AbsoluteDate, List<CelestialBodySnapshot>> results = new LinkedHashMap<>();
 
@@ -88,9 +87,7 @@ public class Simulation {
         log.info("Simulation completed for {} {} in {} seconds.", TIMESTEPS_TO_RUN, timeStepUnit, totalTimeSeconds);
         log.info("Simulation ran using frame: {}", frame.getName());
 
-        SimulationChunkResponse responsePayload = new SimulationChunkResponse();
-        responsePayload.setData(results);
-        return responsePayload;
+        return results;
     }
 
     private List<CelestialBodySnapshot> snapshotCelestialBodies(List<CelestialBodyWrapper> originalList) {
@@ -111,11 +108,11 @@ public class Simulation {
 
         List<CelestialBodySnapshot> copy = new ArrayList<>();
         for (CelestialBodyWrapper body : originalList) {
-            CelestialBodySnapshot snapshot = new CelestialBodySnapshot();
-            snapshot.setPosition(body.getPosition().subtract(originPos));
-            snapshot.setVelocity(body.getVelocity().subtract(originVel));
-            snapshot.setName(body.getName());
-            copy.add(snapshot);
+            copy.add(new CelestialBodySnapshot(
+                    body.getName(),
+                    body.getPosition().subtract(originPos),
+                    body.getVelocity().subtract(originVel)
+            ));
         }
         return copy;
     }

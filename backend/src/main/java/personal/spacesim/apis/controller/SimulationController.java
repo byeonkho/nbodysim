@@ -8,14 +8,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import personal.spacesim.dtos.SimulationChunkRequest;
 import personal.spacesim.dtos.SimulationRequestDTO;
 import personal.spacesim.dtos.SimulationResponseDTO;
-import personal.spacesim.dtos.SimulationChunkResponse;
-import personal.spacesim.dtos.SimulationChunkRequest;
 import personal.spacesim.services.SimulationSessionService;
+import personal.spacesim.simulation.body.CelestialBodySnapshot;
 import personal.spacesim.utils.compressor.ZstdCompressor;
 import personal.spacesim.utils.serializers.BinaryResponseSerializer;
+
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/simulation")
@@ -55,13 +57,13 @@ public class SimulationController {
 
         // get parameters from payload
         AbsoluteDate date = new AbsoluteDate(
-                request.getDate(),
+                request.date(),
                 TimeScalesFactory.getUTC()
         );
-        List<String> celestialBodyNames = request.getCelestialBodyNames();
-        String frame = request.getFrame();
-        String integrator = request.getIntegrator();
-        String timeStepUnit = request.getTimeStepUnit();
+        List<String> celestialBodyNames = request.celestialBodyNames();
+        String frame = request.frame();
+        String integrator = request.integrator();
+        String timeStepUnit = request.timeStepUnit();
 
         // calling the service
         String sessionID = simulationSessionService.createSimulation(
@@ -85,7 +87,7 @@ public class SimulationController {
      */
     @PostMapping(value = "/chunk", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     public ResponseEntity<byte[]> getNextChunk(@RequestBody SimulationChunkRequest request) {
-        String sessionID = request.getSessionID();
+        String sessionID = request.sessionID();
         if (sessionID == null) {
             return ResponseEntity.badRequest().build();
         }
@@ -93,11 +95,12 @@ public class SimulationController {
         long t0 = System.nanoTime();
         logger.info("[{}] Chunk request received", sessionID);
 
-        SimulationChunkResponse responseDTO = simulationSessionService.runSimulation(sessionID);
+        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunkData =
+                simulationSessionService.runSimulation(sessionID);
         long tSim = System.nanoTime();
         logger.info("[{}] Simulation computed in {}ms", sessionID, (tSim - t0) / 1_000_000);
 
-        byte[] binaryPayload = binaryResponseSerializer.serialize(responseDTO.getData());
+        byte[] binaryPayload = binaryResponseSerializer.serialize(chunkData);
         long tBin = System.nanoTime();
         logger.info(
                 "[{}] Binary serialized in {}ms ({} KB)",

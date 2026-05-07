@@ -15,13 +15,19 @@ import {
 import { REST_URL } from "@/app/utils/backendUrls";
 import type { RootState } from "@/app/store/Store";
 import type { DecodeResponse } from "./zstdWorker";
+import type { CelestialBody } from "./parseBinaryChunk";
+
+interface ChunkPayload {
+  messageType: string;
+  data: Record<string, CelestialBody[]>;
+}
 
 // Decoder Worker — module singleton, kept alive for the page session.
 let decoderWorker: Worker | null = null;
 let decodeIdCounter = 0;
 const pendingDecodes = new Map<
   number,
-  { resolve: (value: any) => void; reject: (reason: Error) => void }
+  { resolve: (value: ChunkPayload) => void; reject: (reason: Error) => void }
 >();
 
 function getDecoderWorker(): Worker {
@@ -37,7 +43,7 @@ function getDecoderWorker(): Worker {
     if ("error" in event.data) {
       pending.reject(new Error(event.data.error));
     } else {
-      pending.resolve(event.data.payload);
+      pending.resolve(event.data.payload as ChunkPayload);
     }
   };
   decoderWorker.onerror = (event: ErrorEvent) => {
@@ -46,7 +52,7 @@ function getDecoderWorker(): Worker {
   return decoderWorker;
 }
 
-function decodeOffMainThread(buffer: ArrayBuffer): Promise<any> {
+function decodeOffMainThread(buffer: ArrayBuffer): Promise<ChunkPayload> {
   const id = ++decodeIdCounter;
   return new Promise((resolve, reject) => {
     pendingDecodes.set(id, { resolve, reject });

@@ -21,10 +21,8 @@ const Camera: React.FC = () => {
   const isBodyActive: boolean = useSelector(selectIsBodyActive);
   const simulationScale: SimulationScale = useSelector(selectSimulationScale);
 
-  let radius: number | undefined;
-
-  // Retrieve the active body's radius (if active) and scale it.
-  radius =
+  // Active body's radius scaled by the current simulationScale.
+  const radius =
     useSelector((state: RootState): number | undefined =>
       activeBody && isBodyActive
         ? (
@@ -36,20 +34,23 @@ const Camera: React.FC = () => {
         : undefined,
     )! / simulationScale.radiusScale;
 
-  // A ref for the tracking zoom level, which can be adjusted by mouse scroll.
-  const trackingZoomRef = useRef<number>(
-    radius
-      ? radius * 1
-      : camera.position.distanceTo(
-          controlsRef.current?.target || new THREE.Vector3(),
-        ),
-  );
+  // Tracking zoom level (adjusted by mouse scroll). Initial value is
+  // overwritten by the framing useEffect once simulationScale is known —
+  // any sensible default works here. Reading controlsRef.current during
+  // render is a React 19 anti-pattern (would lint-fail) and pointless on
+  // first render anyway since the controls haven't mounted yet.
+  const trackingZoomRef = useRef<number>(radius ?? 1);
 
+  // Three.js cameras are mutable objects intentionally — configuring them
+  // means writing to fields like `near`/`far`. React 19's hook-immutability
+  // rule flags this, but it's the canonical three.js pattern.
+  /* eslint-disable react-hooks/immutability */
   useEffect(() => {
     camera.near = 0.1;
-    camera.far = 1e12; // set to your desired maximum render distance
+    camera.far = 1e12;
     camera.updateProjectionMatrix();
   }, [camera]);
+  /* eslint-enable react-hooks/immutability */
 
   // Initial framing: set camera position relative to the current scale's AXES.SIZE
   // so the inner solar system fills a comfortable portion of the view. Re-runs on
@@ -84,12 +85,9 @@ const Camera: React.FC = () => {
     };
   }, [gl.domElement]);
 
-  // A ref to smooth the computed radius.
-  const smoothRadiusRef = useRef<number>(
-    camera.position.distanceTo(
-      controlsRef.current?.target || new THREE.Vector3(),
-    ),
-  );
+  // Smoothed radius for the body-tracking camera distance. Same pattern
+  // as trackingZoomRef — actual value catches up via lerp inside useFrame.
+  const smoothRadiusRef = useRef<number>(1);
 
   useFrame(() => {
     if (isBodyActive && activeBody) {

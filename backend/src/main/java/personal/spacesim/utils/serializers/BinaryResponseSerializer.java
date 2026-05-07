@@ -47,7 +47,7 @@ public class BinaryResponseSerializer {
         byte[][] nameBytes = new byte[bodyCount][];
         int headerSize = 2 + 4; // bodyCount + timestepCount
         for (int i = 0; i < bodyCount; i++) {
-            nameBytes[i] = firstSnapshot.get(i).getName().getBytes(StandardCharsets.UTF_8);
+            nameBytes[i] = firstSnapshot.get(i).name().getBytes(StandardCharsets.UTF_8);
             headerSize += 2 + nameBytes[i].length;
         }
 
@@ -72,8 +72,8 @@ public class BinaryResponseSerializer {
 
             List<CelestialBodySnapshot> snapshot = entry.getValue();
             for (int i = 0; i < bodyCount; i++) {
-                Vector3D pos = snapshot.get(i).getPosition();
-                Vector3D vel = snapshot.get(i).getVelocity();
+                Vector3D pos = snapshot.get(i).position();
+                Vector3D vel = snapshot.get(i).velocity();
                 buf.putDouble(pos.getX()).putDouble(pos.getY()).putDouble(pos.getZ());
                 buf.putDouble(vel.getX()).putDouble(vel.getY()).putDouble(vel.getZ());
             }

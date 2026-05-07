@@ -10,7 +10,6 @@ import * as THREE from "three";
 
 type CelestialBodyProps = ThreeElements["mesh"] & {
   name: string;
-  color?: THREE.ColorRepresentation;
   radius: number;
   body: CelestialBody;
   textureUrl?: string;
@@ -21,8 +20,6 @@ type CelestialBodyProps = ThreeElements["mesh"] & {
 const Sphere: React.FC<CelestialBodyProps> = ({
   radius,
   position,
-  name,
-  color = "orange",
   body,
   textureUrl,
   rotationSpeed = 0.1,
@@ -32,7 +29,10 @@ const Sphere: React.FC<CelestialBodyProps> = ({
   const meshRef = useRef<THREE.Mesh>(null!);
   const dispatch = useDispatch<AppDispatch>();
 
+  // useLoader's type signature with TextureLoader is awkward in current
+  // R3F + drei + three-stdlib type stack; cast is the conventional escape.
   const texture = useLoader(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     THREE.TextureLoader as any,
     textureUrl || "/path/to/placeholder.png",
   );
