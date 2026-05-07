@@ -20,11 +20,11 @@ export const webSocketSlice = createSlice({
   reducers: {
     connected: (state) => {
       state.isConnected = true;
-      state.error = null;
+      state.errorMessage = null;
     },
     disconnected: (state) => {
       state.isConnected = false;
-      state.error = null;
+      state.errorMessage = null;
     },
     setErrorMessage: (state, action: PayloadAction<string>) => {
       state.errorMessage = action.payload;

@@ -1,4 +1,4 @@
-import { Action, Dispatch, Middleware, MiddlewareAPI } from "redux";
+import { Middleware, MiddlewareAPI } from "redux";
 import {
   selectCurrentTimeStepIndex,
   setCurrentTimeStepIndex,
@@ -46,19 +46,22 @@ type WebSocketAction =
   | DisconnectAction
   | RequestRunSimulationAction;
 
-let socket = null;
+let socket: WebSocket | null = null;
 
 export const webSocketMiddleware: Middleware =
   (store: MiddlewareAPI) =>
-  (next: Dispatch<Action>) =>
-  async (action: WebSocketAction) => {
-    switch (action.type) {
+  (next) =>
+  async (action: unknown) => {
+    // Middleware receives any action; we only care about our WS-flavored ones.
+    // Cast to the discriminated union and let switch narrow within each case.
+    const wsAction = action as WebSocketAction;
+    switch (wsAction.type) {
       case "webSocket/connect": {
         if (socket) {
           socket.close(); // Close any existing connection
         }
 
-        socket = new WebSocket(action.payload);
+        socket = new WebSocket(wsAction.payload);
 
         socket.binaryType = "arraybuffer"; // Enable binary handling
 
@@ -121,9 +124,11 @@ export const webSocketMiddleware: Middleware =
           }
         };
 
-        socket.onerror = (event: ErrorEvent) => {
-          console.error("WebSocket error:", event.message);
-          store.dispatch(setErrorMessage(event.message));
+        socket.onerror = (event: Event) => {
+          // Browser WebSocket onerror dispatches a plain Event without details;
+          // detailed reasons (when available) come via onclose's CloseEvent.
+          console.error("WebSocket error:", event);
+          store.dispatch(setErrorMessage("WebSocket error"));
         };
 
         socket.onclose = () => {
@@ -147,7 +152,7 @@ export const webSocketMiddleware: Middleware =
           console.log("Sending WebSocket simulation request...");
           store.dispatch(setIsUpdating(true));
           store.dispatch(setRequestInProgress(true));
-          socket.send(JSON.stringify(action.payload));
+          socket.send(JSON.stringify(wsAction.payload));
         } else {
           console.warn(
             "Cannot send simulation request: WebSocket is not open.",

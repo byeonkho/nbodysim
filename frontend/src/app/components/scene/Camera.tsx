@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from "react";
-import { extend, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls } from "three-stdlib";
+import { useFrame, useThree } from "@react-three/fiber";
+import { OrbitControls } from "@react-three/drei";
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { useSelector } from "react-redux";
 import {
   CelestialBody,
@@ -13,12 +14,10 @@ import {
 import * as THREE from "three";
 import { RootState } from "@/app/store/Store";
 
-extend({ OrbitControls });
-
 const Camera: React.FC = () => {
   const { camera, gl } = useThree();
-  const controlsRef = useRef<OrbitControls>(null!);
-  const activeBody: CelestialBody = useSelector(selectActiveBody);
+  const controlsRef = useRef<OrbitControlsImpl>(null!);
+  const activeBody: CelestialBody | null = useSelector(selectActiveBody);
   const isBodyActive: boolean = useSelector(selectIsBodyActive);
   const simulationScale: SimulationScale = useSelector(selectSimulationScale);
 
@@ -116,10 +115,9 @@ const Camera: React.FC = () => {
   });
 
   return (
-    <orbitControls
+    <OrbitControls
       ref={controlsRef}
-      args={[camera, gl.domElement]}
-      enableDamping={true}
+      enableDamping
       dampingFactor={0.01} // smaller values = more damping
       // maxPolarAngle={Math.PI / 2}
     />

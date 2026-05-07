@@ -35,6 +35,7 @@
         private AbsoluteDate simCurrentDate;
         private Integrator integrator;
         private String timeStepUnit;
+        private boolean hasEmittedInitialFrame = false;
         private static final int TIMESTEPS_TO_RUN = 10_000;
 
 
@@ -85,18 +86,21 @@
 
         public WebSocketResponseDTO run() {
             long startTime = System.nanoTime();
-            int currentTimeStep = 0;
             Map<AbsoluteDate, List<CelestialBodySnapshot>> results = new LinkedHashMap<>();
 
+            // Emit the initial frame only on the first run; subsequent runs continue from where we left off.
+            // Without this guard, every run() re-emitted simStartDate as a key, colliding with the existing
+            // entry in client state and silently dropping a timestep per chunk.
+            if (!hasEmittedInitialFrame) {
+                results.put(simCurrentDate, snapshotCelestialBodies(celestialBodies));
+                hasEmittedInitialFrame = true;
+            }
+
+            int currentTimeStep = 0;
             while (currentTimeStep < TIMESTEPS_TO_RUN) {
-                // First iteration
-                if (currentTimeStep == 0) {
-                    results.put(simStartDate, snapshotCelestialBodies(celestialBodies));
-                } else {
-                    update();
-                    results.put(simCurrentDate, snapshotCelestialBodies(celestialBodies));
-                }
-                currentTimeStep ++;
+                update();
+                results.put(simCurrentDate, snapshotCelestialBodies(celestialBodies));
+                currentTimeStep++;
             }
 
             long endTime = System.nanoTime();

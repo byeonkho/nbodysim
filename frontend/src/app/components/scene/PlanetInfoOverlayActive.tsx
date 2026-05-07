@@ -25,64 +25,48 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 
 const PlanetInfoOverlayActive = () => {
-  const activeBody: CelestialBody = useSelector(selectActiveBody);
+  const activeBody: CelestialBody | null = useSelector(selectActiveBody);
   const isBodyActive: boolean = useSelector(selectIsBodyActive);
   const simulationSnapshot: CelestialBody[] = useSelector(
     selectCurrentSimulationSnapshot,
   );
-  const celestialBodyPropertiesList: CelestialBodyProperties[] | undefined =
+  const celestialBodyPropertiesList: CelestialBodyProperties[] =
     useSelector(selectCelestialBodyPropertiesList);
   const simulationScale: SimulationScale = useSelector(selectSimulationScale);
 
-  let distanceFromOrbitingBody: string;
-  let relativeVelocity: number;
-  let position: number[];
-  let activeBodyProperties: CelestialBodyProperties | undefined;
-
-  // do not shift this return earlier; React expects all hooks to run every render
+  // All hooks must run every render — early returns go AFTER hook calls.
   if (!activeBody || !isBodyActive) {
     return null;
   }
 
-  // get the orbiting body and active body from single source of truth
-  const orbitingBodyName: string | undefined =
-    celestialBodyPropertiesList?.find(
-      (body: CelestialBodyProperties) =>
-        activeBody.name?.trim().toUpperCase() ===
-        body.name?.trim().toUpperCase(),
-    )?.orbitingBody;
-
-  const orbitingBodySnapshot: CelestialBody | undefined =
-    simulationSnapshot.find(
-      (body: CelestialBody) =>
-        body.name.trim().toUpperCase() ===
-        orbitingBodyName.trim().toUpperCase(),
-    );
-  const activeBodySnapshot: CelestialBody | undefined = simulationSnapshot.find(
-    (body: CelestialBody) =>
-      body.name.trim().toUpperCase() === activeBody.name.trim().toUpperCase(),
+  const activeNameUpper = activeBody.name?.trim().toUpperCase();
+  const activeBodyProperties = celestialBodyPropertiesList.find(
+    (props) => props.name?.trim().toUpperCase() === activeNameUpper,
   );
+  if (!activeBodyProperties) return null;
 
-  if (celestialBodyPropertiesList) {
-    activeBodyProperties = celestialBodyPropertiesList.find(
-      (bodyProperties: CelestialBodyProperties) =>
-        bodyProperties.name?.toUpperCase() ===
-        activeBodySnapshot.name.toUpperCase(),
-    );
-  }
+  const orbitingBodyName = activeBodyProperties.orbitingBody;
+  if (!orbitingBodyName) return null;
 
-  // the coordinates to pass to Drei's Html component to transform 3d -> 2d; we anchor the UI element to
-  // the derived position
-  if (
-    activeBodyProperties?.positionScale !== 1 &&
-    activeBodySnapshot &&
-    orbitingBodySnapshot
-  ) {
-    // if position requires scaling (e.g Moon)
+  const activeBodySnapshot = simulationSnapshot.find(
+    (body) => body.name.trim().toUpperCase() === activeNameUpper,
+  );
+  const orbitingBodySnapshot = simulationSnapshot.find(
+    (body) =>
+      body.name.trim().toUpperCase() ===
+      orbitingBodyName.trim().toUpperCase(),
+  );
+  if (!activeBodySnapshot || !orbitingBodySnapshot) return null;
+
+  // Compute the anchor position (drei's Html accepts a [x, y, z] tuple).
+  // Bodies with a non-1 positionScale (e.g. Moon) get the parent-relative scaling treatment.
+  const positionScale = activeBodyProperties.positionScale ?? 1;
+  let position: [number, number, number];
+  if (positionScale !== 1) {
     const scaled: Vector3Simple = scaleDistance(
       activeBodySnapshot.position,
       orbitingBodySnapshot.position,
-      activeBodyProperties.positionScale,
+      positionScale,
     );
     position = [
       scaled.x / simulationScale.positionScale,
@@ -97,20 +81,17 @@ const PlanetInfoOverlayActive = () => {
     ];
   }
 
-  // derived distance and velocity info
-  if (activeBodySnapshot && orbitingBodySnapshot) {
-    distanceFromOrbitingBody = calculateDistance(
-      activeBodySnapshot.position,
-      orbitingBodySnapshot.position,
-      "AU", // TODO make this dynamic for future
-    );
+  const distanceFromOrbitingBody = calculateDistance(
+    activeBodySnapshot.position,
+    orbitingBodySnapshot.position,
+    "AU", // TODO make this dynamic for future
+  );
 
-    const velocityDelta: Vector3Simple = subtractVectors(
-      activeBodySnapshot.velocity,
-      orbitingBodySnapshot.velocity,
-    );
-    relativeVelocity = calculateMagnitude(velocityDelta);
-  }
+  const velocityDelta: Vector3Simple = subtractVectors(
+    activeBodySnapshot.velocity,
+    orbitingBodySnapshot.velocity,
+  );
+  const relativeVelocity = calculateMagnitude(velocityDelta);
 
   // divider dimensions
   const diagonalLength: number = 20;

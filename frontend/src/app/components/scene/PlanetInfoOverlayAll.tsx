@@ -2,13 +2,13 @@ import React from "react";
 import { Html } from "@react-three/drei";
 import {
   CelestialBody,
+  selectCelestialBodyPropertiesList,
   selectCurrentSimulationSnapshot,
   selectSimulationScale,
   SimulationScale,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
 import { useSelector } from "react-redux";
-import { RootState } from "@/app/store/Store";
 import { scaleDistance } from "@/app/utils/helpers";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -25,7 +25,7 @@ const PlanetInfoOverlayAll: React.FC<PlanetInfoOverlayItemProps> = ({
   );
   const simulationScale: SimulationScale = useSelector(selectSimulationScale);
   const celestialBodyPropertiesList = useSelector(
-    (state: RootState) => state.simulation.celestialBodyPropertiesList,
+    selectCelestialBodyPropertiesList,
   );
 
   // Prepare the body name for lookup
@@ -37,18 +37,19 @@ const PlanetInfoOverlayAll: React.FC<PlanetInfoOverlayItemProps> = ({
   );
 
   // Calculate position.
-  let position: number[];
+  let position: [number, number, number];
   // If this body has a special position scale (i.e., an exception) and has an orbiting body defined:
   if (
     properties?.positionScale !== undefined &&
     properties.positionScale !== 1 &&
     properties.orbitingBody
   ) {
-    // Find the orbiting body in the snapshot.
+    // Capture into a local const so TS's narrowing survives into the closure below.
+    const orbitingBodyName = properties.orbitingBody;
     const orbitingBody = simulationSnapshot.find(
       (b: CelestialBody) =>
         b.name.trim().toUpperCase() ===
-        properties.orbitingBody.trim().toUpperCase(),
+        orbitingBodyName.trim().toUpperCase(),
     );
     if (orbitingBody) {
       const scaled: Vector3Simple = scaleDistance(

@@ -72,7 +72,7 @@ const BodySelector: React.FC = () => {
           >
             <Box
               component="img"
-              src={iconData ? iconData.src : body.iconUrl}
+              src={iconData?.src ?? ""}
               alt={body.name}
               sx={{
                 aspectRatio: "1/1",

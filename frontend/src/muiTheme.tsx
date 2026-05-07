@@ -1,5 +1,46 @@
 import { createTheme, ThemeOptions } from "@mui/material/styles";
 import "@fontsource/space-grotesk";
+import type { CSSProperties } from "react";
+
+// Module augmentation: declare the custom theme additions used below
+// (canvas slot, mixins.glass, body3/body6 typography variants) so TS
+// knows about them at every consumer site.
+declare module "@mui/material/styles" {
+  interface Theme {
+    canvas: {
+      canvasMain: string;
+      canvasGradientEdge: string;
+    };
+  }
+
+  interface ThemeOptions {
+    canvas?: {
+      canvasMain?: string;
+      canvasGradientEdge?: string;
+    };
+  }
+
+  interface Mixins {
+    glass: CSSProperties;
+  }
+
+  interface TypographyVariants {
+    body3: CSSProperties;
+    body6: CSSProperties;
+  }
+
+  interface TypographyVariantsOptions {
+    body3?: CSSProperties;
+    body6?: CSSProperties;
+  }
+}
+
+declare module "@mui/material/Typography" {
+  interface TypographyPropsVariantOverrides {
+    body3: true;
+    body6: true;
+  }
+}
 
 const themeOptions: ThemeOptions = {
   palette: {

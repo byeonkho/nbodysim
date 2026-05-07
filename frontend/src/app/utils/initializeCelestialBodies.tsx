@@ -1,20 +1,19 @@
-import { AppDispatch } from "../store/store";
+import { AppDispatch } from "@/app/store/Store";
 import {
   loadSimulation,
   SimulationParameters,
 } from "@/app/store/slices/SimulationSlice";
 
-// Load environment variables
-const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-
-if (!backendUrl) {
-  throw new Error("Backend URL is not defined in environment variables.");
-}
+// Default to localhost in dev; production builds must set NEXT_PUBLIC_BACKEND_URL.
+// Reading at call time (not module load) avoids throwing during Next's static prerender pass.
+const DEFAULT_BACKEND_URL = "http://localhost:8080/api/simulation";
 
 export const initializeCelestialBodies = async (
   dispatch: AppDispatch,
   requestBody: any,
 ) => {
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? DEFAULT_BACKEND_URL;
+
   try {
     const response = await fetch(`${backendUrl}/initialize`, {
       method: "POST",

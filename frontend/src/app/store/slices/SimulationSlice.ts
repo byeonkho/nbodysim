@@ -1,4 +1,9 @@
-import { createSelector, createSlice, PayloadAction } from "@reduxjs/toolkit";
+import {
+  createSelector,
+  createSlice,
+  Middleware,
+  PayloadAction,
+} from "@reduxjs/toolkit";
 import { RootState } from "@/app/store/Store";
 import { requestRunSimulation } from "@/app/store/middleware/webSocketMiddleware";
 import SimConstants, {
@@ -65,7 +70,7 @@ export interface SimulationScale {
 }
 
 export interface SimulationParameters {
-  celestialBodyPropertiesList: CelestialBodyProperties[] | null;
+  celestialBodyPropertiesList: CelestialBodyProperties[];
   simulationMetaData: SimulationMetadata | null;
   showGrid: boolean;
   showAxes: boolean;
@@ -76,9 +81,9 @@ export interface SimulationParameters {
 interface SimulationState {
   currentSimulationSnapshot: CelestialBody[];
   activeBodyState: ActiveBodyState;
-  simulationParameters: SimulationParameters | null;
+  simulationParameters: SimulationParameters;
   simulationData: SimulationData | null;
-  timeState: TimeState | null;
+  timeState: TimeState;
 }
 
 // this is mandatory; passed to createSlice
@@ -100,7 +105,6 @@ const initialState: SimulationState = {
   timeState: {
     isPaused: true,
     isUpdating: false,
-    progress: 0,
     speedMultiplier: 1,
     currentTimeStepIndex: 0,
     currentTimeStepKey: "",
@@ -177,12 +181,15 @@ export const simulationSlice = createSlice({
       state,
       action: PayloadAction<{ excessCount: number; timeStepKeys: string[] }>,
     ) => {
+      const { simulationData } = state;
+      if (!simulationData) return;
+
       const { excessCount, timeStepKeys } = action.payload;
 
       // Remove the earliest indices
       const keysToRemove = timeStepKeys.slice(0, excessCount);
       keysToRemove.forEach((key) => {
-        delete state.simulationData[key]; // Remove from the state
+        delete simulationData[key];
       });
 
       // Adjust currentTimeStepIndex
@@ -231,12 +238,12 @@ export const simulationSlice = createSlice({
     setCurrentTimeStepIndex: (state, action: PayloadAction<number>) => {
       state.timeState.currentTimeStepIndex = action.payload;
     },
-    setCurrentTimeStepKey: (state, action: PayloadAction<number>) => {
+    setCurrentTimeStepKey: (state, action: PayloadAction<string>) => {
       state.timeState.currentTimeStepKey = action.payload;
     },
     setSpeedMultiplier: (state, action: PayloadAction<string>) => {
       let { speedMultiplier } = state.timeState;
-      let newMultiplier;
+      let newMultiplier: number = speedMultiplier;
       if (action.payload === "increase") {
         if (speedMultiplier < -1) {
           newMultiplier = speedMultiplier / 2;
@@ -289,7 +296,8 @@ export const simulationSlice = createSlice({
         // for string keys
 
         const currentIndex = scaleOptions.findIndex((key) => {
-          const preset = SimConstants.SCALE[key];
+          const preset =
+            SimConstants.SCALE[key as keyof typeof SimConstants.SCALE];
           return (
             preset.positionScale === currentScale.positionScale &&
             preset.radiusScale === currentScale.radiusScale
@@ -297,7 +305,9 @@ export const simulationSlice = createSlice({
         });
 
         const nextIndex: number = (currentIndex + 1) % scaleOptions.length;
-        const nextKey: string = scaleOptions[nextIndex];
+        const nextKey = scaleOptions[
+          nextIndex
+        ] as keyof typeof SimConstants.SCALE;
 
         state.simulationParameters.simulationScale =
           SimConstants.SCALE[nextKey];
@@ -336,46 +346,51 @@ export const simulationSlice = createSlice({
 
 ///////////////////////////////////////////// MIDDLEWARE /////////////////////////////////////////////
 
+type IndexAction = { type: string; payload: number };
+
 // intercepts the rendering loop as 1st step; runs logic to get new data batch if < n iterations left
-export const simulationUpdateDataMiddleware = (store) => (next) => (action) => {
-  if (action.type === "simulation/setCurrentTimeStepIndex") {
-    const state = store.getState();
-
-    const simulationData = state.simulation.simulationData;
-    if (!simulationData) {
-      console.warn("simulationData is not available yet.");
-      return next(action);
-    }
-
-    const totalTimeSteps = selectTotalTimeSteps(state);
-    const currentTimeStepIndex = action.payload;
-    const remainingIndexes = totalTimeSteps - currentTimeStepIndex;
-
-    if (remainingIndexes <= 9000 && !state.webSocket.isRequestInProgress) {
-      const sessionID = selectSessionID(state);
-      if (!sessionID) {
-        console.warn("Session ID is not defined. Cannot send request.");
-        return next(action);
-      }
-
-      const requestData = { sessionID };
-      store.dispatch(requestRunSimulation(requestData));
-    }
-  }
-  return next(action);
-};
-
-// intercepts rendering loop as 2nd step; derives and sets current simulationSnapshot
-export const simulationSetSnapshotMiddleware =
+export const simulationUpdateDataMiddleware: Middleware =
   (store) => (next) => (action) => {
-    if (action.type === "simulation/setCurrentTimeStepIndex") {
-      const state = store.getState();
+    const a = action as IndexAction;
+    if (a.type === "simulation/setCurrentTimeStepIndex") {
+      const state = store.getState() as RootState;
+
       const simulationData = state.simulation.simulationData;
       if (!simulationData) {
         console.warn("simulationData is not available yet.");
         return next(action);
       }
-      const currentTimeStepIndex: number = action.payload;
+
+      const totalTimeSteps = selectTotalTimeSteps(state);
+      const currentTimeStepIndex = a.payload;
+      const remainingIndexes = totalTimeSteps - currentTimeStepIndex;
+
+      if (remainingIndexes <= 9000 && !state.webSocket.isRequestInProgress) {
+        const sessionID = selectSessionID(state);
+        if (!sessionID) {
+          console.warn("Session ID is not defined. Cannot send request.");
+          return next(action);
+        }
+
+        const requestData = { sessionID };
+        store.dispatch(requestRunSimulation(requestData));
+      }
+    }
+    return next(action);
+  };
+
+// intercepts rendering loop as 2nd step; derives and sets current simulationSnapshot
+export const simulationSetSnapshotMiddleware: Middleware =
+  (store) => (next) => (action) => {
+    const a = action as IndexAction;
+    if (a.type === "simulation/setCurrentTimeStepIndex") {
+      const state = store.getState() as RootState;
+      const simulationData = state.simulation.simulationData;
+      if (!simulationData) {
+        console.warn("simulationData is not available yet.");
+        return next(action);
+      }
+      const currentTimeStepIndex: number = a.payload;
       const timeStepKeys = selectTimeStepKeys(state);
       const currentTimeStepKey = timeStepKeys[currentTimeStepIndex];
       store.dispatch(setCurrentTimeStepKey(currentTimeStepKey));
@@ -391,7 +406,7 @@ export const simulationSetSnapshotMiddleware =
 ///////////////////////////////////////////// SELECTORS /////////////////////////////////////////////
 export const selectTimeStepKeys = createSelector(
   (state: RootState) => state.simulation.simulationData,
-  (simulationData: SimulationData) => {
+  (simulationData: SimulationData | null) => {
     if (!simulationData) {
       return [];
     }
@@ -401,7 +416,7 @@ export const selectTimeStepKeys = createSelector(
 
 export const selectSimulationDataSize = createSelector(
   (state: RootState) => state.simulation.simulationData,
-  (simulationData: SimulationData): number => {
+  (simulationData: SimulationData | null): number => {
     if (!simulationData) return 0;
     const jsonString = JSON.stringify(simulationData);
     return new Blob([jsonString]).size; // Size in bytes
@@ -412,26 +427,23 @@ export const selectSimulationDataSize = createSelector(
 export const selectDerivedOrbitingBody = createSelector(
   [
     (state: RootState) =>
-      state.simulation.simulationParameters?.CelestialBodyPropertiesList,
+      state.simulation.simulationParameters?.celestialBodyPropertiesList,
     (state: RootState) => state.simulation.currentSimulationSnapshot,
     (state: RootState, props: { bodyName: string }) => props.bodyName,
   ],
   (
-    CelestialBodyPropertiesList: CelestialBodyProperties[],
+    celestialBodyPropertiesList: CelestialBodyProperties[],
     currentSimulationSnapshot: CelestialBody[],
     bodyName: string,
   ): CelestialBody | undefined => {
-    if (!CelestialBodyPropertiesList) return undefined;
-    // Find the celestial body wrapper that matches the provided bodyName.
-    const CelestialBodyProperties: CelestialBodyProperties | undefined =
-      CelestialBodyPropertiesList.find(
+    const bodyProps: CelestialBodyProperties | undefined =
+      celestialBodyPropertiesList.find(
         (cb: CelestialBodyProperties): boolean =>
           cb.name?.trim().toLowerCase() === bodyName.trim().toLowerCase(),
       );
-    if (!CelestialBodyProperties) return undefined;
+    if (!bodyProps) return undefined;
 
-    const orbitingBodyName: string | undefined =
-      CelestialBodyProperties.orbitingBody;
+    const orbitingBodyName: string | undefined = bodyProps.orbitingBody;
 
     return currentSimulationSnapshot.find(
       (body: CelestialBody): boolean =>
@@ -443,27 +455,26 @@ export const selectDerivedOrbitingBody = createSelector(
 
 export const selectTotalTimeSteps = createSelector(
   (state: RootState) => state.simulation.simulationData,
-  (simulationData: SimulationData): number =>
+  (simulationData: SimulationData | null): number =>
     simulationData ? Object.keys(simulationData).length : 0,
 );
 
 export const selectBodyRadiusFromName = createSelector(
   [
     (state: RootState) =>
-      state.simulation.simulationParameters.CelestialBodyPropertiesList,
+      state.simulation.simulationParameters?.celestialBodyPropertiesList,
     (state: RootState, props: { bodyName: string }) => props.bodyName,
   ],
   (
-    CelestialBodyPropertiesList: CelestialBodyProperties[],
+    celestialBodyPropertiesList: CelestialBodyProperties[],
     bodyName: string,
   ): number | undefined => {
-    if (!CelestialBodyPropertiesList) return undefined;
-    const CelestialBodyProperties: CelestialBodyProperties | undefined =
-      CelestialBodyPropertiesList.find(
+    const bodyProps: CelestialBodyProperties | undefined =
+      celestialBodyPropertiesList.find(
         (cb: CelestialBodyProperties): boolean =>
           cb.name?.trim().toLowerCase() === bodyName.trim().toLowerCase(),
       );
-    return CelestialBodyProperties?.radius;
+    return bodyProps?.radius;
   },
 );
 

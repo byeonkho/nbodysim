@@ -1,10 +1,9 @@
 "use client";
 
-import { Canvas, extend } from "@react-three/fiber";
+import { Canvas } from "@react-three/fiber";
 import Camera from "@/app/components/scene/Camera";
 import Sphere from "@/app/components/scene/Sphere";
 import React, { useEffect, useState } from "react";
-import { OrbitControls } from "three-stdlib";
 import { useDispatch, useSelector } from "react-redux";
 import SimConstants, { bodyProperties } from "@/app/constants/SimConstants";
 import * as THREE from "three";
@@ -36,8 +35,6 @@ import PlanetInfoOverlayActive from "@/app/components/scene/PlanetInfoOverlayAct
 import { scaleDistance } from "@/app/utils/helpers";
 import PlanetInfoOverlayAll from "@/app/components/scene/PlanetInfoOverlayAll";
 
-extend({ OrbitControls });
-
 const Scene = () => {
   const theme = useTheme();
   const showPlanetInfoOverlay = useSelector(selectShowPlanetInfoOverlay);
@@ -51,7 +48,7 @@ const Scene = () => {
   const simulationSnapshot: CelestialBody[] = useSelector(
     selectCurrentSimulationSnapshot,
   );
-  const activeBody: CelestialBody = useSelector(selectActiveBody);
+  const activeBody: CelestialBody | null = useSelector(selectActiveBody);
 
   //////// SIM PARAMS ////////
   const showGrid: boolean = useSelector(selectShowGrid);
@@ -161,6 +158,7 @@ const Scene = () => {
         canvas.width = 1024;
         canvas.height = 1024;
         const context = canvas.getContext("2d");
+        if (!context) return;
 
         const gradient = context.createLinearGradient(0, 0, canvas.width, 0);
         gradient.addColorStop(0, theme.canvas.canvasMain);
@@ -232,43 +230,46 @@ const Scene = () => {
         // prepare orbitingBody if current body needs to be distance scaled
         // TODO orbitingBody is misleading. parentBody instead?
         const celestialBodyProperties = celestialBodyPropertiesList.find(
-          (bodyProperties: CelestialBodyProperties) =>
-            bodyProperties.name?.toUpperCase() === body.name.toUpperCase(),
+          (bp: CelestialBodyProperties) =>
+            bp.name?.toUpperCase() === body.name.toUpperCase(),
         );
+        if (!celestialBodyProperties) return null;
 
-        if (celestialBodyProperties.positionScale != 1) {
+        const positionScale = celestialBodyProperties.positionScale ?? 1;
+        const orbitingBodyName = celestialBodyProperties.orbitingBody;
+
+        if (positionScale !== 1 && orbitingBodyName) {
           orbitingBody = simulationSnapshot.find(
-            (body: CelestialBody) =>
-              body.name.toUpperCase() ===
-              celestialBodyProperties.orbitingBody.toUpperCase(),
+            (b: CelestialBody) =>
+              b.name.toUpperCase() === orbitingBodyName.toUpperCase(),
           );
         }
+
+        const spherePosition: [number, number, number] = orbitingBody
+          ? (() => {
+              const scaled: Vector3Simple = scaleDistance(
+                body.position,
+                orbitingBody.position,
+                positionScale,
+              );
+              return [
+                scaled.x / simulationScale.positionScale,
+                scaled.y / simulationScale.positionScale,
+                scaled.z / simulationScale.positionScale,
+              ];
+            })()
+          : [
+              body.position.x / simulationScale.positionScale,
+              body.position.y / simulationScale.positionScale,
+              body.position.z / simulationScale.positionScale,
+            ];
 
         return (
           <Sphere
             key={body.name}
             name={body.name}
             body={body}
-            position={
-              orbitingBody
-                ? (() => {
-                    const scaled: Vector3Simple = scaleDistance(
-                      body.position,
-                      orbitingBody.position,
-                      celestialBodyProperties.positionScale,
-                    );
-                    return [
-                      scaled.x / simulationScale.positionScale,
-                      scaled.y / simulationScale.positionScale,
-                      scaled.z / simulationScale.positionScale,
-                    ] as [number, number, number];
-                  })()
-                : [
-                    body.position.x / simulationScale.positionScale,
-                    body.position.y / simulationScale.positionScale,
-                    body.position.z / simulationScale.positionScale,
-                  ]
-            }
+            position={spherePosition}
             radius={radius} // Pass radius to Sphere component
             textureUrl={
               bodyProperties[body.name.toUpperCase()]?.texture.src ||
