@@ -15,14 +15,11 @@ import {
 import { useDispatch } from "react-redux";
 import { initializeCelestialBodies } from "@/app/utils/initializeCelestialBodies";
 import theme from "@/muiTheme";
-import { store } from "@/app/store/Store";
-import {
-  connect,
-  requestRunSimulation,
-} from "@/app/store/middleware/webSocketMiddleware";
+import { store, AppDispatch } from "@/app/store/Store";
+import { requestRunSimulation } from "@/app/store/middleware/simulationRequestThunk";
 
 const SimParams: React.FC = () => {
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const [celestialBodyNames, setCelestialBodyNames] = useState<string[]>([]);
   const [selectAll, setSelectAll] = useState<boolean>(false);
   const celestialBodies = [
@@ -80,13 +77,11 @@ const SimParams: React.FC = () => {
         store.getState().simulation.simulationParameters?.simulationMetaData
           ?.sessionID;
 
-      await initializeWebSocket();
+      if (!sessionID) {
+        throw new Error("Failed to initialize simulation session.");
+      }
 
-      const requestData = {
-        sessionID,
-      };
-
-      dispatch(requestRunSimulation(requestData));
+      dispatch(requestRunSimulation({ sessionID }));
     } catch (error) {
       if (error instanceof Error) {
         console.error("Form submission error:", error.message);
@@ -105,33 +100,6 @@ const SimParams: React.FC = () => {
       );
     }
     return true;
-  };
-
-  const initializeWebSocket = (): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      const url = "ws://localhost:8080/ws";
-      dispatch(connect(url));
-
-      const interval = setInterval(() => {
-        const isConnected = store.getState().webSocket.isConnected;
-        if (isConnected) {
-          clearInterval(interval);
-          resolve();
-        }
-      }, 50);
-
-      setTimeout(() => {
-        const isConnected = store.getState().webSocket.isConnected;
-        clearInterval(interval);
-        if (!isConnected) {
-          reject(
-            new Error(
-              "Failed to establish WebSocket connection within the timeout period.",
-            ),
-          );
-        }
-      }, 5000);
-    });
   };
 
   return (

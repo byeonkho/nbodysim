@@ -1,6 +1,6 @@
 # spacesim — roadmap
 
-A solar-system n-body simulator with a Java/Spring Boot backend (Orekit, JPL ephemerides, Zstd compression) and a Next.js + React Three Fiber frontend, communicating over WebSockets. This roadmap tracks the project's evolution from local prototype to hosted portfolio piece.
+A solar-system n-body simulator with a Java/Spring Boot backend (Orekit, JPL ephemerides, Zstd compression) and a Next.js + React Three Fiber frontend, communicating over HTTP/2. This roadmap tracks the project's evolution from local prototype to hosted portfolio piece.
 
 ## Vision
 
@@ -9,21 +9,21 @@ End-to-end hosted simulation. A user picks bodies, frame, integrator, and time s
 ## Architecture
 
 ```
-┌──────────────────┐                              ┌─────────────────────┐
-│  Next.js + R3F   │  ◄── zstd-compressed JSON ──┤  Spring Boot + Orekit│
-│  Redux + WS      │  ──► sessionID + commands ──►│  WebSocket handler   │
-│  React Three     │                              │  Sim session store   │
-│  Fiber scene     │                              │  Pluggable integrator│
-└──────────────────┘                              └─────────────────────┘
-        │                                                   │
-   Vercel (planned)                                  Fly.io (planned)
+┌──────────────────┐                                  ┌─────────────────────┐
+│  Next.js + R3F   │  ◄── zstd-compressed binary ─────┤  Spring Boot + Orekit│
+│  Redux + thunk   │  ──► POST /chunk {sessionID} ───►│  REST controller     │
+│  React Three     │                                  │  Sim session store   │
+│  Fiber scene     │                                  │  Pluggable integrator│
+└──────────────────┘                                  └─────────────────────┘
+        │                                                       │
+   Vercel (planned)                                      Fly.io (planned)
 ```
 
-**Backend** — Spring Boot 3 + Orekit 12. REST `/api/simulation/initialize` builds a session with bodies, frame, integrator, and start date; subsequent WebSocket calls run simulation chunks of N steps and stream results back as zstd-compressed JSON. The integrator boundary will be redesigned to delegate force-model evaluation to Orekit's `NumericalPropagator` so high-order propagators (Dormand–Prince) work correctly.
+**Backend** — Spring Boot 3 + Orekit 12. `POST /api/simulation/initialize` builds a session with bodies, frame, integrator, and start date; subsequent `POST /api/simulation/chunk` calls run simulation chunks of N steps and return results as zstd-compressed binary. Sessions are tracked by sessionID and evicted by a periodic idle-timeout sweeper.
 
-**Frontend** — Next.js + React Three Fiber. Redux Toolkit holds the buffered timestep map; middleware prefetches the next chunk when the buffer dips below threshold and discards old chunks at a configured cap. The render loop tape-plays the buffer at a target frame rate; the scene supports two scale presets (semi-realistic, realistic) and per-body exception scaling for tightly-coupled pairs (e.g., Earth–Moon).
+**Frontend** — Next.js + React Three Fiber. Redux Toolkit holds the buffered timestep map; an async thunk fetches the next chunk when the buffer dips below threshold and discards old chunks at a configured cap. The render loop tape-plays the buffer at a target frame rate via R3F's `useFrame`; the scene supports two scale presets (semi-realistic, realistic) and per-body exception scaling for tightly-coupled pairs (e.g., Earth–Moon).
 
-**Wire format** — JSON over WebSocket, zstd-compressed with a 4-byte little-endian uncompressed-size prefix. Decoded client-side via WASM. Delta-encoding planned to further shrink payloads.
+**Wire format** — custom little-endian binary layout: body names in a one-time header, then per-timestep `int64` timestamp + 6 `float64` per body (position + velocity). Zstd-compressed with a 4-byte little-endian uncompressed-size prefix. Decoded client-side in a Web Worker so the main thread stays unblocked during chunk arrivals.
 
 ## Status
 
@@ -40,10 +40,8 @@ Currently a working local prototype. The simulation runs end-to-end, multiple in
 
 - Backend deployment to **Fly.io** (Dockerfile, `fly.toml`, env-driven config, `/health` endpoint).
 - Frontend deployment to **Vercel** with backend URL injected at build time.
-- Auth or rate limiting on the public REST/WebSocket surface (currently open compute oracle).
+- Auth or rate limiting on the public REST surface (currently open compute oracle).
 - Tightened CORS — env-driven allowlist, no wildcard.
-- Bound WebSocket session lifecycle (sim cleaned up on disconnect).
-- Graceful WebSocket reconnect on transient drops.
 - README with screenshots, architecture diagram, and live demo link.
 - GitHub Actions CI: build, lint, type-check, run tests on PR.
 
@@ -65,7 +63,6 @@ Currently a working local prototype. The simulation runs end-to-end, multiple in
 - Coalesce overlapping Redux middleware that both react to the same action.
 - Remove unused Spring Data JPA dependency.
 - Drop or fold in the size-logging serializer that doubles serialization work.
-- Encapsulate the module-level WebSocket reference in middleware closure.
 
 ### Quality plumbing
 
@@ -74,22 +71,44 @@ Currently a working local prototype. The simulation runs end-to-end, multiple in
 - Targeted tests: gravitational force calculation, two-body circular-orbit convergence per integrator, serialize → zstd → deserialize round-trip.
 - Mobile responsive review.
 
+## Beyond v1: collaborative / classroom direction
+
+Once the single-user portfolio piece is shipped, the most interesting direction is **multi-user shared sessions** — one user ("presenter" / "teacher") drives the simulation; others ("audience" / "students") follow in synced lockstep. The economic case is concrete: the same simulation viewed by N people should cost the backend ~1× bandwidth, not N×, because every viewer is watching identical bytes.
+
+**Architectural shape:**
+
+- **Simulation chunks over HTTP/2** — cacheable per-session, can be served from a CDN edge. When student #2 joins teacher's session, chunk N is already in cache.
+- **Sync events over WebSocket** — small JSON deltas (`{event:"scrub", index:4521}`, `{event:"pause"}`, `{event:"setActiveBody", name:"Earth"}`). Sub-kilobyte messages, broadcast from presenter to all subscribers.
+
+This split lets each protocol do what it's actually good at: HTTP for bulk + caching, WebSocket for low-latency real-time fan-out. Mirrors how Figma, Google Docs, etc. are structured.
+
+**Features that fall out of this:**
+
+- Shared cursor / camera ghosts so viewers see where others are looking.
+- Annotations pinned to (timestep, body) — leave a note that other viewers see.
+- Quizzes / interactive prompts pushed from teacher to students mid-session.
+- Recording + replay of full sessions, including all sync events.
+- Teacher dashboard showing student attention / interaction state.
+- Streamed LLM narration ("explain what's happening at the current moment") — token-streamed over the same sync channel.
+
+**Why not now:** needs identity (who's the teacher? who's a student?), permissions (can a student take the controls?), persistence (stored sessions, replays). It's a product layer on top of the simulation engine. The relevant *technical* prep work is making chunk delivery cacheable and stateless — which is the v1 protocol-migration step.
+
 ## Known tradeoffs
 
 - **Backend is stateful** — simulation sessions live in JVM memory. Single-instance deployment only; server restart resets all in-flight sessions. This is intentional. The project's portfolio angle is end-to-end systems plus frontend performance, not horizontal scaling. If multi-instance ever matters, the in-memory `ConcurrentHashMap` becomes a Redis-backed store.
 - **Compute is server-side** in Java rather than browser-side WASM. This trades client autonomy for accuracy and access to Orekit's astrodynamics tooling (JPL ephemerides, real reference frames, validated integrators).
-- **Wire format is JSON** before compression rather than a binary protocol like MessagePack or protobuf. Delta-encoded JSON + zstd compresses competitively for the trajectory data shape; keeping JSON keeps the system debuggable.
+- **Wire format is custom binary** rather than a schema-driven protocol like MessagePack or protobuf. The shape is uniform numeric data (positions + velocities), so a flat little-endian layout compresses well under zstd and is trivial to write/parse on both ends. Schema-driven formats would add tooling overhead without measurable wins for this payload shape.
 
 ## Tech choices
 
 | Layer | Choice | Why |
 |---|---|---|
-| Backend framework | Spring Boot 3 (Java 21) | Familiar, batteries-included, great WebSocket support |
+| Backend framework | Spring Boot 3 (Java 21) | Familiar, batteries-included; HTTP/2 chunk delivery scales naturally and stays cacheable |
 | Astrodynamics | Orekit 12 | JPL ephemerides, ICRF/GCRF reference frames, validated propagators — avoids reinventing physics |
-| Wire compression | Zstd | Excellent ratio on repetitive numeric JSON; small WASM decoder client-side |
-| Frontend framework | Next.js 14 (CSR) | Project is interactive; SSR not relevant here |
+| Wire compression | Zstd | Good ratio on the binary trajectory format; small WASM decoder client-side |
+| Frontend framework | Next.js (CSR) | Project is interactive; SSR not relevant here |
 | 3D rendering | React Three Fiber | Three.js wrapped in React's declarative model |
-| State | Redux Toolkit | Middleware-driven pipeline maps cleanly to "fetch → decode → buffer → tick" |
+| State | Redux Toolkit | Async thunks model the "fetch → worker decode → buffer → tick" pipeline cleanly |
 
 ## Credits
 

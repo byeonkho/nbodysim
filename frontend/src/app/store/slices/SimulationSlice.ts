@@ -4,8 +4,8 @@ import {
   Middleware,
   PayloadAction,
 } from "@reduxjs/toolkit";
-import { RootState } from "@/app/store/Store";
-import { requestRunSimulation } from "@/app/store/middleware/webSocketMiddleware";
+import { AppDispatch, RootState } from "@/app/store/Store";
+import { requestRunSimulation } from "@/app/store/middleware/simulationRequestThunk";
 import SimConstants, {
   BodyProperties,
   bodyProperties,
@@ -365,7 +365,7 @@ export const simulationUpdateDataMiddleware: Middleware =
       const currentTimeStepIndex = a.payload;
       const remainingIndexes = totalTimeSteps - currentTimeStepIndex;
 
-      if (remainingIndexes <= 9000 && !state.webSocket.isRequestInProgress) {
+      if (remainingIndexes <= 9000 && !state.request.isRequestInProgress) {
         const sessionID = selectSessionID(state);
         if (!sessionID) {
           console.warn("Session ID is not defined. Cannot send request.");
@@ -373,7 +373,7 @@ export const simulationUpdateDataMiddleware: Middleware =
         }
 
         const requestData = { sessionID };
-        store.dispatch(requestRunSimulation(requestData));
+        (store.dispatch as AppDispatch)(requestRunSimulation(requestData));
       }
     }
     return next(action);

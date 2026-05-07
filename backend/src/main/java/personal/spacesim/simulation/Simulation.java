@@ -7,13 +7,12 @@ import org.hipparchus.geometry.euclidean.threed.Vector3D;
 import org.orekit.frames.Frame;
 import org.orekit.time.AbsoluteDate;
 import personal.spacesim.constants.PhysicsConstants;
-import personal.spacesim.dtos.WebSocketResponseDTO;
+import personal.spacesim.dtos.SimulationChunkResponse;
 import personal.spacesim.simulation.body.CelestialBodySnapshot;
 import personal.spacesim.simulation.body.CelestialBodyWrapper;
 import personal.spacesim.simulation.state.GlobalState;
 import personal.spacesim.simulation.state.NBodyDerivatives;
 import personal.spacesim.utils.math.integrators.Integrator;
-import personal.spacesim.utils.serializers.WebSocketResponseSizeSerializer;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -24,8 +23,6 @@ import java.util.Map;
 @Setter
 @Slf4j
 public class Simulation {
-
-    private final WebSocketResponseSizeSerializer responseSizeSerializer;
 
     private final String sessionID;
     private Frame frame;
@@ -44,8 +41,7 @@ public class Simulation {
             Frame frame,
             Integrator integrator,
             AbsoluteDate simStartDate,
-            String timeStepUnit,
-            WebSocketResponseSizeSerializer responseSizeSerializer
+            String timeStepUnit
     ) {
         this.sessionID = sessionID;
         this.frame = frame;
@@ -54,7 +50,6 @@ public class Simulation {
         this.simStartDate = simStartDate;
         this.simCurrentDate = simStartDate;
         this.timeStepUnit = timeStepUnit;
-        this.responseSizeSerializer = responseSizeSerializer;
         this.derivatives = NBodyDerivatives.forBodies(celestialBodies);
     }
 
@@ -70,7 +65,7 @@ public class Simulation {
         newState.unpackInto(celestialBodies);
     }
 
-    public WebSocketResponseDTO run() {
+    public SimulationChunkResponse run() {
         long startTime = System.nanoTime();
         Map<AbsoluteDate, List<CelestialBodySnapshot>> results = new LinkedHashMap<>();
 
@@ -93,9 +88,8 @@ public class Simulation {
         log.info("Simulation completed for {} {} in {} seconds.", TIMESTEPS_TO_RUN, timeStepUnit, totalTimeSeconds);
         log.info("Simulation ran using frame: {}", frame.getName());
 
-        WebSocketResponseDTO responsePayload = new WebSocketResponseDTO();
+        SimulationChunkResponse responsePayload = new SimulationChunkResponse();
         responsePayload.setData(results);
-        responseSizeSerializer.printResponseSize(responsePayload);
         return responsePayload;
     }
 

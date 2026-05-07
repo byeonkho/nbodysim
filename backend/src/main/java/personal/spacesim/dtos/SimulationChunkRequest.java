@@ -3,6 +3,6 @@ package personal.spacesim.dtos;
 import lombok.Getter;
 
 @Getter
-public class WebsocketRequestDTO {
+public class SimulationChunkRequest {
     private String sessionID;
 }

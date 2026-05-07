@@ -7,11 +7,9 @@ import org.hipparchus.geometry.euclidean.threed.Vector3D;
 import org.orekit.time.AbsoluteDate;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import personal.spacesim.dtos.WebSocketResponseDTO;
 import personal.spacesim.utils.serializers.AbsoluteDateDeserializer;
 import personal.spacesim.utils.serializers.AbsoluteDateSerializer;
 import personal.spacesim.utils.serializers.Vector3DSerializer;
-import personal.spacesim.utils.serializers.WebSocketResponseDTOSerializer;
 
 @Configuration
 public class JacksonConfig {
@@ -22,7 +20,6 @@ public class JacksonConfig {
         SimpleModule module = new SimpleModule();
         module.addSerializer(Vector3D.class, new Vector3DSerializer());
         module.addSerializer(AbsoluteDate.class, new AbsoluteDateSerializer());
-        module.addSerializer(WebSocketResponseDTO.class, new WebSocketResponseDTOSerializer());
         module.addDeserializer(AbsoluteDate.class, new AbsoluteDateDeserializer());
         mapper.configure(JsonGenerator.Feature.WRITE_BIGDECIMAL_AS_PLAIN, true);
         mapper.registerModule(module);

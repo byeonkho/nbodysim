@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 @Data
-public class WebSocketResponseDTO {
+public class SimulationChunkResponse {
 
     private String messageType;
     @Nullable

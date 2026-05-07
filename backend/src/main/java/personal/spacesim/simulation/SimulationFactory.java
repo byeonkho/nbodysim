@@ -9,7 +9,6 @@ import personal.spacesim.simulation.body.CelestialBodyWrapperFactory;
 import personal.spacesim.simulation.frame.CustomFrameFactory;
 import personal.spacesim.utils.math.integrators.Integrator;
 import personal.spacesim.utils.math.integrators.IntegratorFactory;
-import personal.spacesim.utils.serializers.WebSocketResponseSizeSerializer;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,8 +36,7 @@ public class SimulationFactory {
             String frameStr,
             String integratorStr,
             AbsoluteDate simStartDate,
-            String timeStepUnit,
-            WebSocketResponseSizeSerializer webSocketResponseSizeSerializer
+            String timeStepUnit
     ) {
 
         // using singleton DI instead of static method
@@ -57,8 +55,7 @@ public class SimulationFactory {
                 frame,
                 integrator,
                 simStartDate,
-                timeStepUnit,
-                webSocketResponseSizeSerializer
+                timeStepUnit
         );
     }
 }
