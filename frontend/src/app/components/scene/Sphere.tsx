@@ -1,4 +1,4 @@
-import { ThreeElements, useLoader } from "@react-three/fiber";
+import { ThreeElements, useFrame, useLoader } from "@react-three/fiber";
 import React, { useRef } from "react";
 import { useDispatch } from "react-redux";
 import { AppDispatch } from "@/app/store/Store";
@@ -14,6 +14,8 @@ type CelestialBodyProps = ThreeElements["mesh"] & {
   radius: number;
   body: CelestialBody;
   textureUrl?: string;
+  rotationSpeed?: number;
+  unlit?: boolean;
 };
 
 const Sphere: React.FC<CelestialBodyProps> = ({
@@ -23,6 +25,8 @@ const Sphere: React.FC<CelestialBodyProps> = ({
   color = "orange",
   body,
   textureUrl,
+  rotationSpeed = 0.1,
+  unlit = false,
   ...props
 }) => {
   const meshRef = useRef<THREE.Mesh>(null!);
@@ -33,6 +37,10 @@ const Sphere: React.FC<CelestialBodyProps> = ({
     textureUrl || "/path/to/placeholder.png",
   );
 
+  useFrame((_, delta) => {
+    meshRef.current.rotation.y += rotationSpeed * delta;
+  });
+
   return (
     <mesh
       {...props}
@@ -41,7 +49,11 @@ const Sphere: React.FC<CelestialBodyProps> = ({
       onClick={() => dispatch(setActiveBody(body))}
     >
       <sphereGeometry args={[radius, 32, 32]} />
-      <meshStandardMaterial map={textureUrl ? texture : undefined} />
+      {unlit ? (
+        <meshBasicMaterial map={textureUrl ? texture : undefined} />
+      ) : (
+        <meshStandardMaterial map={textureUrl ? texture : undefined} />
+      )}
     </mesh>
   );
 };

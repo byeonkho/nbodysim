@@ -1,32 +1,27 @@
 "use client";
 
 import { Canvas } from "@react-three/fiber";
+import { Stats } from "@react-three/drei";
 import Camera from "@/app/components/scene/Camera";
 import Sphere from "@/app/components/scene/Sphere";
+import Trail from "@/app/components/scene/Trail";
+import AnimationController from "@/app/components/scene/AnimationController";
 import React, { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import SimConstants, { bodyProperties } from "@/app/constants/SimConstants";
+import { bodyProperties } from "@/app/constants/SimConstants";
 import * as THREE from "three";
 import {
   CelestialBody,
   CelestialBodyProperties,
-  deleteExcessData,
   selectActiveBody,
   selectCelestialBodyPropertiesList,
   selectCurrentSimulationSnapshot,
-  selectCurrentTimeStepIndex,
-  selectIsBodyActive,
-  selectIsPaused,
   selectShowAxes,
   selectShowGrid,
   selectShowPlanetInfoOverlay,
   selectSimulationScale,
-  selectSpeedMultiplier,
-  selectTimeStepKeys,
-  setCurrentTimeStepIndex,
   setIsBodyActive,
   SimulationScale,
-  updateActiveBody,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
 import { useTheme } from "@mui/material/styles";
@@ -53,14 +48,7 @@ const Scene = () => {
   //////// SIM PARAMS ////////
   const showGrid: boolean = useSelector(selectShowGrid);
   const showAxes: boolean = useSelector(selectShowAxes);
-  const isPaused: boolean = useSelector(selectIsPaused);
-  const isBodyActive: boolean = useSelector(selectIsBodyActive);
-  const speedMultiplier: number = useSelector(selectSpeedMultiplier);
-  const currentTimeStepIndex: number = useSelector(selectCurrentTimeStepIndex);
   const simulationScale: SimulationScale = useSelector(selectSimulationScale);
-
-  const timeStepKeys = useSelector(selectTimeStepKeys);
-  const totalTimeSteps: number = timeStepKeys.length;
 
   // get derived radii of bodies from initial radius constants and scale to simulation parameter
   useEffect(() => {
@@ -86,66 +74,6 @@ const Scene = () => {
 
     setCelestialBodyRadiusMap(celestialBodyRadiusMap);
   }, [celestialBodyPropertiesList, simulationScale]);
-
-  // main rendering loop
-  useEffect(() => {
-    let lastTime = performance.now();
-    let animationFrameId: number | null = null;
-
-    const update = (time: number) => {
-      checkDeleteExcessData();
-
-      if (isBodyActive) {
-        dispatch(updateActiveBody());
-      }
-
-      const deltaTime = time - lastTime;
-
-      if (!isPaused && simulationSnapshot && totalTimeSteps > 0) {
-        // update active body for UI rendering
-
-        const stepsToMove = Math.abs(speedMultiplier);
-        const direction = speedMultiplier > 0 ? 1 : -1;
-
-        // update based on virtual FPS
-        const timeStepInterval = 1000 / SimConstants.FPS;
-        if (deltaTime >= timeStepInterval) {
-          const nextIndex = Math.max(
-            0,
-            currentTimeStepIndex + direction * stepsToMove,
-          );
-          dispatch(setCurrentTimeStepIndex(nextIndex)); // Update Redux state
-          lastTime = time;
-        }
-      }
-      animationFrameId = requestAnimationFrame(update);
-    };
-
-    animationFrameId = requestAnimationFrame(update);
-
-    return () => {
-      if (animationFrameId !== null) {
-        cancelAnimationFrame(animationFrameId);
-      }
-    };
-  }, [
-    simulationSnapshot,
-    isPaused,
-    speedMultiplier,
-    currentTimeStepIndex,
-    dispatch,
-  ]);
-
-  const checkDeleteExcessData = () => {
-    if (timeStepKeys.length > SimConstants.MAX_TIMESTEPS) {
-      const excessCount: number = SimConstants.TIMESTEP_CHUNK_SIZE;
-      const payload = {
-        excessCount: excessCount,
-        timeStepKeys: timeStepKeys,
-      };
-      dispatch(deleteExcessData(payload));
-    }
-  };
 
   return (
     <Canvas
@@ -185,6 +113,8 @@ const Scene = () => {
         scene.background = new THREE.CanvasTexture(canvas);
       }}
     >
+      <AnimationController />
+      {process.env.NODE_ENV === "development" && <Stats />}
       <Camera />
       <ambientLight intensity={Math.PI / 2} />
       {showAxes && <axesHelper args={[simulationScale.AXES.SIZE]} />}
@@ -217,11 +147,13 @@ const Scene = () => {
                   body.position.y / simulationScale.positionScale,
                   body.position.z / simulationScale.positionScale,
                 ]}
-                radius={radius} // Pass radius to Sphere component
+                radius={radius}
                 textureUrl={
                   bodyProperties[body.name.toUpperCase()]?.texture.src ||
                   bodyProperties["FALLBACK"].texture.src // TODO use slice state
                 }
+                rotationSpeed={bodyProperties[body.name.toUpperCase()]?.rotationSpeed ?? 0.1}
+                unlit
               />
             </React.Fragment>
           );
@@ -265,17 +197,20 @@ const Scene = () => {
             ];
 
         return (
-          <Sphere
-            key={body.name}
-            name={body.name}
-            body={body}
-            position={spherePosition}
-            radius={radius} // Pass radius to Sphere component
-            textureUrl={
-              bodyProperties[body.name.toUpperCase()]?.texture.src ||
-              bodyProperties["FALLBACK"].texture.src
-            }
-          />
+          <React.Fragment key={body.name}>
+            <Sphere
+              name={body.name}
+              body={body}
+              position={spherePosition}
+              radius={radius}
+              textureUrl={
+                bodyProperties[body.name.toUpperCase()]?.texture.src ||
+                bodyProperties["FALLBACK"].texture.src
+              }
+              rotationSpeed={bodyProperties[body.name.toUpperCase()]?.rotationSpeed ?? 0.1}
+            />
+            <Trail bodyName={body.name} />
+          </React.Fragment>
         );
       })}
       <PlanetInfoOverlayActive />

@@ -52,42 +52,21 @@ const SimConstants = {
 
 export interface BodyProperties {
   texture: StaticImageData;
+  rotationSpeed: number; // radians/second, wall-clock time; negative = retrograde
 }
 
 export const bodyProperties: Record<string, BodyProperties> = {
-  MERCURY: {
-    texture: MercuryTexture as StaticImageData,
-  },
-  VENUS: {
-    texture: VenusTexture as StaticImageData,
-  },
-  EARTH: {
-    texture: EarthTexture as StaticImageData,
-  },
-  MARS: {
-    texture: MarsTexture as StaticImageData,
-  },
-  JUPITER: {
-    texture: JupiterTexture as StaticImageData,
-  },
-  SATURN: {
-    texture: SaturnTexture as StaticImageData,
-  },
-  URANUS: {
-    texture: UranusTexture as StaticImageData,
-  },
-  NEPTUNE: {
-    texture: NeptuneTexture as StaticImageData,
-  },
-  MOON: {
-    texture: MoonTexture as StaticImageData,
-  },
-  SUN: {
-    texture: SunTexture as StaticImageData,
-  },
-  FALLBACK: {
-    texture: FallbackTexture as StaticImageData,
-  },
+  MERCURY: { texture: MercuryTexture as StaticImageData, rotationSpeed: 0.003 },
+  VENUS:   { texture: VenusTexture   as StaticImageData, rotationSpeed: -0.002 },
+  EARTH:   { texture: EarthTexture   as StaticImageData, rotationSpeed: 0.1 },
+  MARS:    { texture: MarsTexture    as StaticImageData, rotationSpeed: 0.097 },
+  JUPITER: { texture: JupiterTexture as StaticImageData, rotationSpeed: 0.24 },
+  SATURN:  { texture: SaturnTexture  as StaticImageData, rotationSpeed: 0.22 },
+  URANUS:  { texture: UranusTexture  as StaticImageData, rotationSpeed: -0.14 },
+  NEPTUNE: { texture: NeptuneTexture as StaticImageData, rotationSpeed: 0.15 },
+  MOON:    { texture: MoonTexture    as StaticImageData, rotationSpeed: 0.004 },
+  SUN:     { texture: SunTexture     as StaticImageData, rotationSpeed: 0.004 },
+  FALLBACK:{ texture: FallbackTexture as StaticImageData, rotationSpeed: 0.1 },
 };
 
 export default SimConstants;

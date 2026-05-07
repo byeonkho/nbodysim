@@ -51,6 +51,18 @@ const Camera: React.FC = () => {
     camera.updateProjectionMatrix();
   }, [camera]);
 
+  // Initial framing: set camera position relative to the current scale's AXES.SIZE
+  // so the inner solar system fills a comfortable portion of the view. Re-runs on
+  // scale toggle so Realistic ↔ Semi-Realistic both look reasonable on entry.
+  useEffect(() => {
+    if (!controlsRef.current) return;
+    const D = simulationScale.AXES.SIZE;
+    camera.position.set(0, D * 0.15, D * 0.3);
+    controlsRef.current.target.set(0, 0, 0);
+    controlsRef.current.update();
+    trackingZoomRef.current = D * 0.3;
+  }, [camera, simulationScale]);
+
   // Listen for mouse wheel events to adjust the tracking zoom.
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {

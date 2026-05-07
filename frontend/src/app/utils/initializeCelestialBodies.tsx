@@ -3,19 +3,14 @@ import {
   loadSimulation,
   SimulationParameters,
 } from "@/app/store/slices/SimulationSlice";
-
-// Default to localhost in dev; production builds must set NEXT_PUBLIC_BACKEND_URL.
-// Reading at call time (not module load) avoids throwing during Next's static prerender pass.
-const DEFAULT_BACKEND_URL = "http://localhost:8080/api/simulation";
+import { REST_URL } from "@/app/utils/backendUrls";
 
 export const initializeCelestialBodies = async (
   dispatch: AppDispatch,
   requestBody: any,
 ) => {
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? DEFAULT_BACKEND_URL;
-
   try {
-    const response = await fetch(`${backendUrl}/initialize`, {
+    const response = await fetch(`${REST_URL}/initialize`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
