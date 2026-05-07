@@ -92,5 +92,5 @@ Active development. The simulation runs end-to-end; current focus is hardening t
 ## Credits
 
 - Earth icon: [Global icons](https://www.flaticon.com/free-icons/global) by Freepik — Flaticon
-- Planet textures: source unconfirmed — likely [Solar System Scope](https://www.solarsystemscope.com/textures/) (CC BY 4.0). **Re-download from that source before public deploy** to have a confirmed license, then update this line with proper attribution.
+- Planet textures: [Solar System Scope](https://www.solarsystemscope.com/textures/) — used under [CC Attribution 4.0](https://creativecommons.org/licenses/by/4.0/)
 - Astrodynamics: [Orekit](https://www.orekit.org/) by CS GROUP / CNES, built on [Hipparchus](https://hipparchus.org/)
