@@ -75,7 +75,7 @@ export default function MiniDrawer() {
   const [selectedComponent, setSelectedComponent] = useState<
     "simParams" | "infoOverview" | "devMetrics" | null
   >(null);
-  const containerRef = React.useRef<HTMLElement>();
+  const containerRef = React.useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const handleMouseDown = () => {

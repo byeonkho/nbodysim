@@ -17,19 +17,16 @@ You'll need:
 
 ### Backend
 
-From the repo root:
-
 ```bash
-cd backend
-./mvnw spring-boot:run
+cd backend && ./mvnw spring-boot:run
 ```
+
+> First time only, if you get "permission denied": `chmod +x backend/mvnw` (run from repo root), then retry.
 
 The backend serves on `http://localhost:8080`:
 
 - `POST /api/simulation/initialize` — build a session, returns a sessionID
 - `WS /ws` — run the simulation and stream timesteps
-
-If `./mvnw` errors with permission denied: `chmod +x backend/mvnw`.
 
 ### Frontend
 
@@ -46,7 +43,7 @@ Open <http://localhost:3000>. The frontend defaults to talking to `http://localh
 ### Using it
 
 1. Open the **Sim Params** drawer (left edge → cog icon).
-2. Pick celestial bodies (Sun, Earth, Moon, etc — "Select All" works), a date, an integrator (`euler` works today; higher-order options are landing — see roadmap), and a time-step unit.
+2. Pick celestial bodies (Sun, Earth, Moon, etc — "Select All" works), a date, an integrator (Euler / RK4 / Dormand–Prince 853), and a time-step unit.
 3. Hit **Submit**. The 3D scene populates.
 4. Use the bottom controls to play/pause and adjust speed (negative speeds rewind).
 5. Click any body to track it with the camera. Click the background to release.
