@@ -3,18 +3,11 @@
 // Web Worker for zstd decompression + binary deserialization.
 // Off-loads decompression and binary-to-object decoding from the main thread.
 // The ArrayBuffer is transferred from the main thread via postMessage's
-// transferable list — zero-copy.
-//
-// Wire format after zstd (matches BinaryResponseSerializer.java, all little-endian):
-//   uint16   bodyCount
-//   per body: uint16 nameLength, UTF-8 name bytes
-//   uint32   timestepCount
-//   per timestep:
-//     int64    timestamp (millis since UNIX epoch, UTC)
-//     per body (header order):
-//       float64 × 6   (px, py, pz, vx, vy, vz)
+// transferable list — zero-copy. The actual binary parsing lives in
+// parseBinaryChunk.ts so it's testable without dragging in the WASM module.
 
 import { ZSTDDecoder } from "zstddec";
+import { parseBinaryChunk } from "./parseBinaryChunk";
 
 interface DecodeRequest {
   id: number;
@@ -41,63 +34,6 @@ const decoderPromise: Promise<ZSTDDecoder> = (async () => {
   return d;
 })();
 
-const utf8Decoder = new TextDecoder("utf-8");
-
-interface CelestialBody {
-  name: string;
-  position: { x: number; y: number; z: number };
-  velocity: { x: number; y: number; z: number };
-}
-
-function parseBinary(bytes: Uint8Array): Record<string, CelestialBody[]> {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  let offset = 0;
-
-  const bodyCount = view.getUint16(offset, true);
-  offset += 2;
-
-  const names: string[] = new Array(bodyCount);
-  for (let i = 0; i < bodyCount; i++) {
-    const nameLen = view.getUint16(offset, true);
-    offset += 2;
-    const nameBytes = new Uint8Array(
-      bytes.buffer,
-      bytes.byteOffset + offset,
-      nameLen,
-    );
-    names[i] = utf8Decoder.decode(nameBytes);
-    offset += nameLen;
-  }
-
-  const timestepCount = view.getUint32(offset, true);
-  offset += 4;
-
-  const data: Record<string, CelestialBody[]> = {};
-  for (let t = 0; t < timestepCount; t++) {
-    const millis = Number(view.getBigInt64(offset, true));
-    offset += 8;
-    const isoKey = new Date(millis).toISOString();
-
-    const snapshot: CelestialBody[] = new Array(bodyCount);
-    for (let b = 0; b < bodyCount; b++) {
-      const px = view.getFloat64(offset, true); offset += 8;
-      const py = view.getFloat64(offset, true); offset += 8;
-      const pz = view.getFloat64(offset, true); offset += 8;
-      const vx = view.getFloat64(offset, true); offset += 8;
-      const vy = view.getFloat64(offset, true); offset += 8;
-      const vz = view.getFloat64(offset, true); offset += 8;
-      snapshot[b] = {
-        name: names[b],
-        position: { x: px, y: py, z: pz },
-        velocity: { x: vx, y: vy, z: vz },
-      };
-    }
-    data[isoKey] = snapshot;
-  }
-
-  return data;
-}
-
 self.onmessage = async (event: MessageEvent<DecodeRequest>) => {
   const { id, buffer } = event.data;
   try {
@@ -109,7 +45,7 @@ self.onmessage = async (event: MessageEvent<DecodeRequest>) => {
     const t0 = performance.now();
     const decompressed = decoder.decode(compressed, uncompressedSize);
     const t1 = performance.now();
-    const data = parseBinary(decompressed);
+    const data = parseBinaryChunk(decompressed);
     const t2 = performance.now();
     console.log(
       `[zstd worker] zstd=${(t1 - t0) | 0}ms binary=${(t2 - t1) | 0}ms total=${(t2 - t0) | 0}ms (${(uncompressedSize / 1024) | 0}KB)`,
