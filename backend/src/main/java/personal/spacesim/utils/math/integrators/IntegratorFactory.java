@@ -9,7 +9,7 @@ public class IntegratorFactory {
         return switch (type.toLowerCase()) {
             case "euler" -> new EulerIntegrator();
             case "rk4", "rungekutta" -> new RK4Integrator();
-            // "dp853" → DormandPrince853Integrator (planned, P0.3 phase 4)
+            case "dp853", "dormandprince" -> new DP853Integrator();
             default -> throw new IllegalArgumentException("Unknown integrator type: " + type);
         };
     }
