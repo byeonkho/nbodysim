@@ -4,6 +4,7 @@ import {
   Checkbox,
   FormControl,
   FormControlLabel,
+  FormHelperText,
   InputLabel,
   MenuItem,
   Paper,
@@ -188,11 +189,27 @@ const SimParams: React.FC = () => {
         onChange={(e) => setFrame(e.target.value)}
       />
 
-      <TextField
-        label="Integrator"
-        value={integrator}
-        onChange={(e) => setIntegrator(e.target.value)}
-      />
+      <FormControl fullWidth>
+        <InputLabel id="integrator-label">Integrator</InputLabel>
+        <Select
+          labelId="integrator-label"
+          value={integrator}
+          onChange={(e: SelectChangeEvent) => setIntegrator(e.target.value)}
+          MenuProps={{
+            disablePortal: true,
+            anchorOrigin: { vertical: "bottom", horizontal: "left" },
+            transformOrigin: { vertical: "top", horizontal: "center" },
+          }}
+        >
+          <MenuItem value="euler">Euler</MenuItem>
+          <MenuItem value="rk4">RK4</MenuItem>
+          <MenuItem value="dp853">DormandPrince853</MenuItem>
+        </Select>
+        <FormHelperText>
+          Euler: simple, drifts visibly · RK4: balanced · DP853: adaptive, high
+          accuracy
+        </FormHelperText>
+      </FormControl>
 
       <FormControl fullWidth>
         <InputLabel id="time-unit-label">Time Unit</InputLabel>
