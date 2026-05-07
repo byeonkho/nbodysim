@@ -75,6 +75,12 @@ export const requestRunSimulation = createAsyncThunk<
         body: JSON.stringify({ sessionID }),
       });
 
+      if (response.status === 429) {
+        const retryAfter = response.headers.get("Retry-After");
+        const seconds = retryAfter ? parseInt(retryAfter, 10) : null;
+        const wait = seconds && !Number.isNaN(seconds) ? ` Try again in ${seconds}s.` : "";
+        throw new Error(`Rate limit reached.${wait}`);
+      }
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
