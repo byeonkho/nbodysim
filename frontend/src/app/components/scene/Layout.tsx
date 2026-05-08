@@ -6,8 +6,8 @@ import { useSelector } from "react-redux";
 import Scene from "@/app/components/scene/Scene";
 import MiniDrawer from "@/app/components/interface/drawer/MiniDrawer";
 import UpdateModal from "@/app/components/interface/misc/UpdateModal";
-import BodySelector from "@/app/components/interface/misc/BodySelector";
-import CurrentTimeStep from "@/app/components/interface/misc/CurrentTimeStep";
+import { BodySelector } from "@/app/components/chrome/BodySelector";
+import { TopStatusStrip } from "@/app/components/chrome/TopStatusStrip";
 import ControlsContainer from "@/app/components/interface/controls/ControlsContainer";
 import FadeNotification from "@/app/components/interface/misc/FadeNotification";
 import {
@@ -68,13 +68,12 @@ const Layout: React.FC = () => {
         >
           <ControlsContainer />
           <UpdateModal />
-          <Box
-            sx={{
-              pointerEvents: "auto",
-            }}
-          >
-            <BodySelector />
-          </Box>
+
+          {/* Redesign chrome (Phase 1, sub-commit 1): top status strip + body
+              selector pills. Both opt themselves into pointer-events. The
+              strip swallows the slot CurrentTimeStep used to occupy. */}
+          <TopStatusStrip />
+          <BodySelector />
 
           <Box
             sx={{
@@ -107,9 +106,6 @@ const Layout: React.FC = () => {
             />
           </Box>
 
-          <Box sx={{ position: "absolute", top: 20, right: 50 }}>
-            <CurrentTimeStep />
-          </Box>
         </Box>
       </Box>
     </Box>
