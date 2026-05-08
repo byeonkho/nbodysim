@@ -7,8 +7,8 @@ import Scene from "@/app/components/scene/Scene";
 import MiniDrawer from "@/app/components/interface/drawer/MiniDrawer";
 import UpdateModal from "@/app/components/interface/misc/UpdateModal";
 import { BodySelector } from "@/app/components/chrome/BodySelector";
+import { Timeline } from "@/app/components/chrome/Timeline";
 import { TopStatusStrip } from "@/app/components/chrome/TopStatusStrip";
-import ControlsContainer from "@/app/components/interface/controls/ControlsContainer";
 import FadeNotification from "@/app/components/interface/misc/FadeNotification";
 import {
   selectShowAxes,
@@ -66,14 +66,14 @@ const Layout: React.FC = () => {
             pointerEvents: "none",
           }}
         >
-          <ControlsContainer />
           <UpdateModal />
 
-          {/* Redesign chrome (Phase 1, sub-commit 1): top status strip + body
-              selector pills. Both opt themselves into pointer-events. The
-              strip swallows the slot CurrentTimeStep used to occupy. */}
+          {/* Redesign chrome — top strip, body selector pills, bottom
+              timeline (transport + rate + scrubber + view toggles).
+              Each component opts itself into pointer-events. */}
           <TopStatusStrip />
           <BodySelector />
+          <Timeline />
 
           <Box
             sx={{
