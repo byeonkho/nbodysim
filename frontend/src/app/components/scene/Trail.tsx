@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useStore } from "react-redux";
 import * as THREE from "three";
@@ -11,7 +11,7 @@ import {
   selectTimeStepKeys,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
-import { scaleDistance } from "@/app/utils/helpers";
+import { scaleDistanceInto } from "@/app/utils/helpers";
 
 interface TrailProps {
   bodyName: string;
@@ -73,6 +73,10 @@ const Trail: React.FC<TrailProps> = ({
     };
   }, [lineObject]);
 
+  // Reused across the K=300 inner-loop iterations to avoid allocating
+  // a Vector3Simple for every moon-scale point per frame.
+  const posScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+
   // Three.js BufferGeometry attribute arrays are mutated in place every frame
   // to avoid re-uploading the buffer. React 19's hook-immutability rule flags
   // this, but mutation is the canonical three.js pattern for dynamic geometry.
@@ -128,7 +132,13 @@ const Trail: React.FC<TrailProps> = ({
             b.name.toUpperCase() === orbitingBodyName.toUpperCase(),
         );
         if (orbiting) {
-          pos = scaleDistance(body.position, orbiting.position, positionScale);
+          scaleDistanceInto(
+            posScratch.current,
+            body.position,
+            orbiting.position,
+            positionScale,
+          );
+          pos = posScratch.current;
         }
       }
 

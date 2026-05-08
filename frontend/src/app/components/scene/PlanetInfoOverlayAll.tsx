@@ -12,7 +12,7 @@ import {
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
 import { RootState } from "@/app/store/Store";
-import { scaleDistance } from "@/app/utils/helpers";
+import { scaleDistanceInto } from "@/app/utils/helpers";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import * as THREE from "three";
@@ -30,6 +30,7 @@ const PlanetInfoOverlayAll: React.FC<PlanetInfoOverlayAllProps> = ({
   );
   const store = useStore<RootState>();
   const groupRef = useRef<THREE.Group>(null!);
+  const posScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
 
   const upperName = bodyName.trim().toUpperCase();
   const properties: CelestialBodyProperties | undefined =
@@ -65,7 +66,13 @@ const PlanetInfoOverlayAll: React.FC<PlanetInfoOverlayAllProps> = ({
           b.name.trim().toUpperCase() === orbitingNameUpper,
       );
       if (orbiting) {
-        pos = scaleDistance(body.position, orbiting.position, properties.positionScale);
+        scaleDistanceInto(
+          posScratch.current,
+          body.position,
+          orbiting.position,
+          properties.positionScale,
+        );
+        pos = posScratch.current;
       }
     }
 

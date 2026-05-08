@@ -19,8 +19,8 @@ import {
   calculateDistance,
   calculateMagnitude,
   formatToKM,
-  scaleDistance,
-  subtractVectors,
+  scaleDistanceInto,
+  subtractInto,
   toTitleCase,
 } from "@/app/utils/helpers";
 import Box from "@mui/material/Box";
@@ -39,6 +39,8 @@ const PlanetInfoOverlayActive = () => {
   const groupRef = useRef<THREE.Group>(null!);
   const distanceRef = useRef<HTMLSpanElement>(null);
   const velocityRef = useRef<HTMLSpanElement>(null);
+  const posScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const velocityScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
 
   // Resolve the active body's properties + parent body name once per
   // identity / scale change (NOT per frame). These are stable inputs to
@@ -85,7 +87,13 @@ const PlanetInfoOverlayActive = () => {
     const positionScale = activeProps.positionScale ?? 1;
     let pos: Vector3Simple = activeBody.position;
     if (positionScale !== 1) {
-      pos = scaleDistance(activeBody.position, orbitingBody.position, positionScale);
+      scaleDistanceInto(
+        posScratch.current,
+        activeBody.position,
+        orbitingBody.position,
+        positionScale,
+      );
+      pos = posScratch.current;
     }
     groupRef.current.position.set(
       pos.x / simulationScale.positionScale,
@@ -104,11 +112,14 @@ const PlanetInfoOverlayActive = () => {
       lastDistance.current = distance;
     }
 
-    const velocityDelta: Vector3Simple = subtractVectors(
+    subtractInto(
+      velocityScratch.current,
       activeBody.velocity,
       orbitingBody.velocity,
     );
-    const relativeVelocity = formatToKM(calculateMagnitude(velocityDelta));
+    const relativeVelocity = formatToKM(
+      calculateMagnitude(velocityScratch.current),
+    );
     if (relativeVelocity !== lastVelocity.current && velocityRef.current) {
       velocityRef.current.textContent = relativeVelocity;
       lastVelocity.current = relativeVelocity;

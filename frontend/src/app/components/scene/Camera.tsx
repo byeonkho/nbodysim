@@ -80,8 +80,9 @@ const Camera: React.FC = () => {
     };
   }, [gl.domElement]);
 
-  // Reuse one Vector3 across frames — no per-frame allocation.
+  // Reused across frames — no per-frame allocation.
   const targetScratch = useRef(new THREE.Vector3());
+  const offsetScratch = useRef(new THREE.Vector3());
 
   useFrame(() => {
     if (isBodyActive && activeBodyName) {
@@ -104,11 +105,11 @@ const Camera: React.FC = () => {
           );
           controlsRef.current.target.lerp(targetScratch.current, 0.01);
 
-          const offset = camera.position
-            .clone()
+          offsetScratch.current
+            .copy(camera.position)
             .sub(controlsRef.current.target);
-          const currentRadius = offset.length();
-          if (currentRadius > 0) offset.divideScalar(currentRadius);
+          const currentRadius = offsetScratch.current.length();
+          if (currentRadius > 0) offsetScratch.current.divideScalar(currentRadius);
 
           const { cameraZoomLerpRate } = getDevSettings();
           const newRadius = THREE.MathUtils.lerp(
@@ -119,7 +120,7 @@ const Camera: React.FC = () => {
 
           camera.position
             .copy(controlsRef.current.target)
-            .addScaledVector(offset, newRadius);
+            .addScaledVector(offsetScratch.current, newRadius);
         }
       }
     }

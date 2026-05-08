@@ -1,15 +1,16 @@
 import { useFrame, useLoader } from "@react-three/fiber";
-import React, { useRef } from "react";
-import { useDispatch, useStore } from "react-redux";
+import React, { useMemo, useRef } from "react";
+import { useDispatch, useSelector, useStore } from "react-redux";
 import { AppDispatch, RootState } from "@/app/store/Store";
 import {
   CelestialBody,
   CelestialBodyProperties,
+  selectCelestialBodyPropertiesList,
   selectCurrentTimeStepKey,
   setActiveBody,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
-import { scaleDistance } from "@/app/utils/helpers";
+import { scaleDistanceInto } from "@/app/utils/helpers";
 import * as THREE from "three";
 
 interface SphereProps {
@@ -40,6 +41,22 @@ const Sphere: React.FC<SphereProps> = ({
   const lightRef = useRef<THREE.PointLight>(null!);
   const dispatch = useDispatch<AppDispatch>();
   const store = useStore<RootState>();
+  const propsList = useSelector(selectCelestialBodyPropertiesList);
+
+  // Hoist body-property lookups to render scope so useFrame doesn't repeat
+  // them per frame (closure + ~10 String.toUpperCase calls per body, every
+  // frame, was the cost). useMemo recomputes only when propsList changes
+  // (sim load / scale toggle) — effectively never per-frame.
+  const { positionScale, orbitingBodyNameUpper } = useMemo(() => {
+    const nameUpper = name.toUpperCase();
+    const bodyProps: CelestialBodyProperties | undefined = propsList?.find(
+      (bp) => bp.name?.toUpperCase() === nameUpper,
+    );
+    return {
+      positionScale: bodyProps?.positionScale ?? 1,
+      orbitingBodyNameUpper: bodyProps?.orbitingBody?.toUpperCase(),
+    };
+  }, [name, propsList]);
 
   // useLoader's TextureLoader signature is awkward in current type stack;
   // cast is the conventional escape.
@@ -49,39 +66,36 @@ const Sphere: React.FC<SphereProps> = ({
     textureUrl || "/path/to/placeholder.png",
   );
 
+  // Reused across frames so moon-style scaled positions don't allocate a
+  // Vector3Simple per frame.
+  const posScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+
   useFrame((_, delta) => {
     const state = store.getState();
     const simulationData = state.simulation.simulationData;
     const currentTimeStepKey = selectCurrentTimeStepKey(state);
     const simulationScale =
       state.simulation.simulationParameters.simulationScale;
-    const propsList =
-      state.simulation.simulationParameters.celestialBodyPropertiesList;
 
     if (simulationData && currentTimeStepKey) {
       const snapshot = simulationData[currentTimeStepKey];
       if (snapshot) {
         const body = snapshot.find((b: CelestialBody) => b.name === name);
         if (body) {
-          const bodyProps: CelestialBodyProperties | undefined = propsList.find(
-            (bp: CelestialBodyProperties) =>
-              bp.name?.toUpperCase() === name.toUpperCase(),
-          );
-          const positionScale = bodyProps?.positionScale ?? 1;
-          const orbitingBodyName = bodyProps?.orbitingBody;
-
           let pos: Vector3Simple = body.position;
-          if (positionScale !== 1 && orbitingBodyName) {
+          if (positionScale !== 1 && orbitingBodyNameUpper) {
             const orbiting = snapshot.find(
               (b: CelestialBody) =>
-                b.name.toUpperCase() === orbitingBodyName.toUpperCase(),
+                b.name.toUpperCase() === orbitingBodyNameUpper,
             );
             if (orbiting) {
-              pos = scaleDistance(
+              scaleDistanceInto(
+                posScratch.current,
                 body.position,
                 orbiting.position,
                 positionScale,
               );
+              pos = posScratch.current;
             }
           }
 

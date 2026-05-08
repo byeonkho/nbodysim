@@ -1,6 +1,5 @@
 import { Vector3Simple } from "@/app/store/slices/SimulationSlice";
 import MathConstants from "@/app/constants/MathConstants";
-import * as THREE from "three";
 
 export const toTitleCase = (str: string): string => {
   return str.toLowerCase().replace(/\b\w/g, (match) => match.toUpperCase());
@@ -41,15 +40,17 @@ export const calculateDistance = (
   return result.toLocaleString("en-US") + " m";
 };
 
-export const subtractVectors = (
+// Mutating-output variant: writes (a - b) into `out` to avoid per-call
+// allocation. Callers are hot-path useFrame consumers; the immutable
+// version compounded across 9+ bodies per frame.
+export const subtractInto = (
+  out: Vector3Simple,
   a: Vector3Simple,
   b: Vector3Simple,
-): Vector3Simple => {
-  return {
-    x: a.x - b.x,
-    y: a.y - b.y,
-    z: a.z - b.z,
-  };
+): void => {
+  out.x = a.x - b.x;
+  out.y = a.y - b.y;
+  out.z = a.z - b.z;
 };
 
 export const calculateMagnitude = (v: Vector3Simple): number => {
@@ -70,33 +71,17 @@ export const roundToTwoDecimals = (value: number): number => {
   return Math.round(value * 10) / 10;
 };
 
-export function scaleDistance(
+// Mutating-output variant: writes the scaled position into `out`.
+// `out = orbiting + (primary - orbiting) * scaleFactor`. Used to render
+// non-1 positionScale bodies (e.g. Moon) at exaggerated parent-relative
+// distance without losing rotational alignment with the parent.
+export function scaleDistanceInto(
+  out: Vector3Simple,
   primary: Vector3Simple,
   orbiting: Vector3Simple,
   scaleFactor: number,
-): Vector3Simple {
-  // Convert simple vectors to THREE.Vector3.
-  const primaryVec = toTHREE(primary);
-  const orbitingVec = toTHREE(orbiting);
-
-  // Compute the relative vector from the orbiting body to the primary body.
-  const relative = primaryVec.clone().sub(orbitingVec);
-  // Scale that relative vector.
-  relative.multiplyScalar(scaleFactor);
-  // Compute the new position by adding the scaled relative vector to the orbiting body's position.
-  const newPosition = orbitingVec.clone().add(relative);
-
-  // Convert the result back to your simple vector format.
-  return toSimple(newPosition);
+): void {
+  out.x = orbiting.x + (primary.x - orbiting.x) * scaleFactor;
+  out.y = orbiting.y + (primary.y - orbiting.y) * scaleFactor;
+  out.z = orbiting.z + (primary.z - orbiting.z) * scaleFactor;
 }
-
-// Convert a simple vector to a THREE.Vector3.
-const toTHREE = (v: Vector3Simple): THREE.Vector3 =>
-  new THREE.Vector3(v.x, v.y, v.z);
-
-// Convert a THREE.Vector3 back to a simple vector.
-const toSimple = (v: THREE.Vector3): Vector3Simple => ({
-  x: v.x,
-  y: v.y,
-  z: v.z,
-});
