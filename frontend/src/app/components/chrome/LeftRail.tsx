@@ -35,20 +35,36 @@ const ICONS: RailIcon[] = [
   },
 ];
 
-export function LeftRail({ activeIndex }: { activeIndex?: number }) {
+interface LeftRailProps {
+  activeIndex?: number;
+  onSettingsClick?: () => void;
+  settingsActive?: boolean;
+}
+
+export function LeftRail({
+  activeIndex,
+  onSettingsClick,
+  settingsActive,
+}: LeftRailProps) {
   return (
     <div
       className="glass pointer-events-auto absolute top-1/2 left-6 flex -translate-y-1/2 flex-col gap-1 p-2"
       style={{ borderRadius: 14 }}
     >
-      {ICONS.map((icon, i) => (
-        <RailButton
-          key={icon.label}
-          label={icon.label}
-          path={icon.d}
-          active={i === activeIndex}
-        />
-      ))}
+      {ICONS.map((icon, i) => {
+        const isSettings = icon.label === "Settings";
+        return (
+          <RailButton
+            key={icon.label}
+            label={icon.label}
+            path={icon.d}
+            active={
+              isSettings ? Boolean(settingsActive) : i === activeIndex
+            }
+            onClick={isSettings ? onSettingsClick : undefined}
+          />
+        );
+      })}
       <div className="mx-1 my-1 h-px bg-white/[0.06]" />
       <RailButton
         label="Frame info"
@@ -64,17 +80,20 @@ function RailButton({
   path,
   active,
   viewBox = "0 0 22 22",
+  onClick,
 }: {
   label: string;
   path: string;
   active?: boolean;
   viewBox?: string;
+  onClick?: () => void;
 }) {
   return (
     <button
       type="button"
       aria-label={label}
       title={label}
+      onClick={onClick}
       className={[
         "grid h-[38px] w-[38px] cursor-pointer place-items-center rounded-[10px] transition-colors",
         active

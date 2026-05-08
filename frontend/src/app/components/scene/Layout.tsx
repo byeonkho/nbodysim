@@ -1,30 +1,20 @@
-import React from "react";
-import { Box } from "@mui/material";
-import { useSelector } from "react-redux";
+"use client";
 
-// Import your components
+import React, { useState } from "react";
+import { Box } from "@mui/material";
+
 import Scene from "@/app/components/scene/Scene";
-import MiniDrawer from "@/app/components/interface/drawer/MiniDrawer";
 import UpdateModal from "@/app/components/interface/misc/UpdateModal";
 import { BodySelector } from "@/app/components/chrome/BodySelector";
 import { FrameCompass } from "@/app/components/chrome/FrameCompass";
 import { LeftRail } from "@/app/components/chrome/LeftRail";
 import { RightColumn } from "@/app/components/chrome/RightColumn";
+import { SimParamsDialog } from "@/app/components/chrome/SimParamsDialog";
 import { Timeline } from "@/app/components/chrome/Timeline";
 import { TopStatusStrip } from "@/app/components/chrome/TopStatusStrip";
-import FadeNotification from "@/app/components/interface/misc/FadeNotification";
-import {
-  selectShowAxes,
-  selectShowGrid,
-  selectShowPlanetInfoOverlay,
-  selectSimulationScale,
-} from "@/app/store/slices/SimulationSlice";
 
 const Layout: React.FC = () => {
-  const simulationScale = useSelector(selectSimulationScale);
-  const showAxes = useSelector(selectShowAxes);
-  const showGrid = useSelector(selectShowGrid);
-  const showPlanetInfoOverlay = useSelector(selectShowPlanetInfoOverlay);
+  const [simParamsOpen, setSimParamsOpen] = useState(false);
 
   return (
     <Box
@@ -42,7 +32,6 @@ const Layout: React.FC = () => {
           overflow: "hidden",
         }}
       >
-        {/* 3D Scene */}
         <Box
           sx={{
             position: "absolute",
@@ -57,13 +46,15 @@ const Layout: React.FC = () => {
           <Scene />
         </Box>
 
-        {/* UI Overlays */}
+        {/* UI Overlays. Each chrome component opts itself into pointer
+            events; the wrapper is pointer-events:none so the scene
+            beneath stays grabbable wherever chrome doesn't sit. */}
         <Box
           sx={{
             position: "absolute",
             top: 0,
             left: 0,
-            zIndex: 1, // above the scene
+            zIndex: 1,
             width: "100%",
             height: "100%",
             pointerEvents: "none",
@@ -71,46 +62,17 @@ const Layout: React.FC = () => {
         >
           <UpdateModal />
 
-          {/* Redesign chrome. Each component handles its own
-              positioning and pointer-events policy. */}
           <TopStatusStrip />
           <BodySelector />
           <FrameCompass />
-          <LeftRail />
+          <LeftRail
+            onSettingsClick={() => setSimParamsOpen(true)}
+            settingsActive={simParamsOpen}
+          />
           <RightColumn />
           <Timeline />
 
-          <Box
-            sx={{
-              pointerEvents: "auto",
-            }}
-          >
-            <MiniDrawer />
-          </Box>
-
-          <Box>
-            <FadeNotification
-              key={simulationScale.name}
-              message={`Scale: ${simulationScale.name}`}
-              trigger={simulationScale}
-            />
-            <FadeNotification
-              key={`axes-${showAxes}`}
-              message={`Axes: ${showAxes ? "On" : "Off"}`}
-              trigger={showAxes}
-            />
-            <FadeNotification
-              key={`grid-${showGrid}`}
-              message={`Grid: ${showGrid ? "On" : "Off"}`}
-              trigger={showGrid}
-            />
-            <FadeNotification
-              key={`overlay-${showPlanetInfoOverlay}`}
-              message={`Show all planets: ${showPlanetInfoOverlay ? "On" : "Off"}`}
-              trigger={showPlanetInfoOverlay}
-            />
-          </Box>
-
+          <SimParamsDialog open={simParamsOpen} onOpenChange={setSimParamsOpen} />
         </Box>
       </Box>
     </Box>

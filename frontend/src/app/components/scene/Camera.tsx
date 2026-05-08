@@ -56,10 +56,14 @@ const Camera: React.FC = () => {
   useEffect(() => {
     if (!controlsRef.current) return;
     const D = simulationScale.AXES.SIZE;
-    camera.position.set(0, D * 0.15, D * 0.3);
+    // Top-down preset (Decision 2 / Phase 1): the design's compass and
+    // ghost-label projection assume an ecliptic-plane view. A small
+    // forward offset keeps OrbitControls out of pole gimbal lock; the
+    // user can still orbit freely from there.
+    camera.position.set(0, D * 0.5, D * 0.05);
     controlsRef.current.target.set(0, 0, 0);
     controlsRef.current.update();
-    trackingZoomRef.current = D * 0.3;
+    trackingZoomRef.current = D * 0.5;
   }, [camera, simulationScale]);
 
   useEffect(() => {
