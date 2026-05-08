@@ -27,51 +27,46 @@ End-to-end hosted simulation. A user picks bodies, frame, integrator, and time s
 
 ## Status
 
-Currently a working local prototype. The simulation runs end-to-end, multiple integrators are wired in, the frontend renders bodies with scaled distances and per-body textures, and time controls (play/pause, speed, scrubbing) function. Several silent bugs and rough edges remain — see "in flight" below.
+Currently a working local prototype. The simulation runs end-to-end, three integrators (Euler / RK4 / Dormand–Prince 853) are wired in, the frontend renders bodies with scaled distances and per-body textures, and time controls (play/pause, speed, scrubbing) function. Focus has shifted from correctness/perf hardening to the demo layer (reality-drift overlay) and pre-deploy polish — see "in flight" below.
 
 ## In flight
 
-- Silent correctness bugs: chunk-key collision in batched simulation runs, broken Redux selectors, `RungeKuttaIntegrator` not actually using N-body forces.
-- Integrator boundary redesign — adopt Orekit's `ThirdBodyAttraction` force models so high-order propagators integrate the real N-body problem rather than receiving a single pre-computed force.
+- **Reality drift overlay** — render the integrator's predicted position alongside the actual JPL ephemeris position for the same body at the same date. Switching integrators mid-sim makes the accumulated numerical error visible: Euler diverges within days, RK4 stays close, DP853 essentially glued.
+- Pre-deploy polish: UX flow walkthrough, mobile responsive review.
+- Deploy: Cloudflare proxy in front of Fly.io for DDoS protection, Sentry for error tracking + uptime.
 
 ## Planned
 
 ### Production hosting
 
-- Backend deployment to **Fly.io** (Dockerfile, `fly.toml`, env-driven config, `/health` endpoint).
-- Frontend deployment to **Vercel** with backend URL injected at build time.
-- Auth or rate limiting on the public REST surface (currently open compute oracle).
-- Tightened CORS — env-driven allowlist, no wildcard.
 - Cloudflare proxy in front of Fly.io for DDoS protection and bot detection (defends against IP-rotation attacks that per-IP rate limiting alone can't stop).
-- Sentry for error tracking and uptime monitoring (backend + frontend SDKs; uptime checks on health + frontend URLs).
-- README with screenshots, architecture diagram, and live demo link.
-- GitHub Actions CI: build, lint, type-check, run tests on PR.
+- Sentry SDKs (backend + frontend) for error tracking and uptime monitoring (uptime checks on health + frontend URLs).
+- Live demo link + hero screenshot/GIF in README once deployed.
+
+> Already in place: Fly.io backend (Dockerfile + `fly.toml` + `/actuator/health`), Vercel frontend, env-driven CORS allowlist, per-IP + global rate limiting (Bucket4j), GitHub Actions CI for both stacks.
 
 ### Frontend showcase
 
-- Orbital trails rendered from the buffered timestep map.
-- Planet rotation.
-- Render loop decoupled from React rerenders (R3F `useFrame` + refs; commit to Redux only at chunk boundaries).
-- Catmull-Rom client-side interpolation between keyframes.
-- Delta-encoded wire format.
-- Web worker for zstd decompression to keep the main thread idle.
-- Sun rendered with non-self-illuminating material; correct light source separation.
-- Visible frame-rate counter.
+- **Reality drift overlay** vs JPL ephemerides — visualise integrator error live (see "In flight").
+- **Interesting-moment timeline markers** — backend scans each computed chunk for events (closest approaches, conjunctions, syzygies, eclipses) and surfaces them as clickable markers on the scrubber.
+- Catmull-Rom client-side interpolation between keyframes — backend sends every Nth keyframe; client interpolates with `THREE.CatmullRomCurve3`. Cuts payload + smooths playback.
+- Per-chunk bandwidth optimisation — Float32 instead of Float64 for positions/velocities (halves raw size to ~2.4 MB; ~7-decimal-digit precision is fine for visualisation). Goal: <1 MB per chunk compressed.
+
+> Already in place: orbital trails, planet rotation, decoupled render loop (R3F `useFrame` + refs), Sun unlit material, FPS counter, web-worker zstd decompression, custom binary wire format (replaces the originally-planned delta-encoded JSON), and a fully imperative scene graph that no longer re-renders on simulation tick.
 
 ### Architectural cleanup
 
-- "Sun is fixed" represented as a body property, not a name-equality check.
-- Use μ (gravitational parameter) directly throughout the simulation; drop the imprecise mass conversion.
-- Coalesce overlapping Redux middleware that both react to the same action.
-- Remove unused Spring Data JPA dependency.
-- Drop or fold in the size-logging serializer that doubles serialization work.
+- Use μ (gravitational parameter) directly throughout the simulation; drop the imprecise `mass = body.getGM() / G` conversion in `CelestialBodyWrapper`.
+- Coalesce overlapping Redux middleware that both intercept `setCurrentTimeStepIndex`.
+
+> Already in place: Sun-relative rendering shifted backend-side in the snapshot pipeline (no more name-equality "Sun is fixed" check); Spring Data JPA dependency removed; size-logging serializer dropped alongside the WS→HTTP migration; chunk delivery migrated from WebSocket to HTTP/2; DTOs converted to records; sealed `Integrator` hierarchy; virtual threads enabled.
 
 ### Quality plumbing
 
-- ESLint + Prettier configuration; enforced on CI.
-- OpenAPI generation with shared types between backend and frontend.
-- Targeted tests: gravitational force calculation, two-body circular-orbit convergence per integrator, serialize → zstd → deserialize round-trip.
-- Mobile responsive review.
+- OpenAPI generation with shared types between backend and frontend (eliminates DTO drift, which we've already paid for once via Redux-key typos).
+- Mobile responsive review — touch interactions for camera, drawer behaviour on narrow viewports.
+
+> Already in place: ESLint + Prettier on CI; test architecture rule documented in `CLAUDE.md` (silent-failure modes, two-sided boundaries); Vitest + JUnit running in both CIs; force model, all three integrators, and binary wire-format round-trip pinned by tests.
 
 ## Beyond v1: collaborative / classroom direction
 
@@ -115,5 +110,5 @@ This split lets each protocol do what it's actually good at: HTTP for bulk + cac
 ## Credits
 
 - Earth icon: [Global icons](https://www.flaticon.com/free-icons/global) by Freepik – Flaticon.
-- Planet textures: TBD — to be audited and credited before public deployment.
+- Planet textures: [Solar System Scope](https://www.solarsystemscope.com/textures/) — used under [CC Attribution 4.0](https://creativecommons.org/licenses/by/4.0/).
 - Astrodynamics: [Orekit](https://www.orekit.org/) (CS GROUP / CNES).
