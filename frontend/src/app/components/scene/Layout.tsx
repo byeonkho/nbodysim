@@ -7,6 +7,9 @@ import Scene from "@/app/components/scene/Scene";
 import MiniDrawer from "@/app/components/interface/drawer/MiniDrawer";
 import UpdateModal from "@/app/components/interface/misc/UpdateModal";
 import { BodySelector } from "@/app/components/chrome/BodySelector";
+import { FrameCompass } from "@/app/components/chrome/FrameCompass";
+import { LeftRail } from "@/app/components/chrome/LeftRail";
+import { RightColumn } from "@/app/components/chrome/RightColumn";
 import { Timeline } from "@/app/components/chrome/Timeline";
 import { TopStatusStrip } from "@/app/components/chrome/TopStatusStrip";
 import FadeNotification from "@/app/components/interface/misc/FadeNotification";
@@ -68,11 +71,13 @@ const Layout: React.FC = () => {
         >
           <UpdateModal />
 
-          {/* Redesign chrome — top strip, body selector pills, bottom
-              timeline (transport + rate + scrubber + view toggles).
-              Each component opts itself into pointer-events. */}
+          {/* Redesign chrome. Each component handles its own
+              positioning and pointer-events policy. */}
           <TopStatusStrip />
           <BodySelector />
+          <FrameCompass />
+          <LeftRail />
+          <RightColumn />
           <Timeline />
 
           <Box

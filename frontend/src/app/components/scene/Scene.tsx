@@ -23,8 +23,8 @@ import {
   SimulationScale,
 } from "@/app/store/slices/SimulationSlice";
 import { useTheme } from "@mui/material/styles";
-import PlanetInfoOverlayActive from "@/app/components/scene/PlanetInfoOverlayActive";
-import PlanetInfoOverlayAll from "@/app/components/scene/PlanetInfoOverlayAll";
+import { Reticle } from "@/app/components/scene/Reticle";
+import { GhostLabel } from "@/app/components/scene/GhostLabel";
 
 const Scene = () => {
   const theme = useTheme();
@@ -127,7 +127,7 @@ const Scene = () => {
           </React.Fragment>
         );
       })}
-      <PlanetInfoOverlayActive />
+      <Reticle />
       {showPlanetInfoOverlay &&
         celestialBodyPropertiesList
           ?.filter(
@@ -137,7 +137,7 @@ const Scene = () => {
                 (activeBodyName ?? "").trim().toUpperCase(),
           )
           .map((props) => (
-            <PlanetInfoOverlayAll
+            <GhostLabel
               key={props.name}
               bodyName={props.name as string}
             />
