@@ -15,11 +15,13 @@ import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
 import SettingsIcon from "@mui/icons-material/Settings";
 import InfoIcon from "@mui/icons-material/Info";
+import ControlCameraIcon from "@mui/icons-material/ControlCamera";
 import SimParams from "@/app/components/interface/drawer/components/SimParams";
 import InfoOverview from "@/app/components/interface/drawer/components/InfoOverview";
 import { ClickAwayListener, Slide } from "@mui/material";
 import { TransitionGroup } from "react-transition-group";
 import DevMetrics from "@/app/components/interface/drawer/components/DevMetrics";
+import CameraSettings from "@/app/components/interface/drawer/components/CameraSettings";
 
 const drawerWidth = 200;
 
@@ -73,7 +75,7 @@ export default function MiniDrawer() {
   const [open, setOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedComponent, setSelectedComponent] = useState<
-    "simParams" | "infoOverview" | "devMetrics" | null
+    "simParams" | "infoOverview" | "devMetrics" | "cameraSettings" | null
   >(null);
   const containerRef = React.useRef<HTMLElement | null>(null);
 
@@ -109,7 +111,7 @@ export default function MiniDrawer() {
    * and ensures the drawer is open.
    */
   const handleComponentSelect = (
-    component: "simParams" | "infoOverview" | "devMetrics",
+    component: "simParams" | "infoOverview" | "devMetrics" | "cameraSettings",
   ) => {
     if (selectedComponent == component) {
       setSelectedComponent(null);
@@ -216,6 +218,21 @@ export default function MiniDrawer() {
                 <ListItemText primary="Dev Metrics" />
               </ListItemButton>
             </ListItem>
+            <ListItem disablePadding>
+              <ListItemButton
+                selected={selectedComponent === "cameraSettings"}
+                onClick={() => handleComponentSelect("cameraSettings")}
+              >
+                <ListItemIcon
+                  sx={{
+                    minWidth: 50,
+                  }}
+                >
+                  <ControlCameraIcon />
+                </ListItemIcon>
+                <ListItemText primary="Camera" />
+              </ListItemButton>
+            </ListItem>
           </List>
         </Drawer>
 
@@ -278,6 +295,20 @@ export default function MiniDrawer() {
               >
                 <Box sx={{ position: "absolute", width: "20%" }}>
                   <DevMetrics />
+                </Box>
+              </Slide>
+            )}
+
+            {selectedComponent === "cameraSettings" && (
+              <Slide
+                key="cameraSettings"
+                direction="right"
+                in={true}
+                mountOnEnter
+                unmountOnExit
+              >
+                <Box sx={{ position: "absolute", width: "20%" }}>
+                  <CameraSettings />
                 </Box>
               </Slide>
             )}

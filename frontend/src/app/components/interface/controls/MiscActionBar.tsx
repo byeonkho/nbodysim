@@ -4,12 +4,14 @@ import GridOnIcon from "@mui/icons-material/GridOn";
 import ImportExportIcon from "@mui/icons-material/ImportExport";
 import AspectRatioIcon from "@mui/icons-material/AspectRatio";
 import SearchIcon from "@mui/icons-material/Search";
+import TimelineIcon from "@mui/icons-material/Timeline";
 import { useDispatch } from "react-redux";
 import {
   cycleSimulationScale,
   toggleShowAxes,
   toggleShowGrid,
   toggleShowPlanetInfoOverlay,
+  toggleShowTrails,
 } from "@/app/store/slices/SimulationSlice";
 import Box from "@mui/material/Box";
 
@@ -17,7 +19,7 @@ const GridButton: React.FC = () => {
   const dispatch = useDispatch();
 
   return (
-    <Box>
+    <Box sx={{ display: "flex", flexDirection: "row", flexWrap: "nowrap" }}>
       <IconButton
         color="primary"
         onClick={() => {
@@ -49,6 +51,14 @@ const GridButton: React.FC = () => {
         }}
       >
         <SearchIcon />
+      </IconButton>
+      <IconButton
+        color="primary"
+        onClick={() => {
+          dispatch(toggleShowTrails());
+        }}
+      >
+        <TimelineIcon />
       </IconButton>
     </Box>
   );

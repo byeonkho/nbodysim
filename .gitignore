@@ -35,3 +35,6 @@ build/
 ### Local-only working files ###
 todo.md
 CLAUDE.md
+
+### macOS ###
+.DS_Store
