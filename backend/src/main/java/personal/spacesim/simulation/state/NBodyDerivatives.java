@@ -51,43 +51,48 @@ public final class NBodyDerivatives {
     }
 
     /**
-     * Return the time-derivative of {@code state}. The returned state has the
-     * same shape; its "position" slots hold velocities (the derivative of
-     * position) and its "velocity" slots hold accelerations (the derivative
-     * of velocity).
+     * Mutating-output variant. Writes {@code dy/dt} into {@code out} given the
+     * raw flat state array. Caller owns both arrays; this method only reads
+     * {@code state} and only writes {@code out}.
+     *
+     * <p>Hot path: called inside every integrator step (1× for Euler, 4× for
+     * RK4, ~13× per step for DP853 via Hipparchus substeps). Avoiding the
+     * per-call {@code new double[6N]} + {@code new GlobalState} allocations
+     * is the primary goal of this API.
      */
-    public GlobalState derivatives(GlobalState state) {
-        int n = state.bodyCount();
+    public void derivativesInto(double[] out, double[] state) {
+        int n = state.length / GlobalState.COORDS_PER_BODY;
         if (n != gm.length) {
             throw new IllegalArgumentException(
                 "state bodyCount " + n + " does not match this derivatives' bodyCount " + gm.length);
         }
-
-        double[] data = state.data();
-        double[] result = new double[GlobalState.COORDS_PER_BODY * n];
+        if (out.length != state.length) {
+            throw new IllegalArgumentException(
+                "out length " + out.length + " does not match state length " + state.length);
+        }
 
         for (int i = 0; i < n; i++) {
             int baseI = i * GlobalState.COORDS_PER_BODY;
-            double xi = data[baseI];
-            double yi = data[baseI + 1];
-            double zi = data[baseI + 2];
-            double vxi = data[baseI + 3];
-            double vyi = data[baseI + 4];
-            double vzi = data[baseI + 5];
+            double xi = state[baseI];
+            double yi = state[baseI + 1];
+            double zi = state[baseI + 2];
+            double vxi = state[baseI + 3];
+            double vyi = state[baseI + 4];
+            double vzi = state[baseI + 5];
 
             // dr_i / dt = v_i
-            result[baseI]     = vxi;
-            result[baseI + 1] = vyi;
-            result[baseI + 2] = vzi;
+            out[baseI]     = vxi;
+            out[baseI + 1] = vyi;
+            out[baseI + 2] = vzi;
 
             // dv_i / dt = sum over j != i of gm[j] * (r_j - r_i) / |r_j - r_i|^3
             double ax = 0, ay = 0, az = 0;
             for (int j = 0; j < n; j++) {
                 if (i == j) continue;
                 int baseJ = j * GlobalState.COORDS_PER_BODY;
-                double dx = data[baseJ]     - xi;
-                double dy = data[baseJ + 1] - yi;
-                double dz = data[baseJ + 2] - zi;
+                double dx = state[baseJ]     - xi;
+                double dy = state[baseJ + 1] - yi;
+                double dz = state[baseJ + 2] - zi;
                 double r2 = dx * dx + dy * dy + dz * dz;
                 double invR3 = 1.0 / (r2 * Math.sqrt(r2));
                 double factor = gm[j] * invR3;
@@ -95,11 +100,19 @@ public final class NBodyDerivatives {
                 ay += factor * dy;
                 az += factor * dz;
             }
-            result[baseI + 3] = ax;
-            result[baseI + 4] = ay;
-            result[baseI + 5] = az;
+            out[baseI + 3] = ax;
+            out[baseI + 4] = ay;
+            out[baseI + 5] = az;
         }
+    }
 
-        return new GlobalState(result, n);
+    /**
+     * Allocating wrapper around {@link #derivativesInto}. Convenient for tests
+     * and one-shot calls; not for hot loops.
+     */
+    public GlobalState derivatives(GlobalState state) {
+        double[] result = new double[state.data().length];
+        derivativesInto(result, state.data());
+        return new GlobalState(result, state.bodyCount());
     }
 }

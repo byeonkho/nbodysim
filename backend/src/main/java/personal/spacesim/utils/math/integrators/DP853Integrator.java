@@ -1,10 +1,8 @@
 package personal.spacesim.utils.math.integrators;
 
-import org.hipparchus.ode.ODEIntegrator;
 import org.hipparchus.ode.ODEState;
 import org.hipparchus.ode.OrdinaryDifferentialEquation;
 import org.hipparchus.ode.nonstiff.DormandPrince853Integrator;
-import personal.spacesim.simulation.state.GlobalState;
 import personal.spacesim.simulation.state.NBodyDerivatives;
 
 /**
@@ -22,7 +20,7 @@ import personal.spacesim.simulation.state.NBodyDerivatives;
  * <p>Tolerances are tuned for solar-system-scale orbits where positions
  * are in metres and velocities in m/s. {@code ABS_TOL = 1e-3} = 1 mm of
  * absolute error tolerance; {@code REL_TOL = 1e-12} for the relative
- * component. Adjust if a faster-but-coarser preset becomes useful.
+ * component.
  */
 public final class DP853Integrator implements Integrator {
 
@@ -31,33 +29,58 @@ public final class DP853Integrator implements Integrator {
     private static final double ABS_TOL  = 1.0e-3;     // 1 mm
     private static final double REL_TOL  = 1.0e-12;
 
+    /**
+     * Hoisted from the original per-step construction. Reused across all
+     * steps in the same Simulation; thread-safe for our usage because each
+     * Simulation has its own DP853Integrator instance and chunks run
+     * sequentially within a Simulation.
+     */
+    private final DormandPrince853Integrator hipparchusIntegrator =
+        new DormandPrince853Integrator(MIN_STEP, MAX_STEP, ABS_TOL, REL_TOL);
+
+    /**
+     * Set immediately before each {@link #stepInto} call, then read by
+     * {@link #ode}'s {@code computeDerivatives} on each Hipparchus substep.
+     * Field rather than a captured local so {@code ode} can be allocated
+     * once and reused.
+     */
+    private NBodyDerivatives currentDerivatives;
+
+    /**
+     * Scratch buffer for derivative output. Returned to Hipparchus from
+     * {@code computeDerivatives}; Hipparchus reads its contents and uses
+     * its own internal storage afterwards, so reusing is safe.
+     */
+    private double[] derivScratch;
+
+    /**
+     * Reused across steps. Holds {@link #currentDerivatives} and
+     * {@link #derivScratch} via closure over the outer instance.
+     */
+    private final OrdinaryDifferentialEquation ode = new OrdinaryDifferentialEquation() {
+        @Override
+        public int getDimension() {
+            return derivScratch.length;
+        }
+
+        @Override
+        public double[] computeDerivatives(double t, double[] y) {
+            currentDerivatives.derivativesInto(derivScratch, y);
+            return derivScratch;
+        }
+    };
+
     @Override
-    public GlobalState step(GlobalState initial, double dt, NBodyDerivatives derivatives) {
-        final int bodyCount = initial.bodyCount();
-        final int dimension = initial.data().length;
+    public void stepInto(double[] out, double[] state, double dt, NBodyDerivatives derivatives) {
+        if (derivScratch == null || derivScratch.length != state.length) {
+            derivScratch = new double[state.length];
+        }
+        currentDerivatives = derivatives;
 
-        // Bridge to Hipparchus's ODE interface: given a flat array of state
-        // at substep time t, return the derivative as a flat array.
-        OrdinaryDifferentialEquation ode = new OrdinaryDifferentialEquation() {
-            @Override
-            public int getDimension() {
-                return dimension;
-            }
+        ODEState start = new ODEState(0.0, state);
+        ODEState end = hipparchusIntegrator.integrate(ode, start, dt);
 
-            @Override
-            public double[] computeDerivatives(double t, double[] y) {
-                return derivatives.derivatives(new GlobalState(y, bodyCount)).data();
-            }
-        };
-
-        // A fresh integrator per step is wasteful (each constructs internal
-        // tableaux); profiling may justify hoisting it. P2 perf concern.
-        ODEIntegrator integrator =
-            new DormandPrince853Integrator(MIN_STEP, MAX_STEP, ABS_TOL, REL_TOL);
-
-        ODEState start = new ODEState(0.0, initial.data());
-        ODEState end = integrator.integrate(ode, start, dt);
-
-        return new GlobalState(end.getCompleteState(), bodyCount);
+        // Hipparchus returns an internal array; copy into caller's buffer.
+        System.arraycopy(end.getCompleteState(), 0, out, 0, out.length);
     }
 }

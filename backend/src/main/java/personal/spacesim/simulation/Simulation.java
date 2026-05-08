@@ -3,7 +3,6 @@ package personal.spacesim.simulation;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.hipparchus.geometry.euclidean.threed.Vector3D;
 import org.orekit.frames.Frame;
 import org.orekit.time.AbsoluteDate;
 import personal.spacesim.constants.PhysicsConstants;
@@ -17,6 +16,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static personal.spacesim.simulation.state.GlobalState.COORDS_PER_BODY;
 
 @Getter
 @Setter
@@ -34,6 +35,22 @@ public class Simulation {
     private boolean hasEmittedInitialFrame = false;
     private static final int TIMESTEPS_TO_RUN = 10_000;
 
+    /**
+     * Live state vector, advanced once per timestep. Carries position +
+     * velocity for all bodies in the same flat layout as {@link GlobalState}.
+     * Replaced each step by swap with {@link #nextStateBuffer} (so the
+     * integrator can write into a scratch and we never reallocate). Index
+     * {@code i*6..i*6+5} = (x, y, z, vx, vy, vz) for body i.
+     */
+    private double[] currentStateBuffer;
+    private double[] nextStateBuffer;
+
+    /**
+     * Cached index of the Sun in {@link #celestialBodies} for snapshot
+     * Sun-relative shifting; -1 if no Sun is in the system.
+     */
+    private final int sunIndex;
+
     public Simulation(
             String sessionID,
             List<CelestialBodyWrapper> celestialBodies,
@@ -50,18 +67,38 @@ public class Simulation {
         this.simCurrentDate = simStartDate;
         this.timeStepUnit = timeStepUnit;
         this.derivatives = NBodyDerivatives.forBodies(celestialBodies);
+
+        // Pack initial wrapper state into the buffer once. After this, the
+        // wrappers are no longer kept in sync with the integrator state —
+        // their position/velocity fields are stale by design (snapshot reads
+        // pull straight from currentStateBuffer instead).
+        GlobalState initial = GlobalState.pack(celestialBodies);
+        this.currentStateBuffer = initial.data().clone();
+        this.nextStateBuffer = new double[currentStateBuffer.length];
+
+        // Cache Sun index so snapshot Sun-relative shifting doesn't re-search
+        // the body list every timestep.
+        int sunIdx = -1;
+        for (int i = 0; i < celestialBodies.size(); i++) {
+            if (celestialBodies.get(i).getName().equalsIgnoreCase("sun")) {
+                sunIdx = i;
+                break;
+            }
+        }
+        this.sunIndex = sunIdx;
     }
 
     private void update() {
         double deltaTimeSeconds = convertTimeStep(timeStepUnit);
         simCurrentDate = simCurrentDate.shiftedBy(deltaTimeSeconds);
 
-        // Pack all bodies (including the Sun — true N-body, no special-casing).
-        // The integrator advances the global state; the result is unpacked
-        // back into the wrappers in-place.
-        GlobalState state = GlobalState.pack(celestialBodies);
-        GlobalState newState = integrator.step(state, deltaTimeSeconds, derivatives);
-        newState.unpackInto(celestialBodies);
+        integrator.stepInto(nextStateBuffer, currentStateBuffer, deltaTimeSeconds, derivatives);
+
+        // Swap — the just-written nextStateBuffer becomes "current" for the
+        // next snapshot/step; the old current is recycled as the new "next".
+        double[] tmp = currentStateBuffer;
+        currentStateBuffer = nextStateBuffer;
+        nextStateBuffer = tmp;
     }
 
     public Map<AbsoluteDate, List<CelestialBodySnapshot>> run() {
@@ -70,14 +107,14 @@ public class Simulation {
 
         // Emit the initial frame only on the first run; subsequent runs continue from where we left off.
         if (!hasEmittedInitialFrame) {
-            results.put(simCurrentDate, snapshotCelestialBodies(celestialBodies));
+            results.put(simCurrentDate, snapshotFromState());
             hasEmittedInitialFrame = true;
         }
 
         int currentTimeStep = 0;
         while (currentTimeStep < TIMESTEPS_TO_RUN) {
             update();
-            results.put(simCurrentDate, snapshotCelestialBodies(celestialBodies));
+            results.put(simCurrentDate, snapshotFromState());
             currentTimeStep++;
         }
 
@@ -90,28 +127,41 @@ public class Simulation {
         return results;
     }
 
-    private List<CelestialBodySnapshot> snapshotCelestialBodies(List<CelestialBodyWrapper> originalList) {
-        // The Sun is integrated like any other body (true N-body physics) and so
-        // wobbles slightly in absolute coordinates under planetary tug. For
-        // visualization we want the Sun anchored at origin, so we subtract its
-        // position/velocity from every body's snapshot. If no Sun is in the
-        // system (custom scenarios), the snapshot uses raw integrator state.
-        Vector3D originPos = Vector3D.ZERO;
-        Vector3D originVel = Vector3D.ZERO;
-        for (CelestialBodyWrapper body : originalList) {
-            if (body.getName().equalsIgnoreCase("sun")) {
-                originPos = body.getPosition();
-                originVel = body.getVelocity();
-                break;
-            }
+    /**
+     * Build a snapshot list directly from {@link #currentStateBuffer}.
+     * Sun-relative shifting (so the rendered Sun stays anchored at origin)
+     * is done component-wise on primitive doubles — only the final two
+     * Vector3D constructions inside each {@link CelestialBodySnapshot} are
+     * unavoidable, since the snapshot record is the public wire format.
+     */
+    private List<CelestialBodySnapshot> snapshotFromState() {
+        double[] data = currentStateBuffer;
+        double sunX = 0, sunY = 0, sunZ = 0;
+        double sunVx = 0, sunVy = 0, sunVz = 0;
+        if (sunIndex >= 0) {
+            int sunBase = sunIndex * COORDS_PER_BODY;
+            sunX  = data[sunBase];
+            sunY  = data[sunBase + 1];
+            sunZ  = data[sunBase + 2];
+            sunVx = data[sunBase + 3];
+            sunVy = data[sunBase + 4];
+            sunVz = data[sunBase + 5];
         }
 
-        List<CelestialBodySnapshot> copy = new ArrayList<>();
-        for (CelestialBodyWrapper body : originalList) {
+        int n = celestialBodies.size();
+        List<CelestialBodySnapshot> copy = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            int base = i * COORDS_PER_BODY;
             copy.add(new CelestialBodySnapshot(
-                    body.getName(),
-                    body.getPosition().subtract(originPos),
-                    body.getVelocity().subtract(originVel)
+                    celestialBodies.get(i).getName(),
+                    new org.hipparchus.geometry.euclidean.threed.Vector3D(
+                            data[base]     - sunX,
+                            data[base + 1] - sunY,
+                            data[base + 2] - sunZ),
+                    new org.hipparchus.geometry.euclidean.threed.Vector3D(
+                            data[base + 3] - sunVx,
+                            data[base + 4] - sunVy,
+                            data[base + 5] - sunVz)
             ));
         }
         return copy;

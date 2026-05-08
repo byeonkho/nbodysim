@@ -1,6 +1,5 @@
 package personal.spacesim.utils.math.integrators;
 
-import personal.spacesim.simulation.state.GlobalState;
 import personal.spacesim.simulation.state.NBodyDerivatives;
 
 /**
@@ -15,9 +14,17 @@ import personal.spacesim.simulation.state.NBodyDerivatives;
  */
 public final class EulerIntegrator implements Integrator {
 
+    /** Lazily-allocated scratch for k = f(state); reused across steps. */
+    private double[] kScratch;
+
     @Override
-    public GlobalState step(GlobalState state, double dt, NBodyDerivatives derivatives) {
-        GlobalState dy = derivatives.derivatives(state);
-        return state.addScaled(dy, dt);
+    public void stepInto(double[] out, double[] state, double dt, NBodyDerivatives derivatives) {
+        if (kScratch == null || kScratch.length != state.length) {
+            kScratch = new double[state.length];
+        }
+        derivatives.derivativesInto(kScratch, state);
+        for (int i = 0; i < state.length; i++) {
+            out[i] = state[i] + dt * kScratch[i];
+        }
     }
 }

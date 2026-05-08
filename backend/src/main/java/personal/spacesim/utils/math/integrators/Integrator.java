@@ -18,13 +18,35 @@ import personal.spacesim.simulation.state.NBodyDerivatives;
  *
  * <p>Sealed so the compiler can enforce exhaustive handling downstream
  * (e.g. UI dropdowns, factory mappings).
+ *
+ * <p>Implementations are stateful (hold scratch arrays as fields). One
+ * {@code Integrator} instance per {@code Simulation} — do not share across
+ * concurrent simulations.
  */
 public sealed interface Integrator
     permits EulerIntegrator, RK4Integrator, DP853Integrator {
 
     /**
-     * Advance {@code state} forward by {@code dt} using {@code derivatives}.
-     * Returns a new state — does not mutate the input.
+     * Mutating-output variant. Writes the next state into {@code out} given
+     * the current {@code state} (raw flat array layout matching
+     * {@link GlobalState#data()}).
+     *
+     * <p>Hot path: called once per timestep, ~10K times per chunk. Implementations
+     * own scratch buffers (allocated lazily on first call, sized to match the
+     * input dimension) so this method allocates nothing once warmed up.
+     *
+     * <p>{@code out} and {@code state} must NOT alias — implementations may
+     * read {@code state} multiple times after writing to {@code out}.
      */
-    GlobalState step(GlobalState state, double dt, NBodyDerivatives derivatives);
+    void stepInto(double[] out, double[] state, double dt, NBodyDerivatives derivatives);
+
+    /**
+     * Allocating wrapper around {@link #stepInto}. Convenient for tests and
+     * one-shot calls; not for hot loops.
+     */
+    default GlobalState step(GlobalState state, double dt, NBodyDerivatives derivatives) {
+        double[] result = new double[state.data().length];
+        stepInto(result, state.data(), dt, derivatives);
+        return new GlobalState(result, state.bodyCount());
+    }
 }
