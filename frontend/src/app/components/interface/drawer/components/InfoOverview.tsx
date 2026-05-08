@@ -1,7 +1,10 @@
-import React from "react";
-import { useSelector } from "react-redux";
+import React, { useEffect, useState } from "react";
+import { useStore } from "react-redux";
 import { RootState } from "@/app/store/Store";
-import { CelestialBody } from "@/app/store/slices/SimulationSlice";
+import {
+  CelestialBody,
+  selectCurrentTimeStepKey,
+} from "@/app/store/slices/SimulationSlice";
 import {
   Paper,
   Table,
@@ -14,10 +17,30 @@ import {
 } from "@mui/material";
 import theme from "@/muiTheme";
 
+// Debug panel — refresh at 5 Hz, well below frame rate. Subscribing to Redux
+// per frame would force a render of this whole MUI table on every animation
+// tick, which is wasteful for a panel a human is reading.
+const REFRESH_INTERVAL_MS = 200;
+
 const InfoOverview: React.FC = () => {
-  const currentSnapshot = useSelector(
-    (state: RootState) => state.simulation.currentSimulationSnapshot,
-  );
+  const store = useStore<RootState>();
+  const [snapshot, setSnapshot] = useState<CelestialBody[]>([]);
+
+  useEffect(() => {
+    const tick = () => {
+      const state = store.getState();
+      const simulationData = state.simulation.simulationData;
+      const key = selectCurrentTimeStepKey(state);
+      if (simulationData && key && simulationData[key]) {
+        setSnapshot(simulationData[key]);
+      } else {
+        setSnapshot([]);
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [store]);
 
   return (
     <Paper
@@ -39,7 +62,7 @@ const InfoOverview: React.FC = () => {
       >
         Current Snapshot Information
       </Typography>
-      {currentSnapshot && currentSnapshot.length > 0 ? (
+      {snapshot.length > 0 ? (
         <TableContainer
           component={Paper}
           sx={{ backgroundColor: theme.palette.background.default }}
@@ -65,7 +88,7 @@ const InfoOverview: React.FC = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {currentSnapshot.map((body: CelestialBody) => (
+              {snapshot.map((body: CelestialBody) => (
                 <TableRow key={body.name}>
                   <TableCell>
                     <Typography variant="body2">{body.name}</Typography>
@@ -80,8 +103,8 @@ const InfoOverview: React.FC = () => {
                   <TableCell>
                     <Typography variant="body3">
                       ({body.velocity.x.toFixed(2)},{" "}
-                      {body.velocity.y.toFixed(2)}, {body.velocity.z.toFixed(2)}
-                      )
+                      {body.velocity.y.toFixed(2)},{" "}
+                      {body.velocity.z.toFixed(2)})
                     </Typography>
                   </TableCell>
                 </TableRow>

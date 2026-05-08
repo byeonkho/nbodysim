@@ -1,96 +1,98 @@
-import React from "react";
+import React, { useRef } from "react";
 import { Html } from "@react-three/drei";
+import { useFrame } from "@react-three/fiber";
+import { useSelector, useStore } from "react-redux";
 import {
   CelestialBody,
+  CelestialBodyProperties,
   selectCelestialBodyPropertiesList,
-  selectCurrentSimulationSnapshot,
+  selectCurrentTimeStepKey,
   selectSimulationScale,
   SimulationScale,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
-import { useSelector } from "react-redux";
+import { RootState } from "@/app/store/Store";
 import { scaleDistance } from "@/app/utils/helpers";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
+import * as THREE from "three";
 
-interface PlanetInfoOverlayItemProps {
-  body: CelestialBody;
+interface PlanetInfoOverlayAllProps {
+  bodyName: string;
 }
 
-const PlanetInfoOverlayAll: React.FC<PlanetInfoOverlayItemProps> = ({
-  body,
+const PlanetInfoOverlayAll: React.FC<PlanetInfoOverlayAllProps> = ({
+  bodyName,
 }) => {
-  const simulationSnapshot: CelestialBody[] = useSelector(
-    selectCurrentSimulationSnapshot,
-  );
   const simulationScale: SimulationScale = useSelector(selectSimulationScale);
   const celestialBodyPropertiesList = useSelector(
     selectCelestialBodyPropertiesList,
   );
+  const store = useStore<RootState>();
+  const groupRef = useRef<THREE.Group>(null!);
 
-  // Prepare the body name for lookup
-  const bodyName: string = body.name.trim().toUpperCase();
-
-  // Look up the corresponding properties for this body.
-  const properties = celestialBodyPropertiesList?.find(
-    (props) => props.name?.trim().toUpperCase() === bodyName,
-  );
-
-  // Calculate position.
-  let position: [number, number, number];
-  // If this body has a special position scale (i.e., an exception) and has an orbiting body defined:
-  if (
-    properties?.positionScale !== undefined &&
-    properties.positionScale !== 1 &&
-    properties.orbitingBody
-  ) {
-    // Capture into a local const so TS's narrowing survives into the closure below.
-    const orbitingBodyName = properties.orbitingBody;
-    const orbitingBody = simulationSnapshot.find(
-      (b: CelestialBody) =>
-        b.name.trim().toUpperCase() ===
-        orbitingBodyName.trim().toUpperCase(),
+  const upperName = bodyName.trim().toUpperCase();
+  const properties: CelestialBodyProperties | undefined =
+    celestialBodyPropertiesList?.find(
+      (p) => p.name?.trim().toUpperCase() === upperName,
     );
-    if (orbitingBody) {
-      const scaled: Vector3Simple = scaleDistance(
-        body.position,
-        orbitingBody.position,
-        properties.positionScale,
+  const orbitingNameUpper =
+    properties?.orbitingBody?.trim().toUpperCase() ?? "";
+
+  useFrame(() => {
+    if (!groupRef.current || !properties) return;
+
+    const state = store.getState();
+    const simulationData = state.simulation.simulationData;
+    const currentTimeStepKey = selectCurrentTimeStepKey(state);
+    if (!simulationData || !currentTimeStepKey) return;
+    const snapshot = simulationData[currentTimeStepKey];
+    if (!snapshot) return;
+
+    const body = snapshot.find(
+      (b: CelestialBody) => b.name.trim().toUpperCase() === upperName,
+    );
+    if (!body) return;
+
+    let pos: Vector3Simple = body.position;
+    if (
+      properties.positionScale !== undefined &&
+      properties.positionScale !== 1 &&
+      orbitingNameUpper
+    ) {
+      const orbiting = snapshot.find(
+        (b: CelestialBody) =>
+          b.name.trim().toUpperCase() === orbitingNameUpper,
       );
-      position = [
-        scaled.x / simulationScale.positionScale,
-        scaled.y / simulationScale.positionScale,
-        scaled.z / simulationScale.positionScale,
-      ];
-    } else {
-      // Fallback: use raw position.
-      position = [
-        body.position.x / simulationScale.positionScale,
-        body.position.y / simulationScale.positionScale,
-        body.position.z / simulationScale.positionScale,
-      ];
+      if (orbiting) {
+        pos = scaleDistance(body.position, orbiting.position, properties.positionScale);
+      }
     }
-  } else {
-    position = [
-      body.position.x / simulationScale.positionScale,
-      body.position.y / simulationScale.positionScale,
-      body.position.z / simulationScale.positionScale,
-    ];
-  }
+
+    groupRef.current.position.set(
+      pos.x / simulationScale.positionScale,
+      pos.y / simulationScale.positionScale,
+      pos.z / simulationScale.positionScale,
+    );
+  });
+
+  if (!properties) return null;
 
   return (
-    <Html position={position} style={{ pointerEvents: "none" }}>
-      <Box
-        style={{
-          background: "transparent",
-          padding: "4px 8px", // TODO
-        }}
-      >
-        <Typography style={{ color: "#fff", margin: 0 }}>
-          {body.name}
-        </Typography>
-      </Box>
-    </Html>
+    <group ref={groupRef}>
+      <Html style={{ pointerEvents: "none" }}>
+        <Box
+          style={{
+            background: "transparent",
+            padding: "4px 8px",
+          }}
+        >
+          <Typography style={{ color: "#fff", margin: 0 }}>
+            {bodyName}
+          </Typography>
+        </Box>
+      </Html>
+    </group>
   );
 };
 

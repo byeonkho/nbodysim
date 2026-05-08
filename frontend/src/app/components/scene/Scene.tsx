@@ -11,23 +11,19 @@ import { useDispatch, useSelector } from "react-redux";
 import { bodyProperties } from "@/app/constants/SimConstants";
 import * as THREE from "three";
 import {
-  CelestialBody,
   CelestialBodyProperties,
-  selectActiveBody,
+  selectActiveBodyName,
   selectCelestialBodyPropertiesList,
-  selectCurrentSimulationSnapshot,
   selectShowAxes,
   selectShowGrid,
   selectShowPlanetInfoOverlay,
+  selectShowTrails,
   selectSimulationScale,
   setIsBodyActive,
   SimulationScale,
-  Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
 import { useTheme } from "@mui/material/styles";
 import PlanetInfoOverlayActive from "@/app/components/scene/PlanetInfoOverlayActive";
-
-import { scaleDistance } from "@/app/utils/helpers";
 import PlanetInfoOverlayAll from "@/app/components/scene/PlanetInfoOverlayAll";
 
 const Scene = () => {
@@ -37,18 +33,17 @@ const Scene = () => {
   const celestialBodyPropertiesList = useSelector(
     selectCelestialBodyPropertiesList,
   );
-  const simulationSnapshot: CelestialBody[] = useSelector(
-    selectCurrentSimulationSnapshot,
-  );
-  const activeBody: CelestialBody | null = useSelector(selectActiveBody);
+  const activeBodyName = useSelector(selectActiveBodyName);
 
   //////// SIM PARAMS ////////
   const showGrid: boolean = useSelector(selectShowGrid);
   const showAxes: boolean = useSelector(selectShowAxes);
+  const showTrails: boolean = useSelector(selectShowTrails);
   const simulationScale: SimulationScale = useSelector(selectSimulationScale);
 
-  // Derived radii: body radius / current scale's radiusScale, indexed by name.
-  // useMemo (not useEffect) — this is derived state, not a side effect.
+  // Per-body radius derived from current scale's radiusScale, indexed by name.
+  // Stable across animation frames because both inputs are stable across
+  // frames — only changes when celestialBodyPropertiesList or scale changes.
   const celestialBodyRadiusMap = useMemo(() => {
     const map = new Map<string, number>();
     if (!celestialBodyPropertiesList) return map;
@@ -108,107 +103,45 @@ const Scene = () => {
           args={[simulationScale.GRID.SIZE, simulationScale.GRID.SEGMENTS]}
         />
       )}
-      {simulationSnapshot.map((body: CelestialBody) => {
-        const radius: number = celestialBodyRadiusMap.get(body.name) ?? 1; // Default to 1 if not found
-        let orbitingBody: CelestialBody | undefined;
-
-        if (body.name.toUpperCase() === "SUN") {
-          return (
-            <React.Fragment key={body.name}>
-              <pointLight
-                key="sun-light"
-                position={[body.position.x, body.position.y, body.position.z]}
-                intensity={simulationScale.positionScale * 0.0001} // TODO adjust the intensity as needed
-                distance={simulationScale.positionScale} // TODO adjust the distance so the light falls off
-                // appropriately
-                color={0xffffff} // typically white light for the sun
-              />
-              <Sphere
-                key={body.name}
-                name={body.name}
-                body={body}
-                position={[
-                  body.position.x / simulationScale.positionScale,
-                  body.position.y / simulationScale.positionScale,
-                  body.position.z / simulationScale.positionScale,
-                ]}
-                radius={radius}
-                textureUrl={
-                  bodyProperties[body.name.toUpperCase()]?.texture.src ||
-                  bodyProperties["FALLBACK"].texture.src // TODO use slice state
-                }
-                rotationSpeed={bodyProperties[body.name.toUpperCase()]?.rotationSpeed ?? 0.1}
-                unlit
-              />
-            </React.Fragment>
-          );
-        }
-
-        // prepare orbitingBody if current body needs to be distance scaled
-        // TODO orbitingBody is misleading. parentBody instead?
-        const celestialBodyProperties = celestialBodyPropertiesList.find(
-          (bp: CelestialBodyProperties) =>
-            bp.name?.toUpperCase() === body.name.toUpperCase(),
-        );
-        if (!celestialBodyProperties) return null;
-
-        const positionScale = celestialBodyProperties.positionScale ?? 1;
-        const orbitingBodyName = celestialBodyProperties.orbitingBody;
-
-        if (positionScale !== 1 && orbitingBodyName) {
-          orbitingBody = simulationSnapshot.find(
-            (b: CelestialBody) =>
-              b.name.toUpperCase() === orbitingBodyName.toUpperCase(),
-          );
-        }
-
-        const spherePosition: [number, number, number] = orbitingBody
-          ? (() => {
-              const scaled: Vector3Simple = scaleDistance(
-                body.position,
-                orbitingBody.position,
-                positionScale,
-              );
-              return [
-                scaled.x / simulationScale.positionScale,
-                scaled.y / simulationScale.positionScale,
-                scaled.z / simulationScale.positionScale,
-              ];
-            })()
-          : [
-              body.position.x / simulationScale.positionScale,
-              body.position.y / simulationScale.positionScale,
-              body.position.z / simulationScale.positionScale,
-            ];
+      {celestialBodyPropertiesList?.map((props: CelestialBodyProperties) => {
+        if (!props.name) return null;
+        const name = props.name;
+        const radius: number = celestialBodyRadiusMap.get(name) ?? 1;
+        const isSun = name.toUpperCase() === "SUN";
 
         return (
-          <React.Fragment key={body.name}>
+          <React.Fragment key={name}>
             <Sphere
-              name={body.name}
-              body={body}
-              position={spherePosition}
+              name={name}
               radius={radius}
               textureUrl={
-                bodyProperties[body.name.toUpperCase()]?.texture.src ||
+                bodyProperties[name.toUpperCase()]?.texture.src ||
                 bodyProperties["FALLBACK"].texture.src
               }
-              rotationSpeed={bodyProperties[body.name.toUpperCase()]?.rotationSpeed ?? 0.1}
+              rotationSpeed={
+                bodyProperties[name.toUpperCase()]?.rotationSpeed ?? 0.1
+              }
+              unlit={isSun}
             />
-            <Trail bodyName={body.name} />
+            {!isSun && showTrails && <Trail bodyName={name} />}
           </React.Fragment>
         );
       })}
       <PlanetInfoOverlayActive />
-      {/* Conditionally render overlays for all bodies except the active one */}
       {showPlanetInfoOverlay &&
-        simulationSnapshot
-          .filter(
-            (body) =>
-              body.name.trim().toUpperCase() !==
-                activeBody?.name.trim().toUpperCase() || "",
+        celestialBodyPropertiesList
+          ?.filter(
+            (props) =>
+              props.name &&
+              props.name.trim().toUpperCase() !==
+                (activeBodyName ?? "").trim().toUpperCase(),
           )
-          .map((body) => <PlanetInfoOverlayAll key={body.name} body={body} />)}
-      )
+          .map((props) => (
+            <PlanetInfoOverlayAll
+              key={props.name}
+              bodyName={props.name as string}
+            />
+          ))}
     </Canvas>
   );
 };

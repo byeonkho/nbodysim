@@ -2,48 +2,49 @@ import React, { useEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { useSelector } from "react-redux";
+import { useSelector, useStore } from "react-redux";
 import {
   CelestialBody,
-  selectActiveBody,
-  selectBodyRadiusFromName,
+  CelestialBodyProperties,
+  selectActiveBodyName,
+  selectCurrentTimeStepKey,
   selectIsBodyActive,
   selectSimulationScale,
   SimulationScale,
 } from "@/app/store/slices/SimulationSlice";
 import * as THREE from "three";
 import { RootState } from "@/app/store/Store";
+import {
+  getDevSettings,
+  useDevSettings,
+} from "@/app/dev/devSettingsStore";
 
 const Camera: React.FC = () => {
   const { camera, gl } = useThree();
   const controlsRef = useRef<OrbitControlsImpl>(null!);
-  const activeBody: CelestialBody | null = useSelector(selectActiveBody);
+  const activeBodyName: string | null = useSelector(selectActiveBodyName);
   const isBodyActive: boolean = useSelector(selectIsBodyActive);
   const simulationScale: SimulationScale = useSelector(selectSimulationScale);
+  const { orbitDampingFactor } = useDevSettings();
+  const store = useStore<RootState>();
 
   // Active body's radius scaled by the current simulationScale.
-  const radius =
-    useSelector((state: RootState): number | undefined =>
-      activeBody && isBodyActive
-        ? (
-            selectBodyRadiusFromName as (
-              state: RootState,
-              props: { bodyName: string },
-            ) => number
-          )(state, { bodyName: activeBody.name })
-        : undefined,
-    )! / simulationScale.radiusScale;
+  // Pulled imperatively from the props list; only re-derived on identity change.
+  const activeRadius = (() => {
+    if (!activeBodyName || !isBodyActive) return undefined;
+    const propsList =
+      store.getState().simulation.simulationParameters
+        .celestialBodyPropertiesList;
+    const bodyProps = propsList.find(
+      (bp: CelestialBodyProperties) =>
+        bp.name?.toUpperCase() === activeBodyName.toUpperCase(),
+    );
+    return bodyProps?.radius;
+  })();
+  const radius = (activeRadius ?? 1) / simulationScale.radiusScale;
 
-  // Tracking zoom level (adjusted by mouse scroll). Initial value is
-  // overwritten by the framing useEffect once simulationScale is known —
-  // any sensible default works here. Reading controlsRef.current during
-  // render is a React 19 anti-pattern (would lint-fail) and pointless on
-  // first render anyway since the controls haven't mounted yet.
-  const trackingZoomRef = useRef<number>(radius ?? 1);
+  const trackingZoomRef = useRef<number>(radius);
 
-  // Three.js cameras are mutable objects intentionally — configuring them
-  // means writing to fields like `near`/`far`. React 19's hook-immutability
-  // rule flags this, but it's the canonical three.js pattern.
   /* eslint-disable react-hooks/immutability */
   useEffect(() => {
     camera.near = 0.1;
@@ -52,9 +53,6 @@ const Camera: React.FC = () => {
   }, [camera]);
   /* eslint-enable react-hooks/immutability */
 
-  // Initial framing: set camera position relative to the current scale's AXES.SIZE
-  // so the inner solar system fills a comfortable portion of the view. Re-runs on
-  // scale toggle so Realistic ↔ Semi-Realistic both look reasonable on entry.
   useEffect(() => {
     if (!controlsRef.current) return;
     const D = simulationScale.AXES.SIZE;
@@ -64,14 +62,11 @@ const Camera: React.FC = () => {
     trackingZoomRef.current = D * 0.3;
   }, [camera, simulationScale]);
 
-  // Listen for mouse wheel events to adjust the tracking zoom.
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
-      console.log("zoom level: ", trackingZoomRef.current);
-      e.preventDefault(); // Prevent page scroll.
-      // Adjust trackingZoomRef: positive deltaY zooms out, negative zooms in.
-      trackingZoomRef.current *= 1 + e.deltaY * 0.001;
-      // Clamp the value to a reasonable range.
+      e.preventDefault();
+      const { zoomSensitivity } = getDevSettings();
+      trackingZoomRef.current *= 1 + e.deltaY * zoomSensitivity;
       trackingZoomRef.current = THREE.MathUtils.clamp(
         trackingZoomRef.current,
         0.00001,
@@ -85,41 +80,48 @@ const Camera: React.FC = () => {
     };
   }, [gl.domElement]);
 
-  // Smoothed radius for the body-tracking camera distance. Same pattern
-  // as trackingZoomRef — actual value catches up via lerp inside useFrame.
-  const smoothRadiusRef = useRef<number>(1);
+  // Reuse one Vector3 across frames — no per-frame allocation.
+  const targetScratch = useRef(new THREE.Vector3());
 
   useFrame(() => {
-    if (isBodyActive && activeBody) {
-      // 1. Compute the new target position based on the active body's scaled position.
-      const newTarget = new THREE.Vector3(
-        activeBody.position.x / simulationScale.positionScale,
-        activeBody.position.y / simulationScale.positionScale,
-        activeBody.position.z / simulationScale.positionScale,
-      );
-      // Smoothly update the OrbitControls target.
-      controlsRef.current.target.lerp(newTarget, 0.01);
+    if (isBodyActive && activeBodyName) {
+      // Read the live snapshot for the active body imperatively.
+      const state = store.getState();
+      const simulationData = state.simulation.simulationData;
+      const currentTimeStepKey = selectCurrentTimeStepKey(state);
+      const scale = state.simulation.simulationParameters.simulationScale;
 
-      // 2. Get the current relative vector from the camera to the old target.
-      //    Convert that vector to spherical coordinates.
-      const relVec = camera.position.clone().sub(controlsRef.current.target);
-      const spherical = new THREE.Spherical().setFromVector3(relVec);
+      if (simulationData && currentTimeStepKey) {
+        const snapshot = simulationData[currentTimeStepKey];
+        const body = snapshot?.find(
+          (b: CelestialBody) => b.name === activeBodyName,
+        );
+        if (body) {
+          targetScratch.current.set(
+            body.position.x / scale.positionScale,
+            body.position.y / scale.positionScale,
+            body.position.z / scale.positionScale,
+          );
+          controlsRef.current.target.lerp(targetScratch.current, 0.01);
 
-      // 3. Update the radius (zoom) using the trackingZoomRef.
-      // Smooth the radius to avoid abrupt changes.
-      smoothRadiusRef.current = THREE.MathUtils.lerp(
-        smoothRadiusRef.current,
-        trackingZoomRef.current,
-        0.5,
-      );
-      spherical.radius = smoothRadiusRef.current;
+          const offset = camera.position
+            .clone()
+            .sub(controlsRef.current.target);
+          const currentRadius = offset.length();
+          if (currentRadius > 0) offset.divideScalar(currentRadius);
 
-      // 4. Reconstruct the camera's desired position using the unchanged spherical angles.
-      const newRelVec = new THREE.Vector3().setFromSpherical(spherical);
-      const desiredPosition = controlsRef.current.target.clone().add(newRelVec);
+          const { cameraZoomLerpRate } = getDevSettings();
+          const newRadius = THREE.MathUtils.lerp(
+            currentRadius,
+            trackingZoomRef.current,
+            cameraZoomLerpRate,
+          );
 
-      // Smoothly update the camera position.
-      camera.position.lerp(desiredPosition, 0.01);
+          camera.position
+            .copy(controlsRef.current.target)
+            .addScaledVector(offset, newRadius);
+        }
+      }
     }
     controlsRef.current.update();
   });
@@ -128,8 +130,8 @@ const Camera: React.FC = () => {
     <OrbitControls
       ref={controlsRef}
       enableDamping
-      dampingFactor={0.01} // smaller values = more damping
-      // maxPolarAngle={Math.PI / 2}
+      dampingFactor={orbitDampingFactor}
+      enableZoom={!isBodyActive}
     />
   );
 };

@@ -3,8 +3,6 @@
 
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import {
-  selectCurrentTimeStepIndex,
-  setCurrentTimeStepIndex,
   setIsUpdating,
   updateDataReceived,
 } from "@/app/store/slices/SimulationSlice";
@@ -70,7 +68,7 @@ export const requestRunSimulation = createAsyncThunk<
   { state: RootState }
 >(
   "simulation/requestChunk",
-  async ({ sessionID }, { dispatch, getState }) => {
+  async ({ sessionID }, { dispatch }) => {
     dispatch(setIsUpdating(true));
     dispatch(setRequestInProgress(true));
 
@@ -96,12 +94,6 @@ export const requestRunSimulation = createAsyncThunk<
 
       dispatch(setRequestInProgress(false));
       dispatch(updateDataReceived({ data: messageData.data }));
-
-      // First-chunk init: kick the index so the snapshot middleware fires.
-      const updatedState = getState();
-      if (selectCurrentTimeStepIndex(updatedState) === 0) {
-        dispatch(setCurrentTimeStepIndex(0));
-      }
     } catch (err) {
       dispatch(setRequestInProgress(false));
       dispatch(setIsUpdating(false));

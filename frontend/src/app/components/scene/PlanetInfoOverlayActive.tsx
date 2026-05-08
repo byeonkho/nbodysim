@@ -1,17 +1,19 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { Html } from "@react-three/drei";
-import { useSelector } from "react-redux";
+import { useFrame } from "@react-three/fiber";
+import { useSelector, useStore } from "react-redux";
 import {
   CelestialBody,
   CelestialBodyProperties,
-  selectActiveBody,
+  selectActiveBodyName,
   selectCelestialBodyPropertiesList,
-  selectCurrentSimulationSnapshot,
+  selectCurrentTimeStepKey,
   selectIsBodyActive,
   selectSimulationScale,
   SimulationScale,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
+import { RootState } from "@/app/store/Store";
 
 import {
   calculateDistance,
@@ -23,75 +25,106 @@ import {
 } from "@/app/utils/helpers";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
+import * as THREE from "three";
 
 const PlanetInfoOverlayActive = () => {
-  const activeBody: CelestialBody | null = useSelector(selectActiveBody);
+  const activeBodyName = useSelector(selectActiveBodyName);
   const isBodyActive: boolean = useSelector(selectIsBodyActive);
-  const simulationSnapshot: CelestialBody[] = useSelector(
-    selectCurrentSimulationSnapshot,
+  const celestialBodyPropertiesList: CelestialBodyProperties[] = useSelector(
+    selectCelestialBodyPropertiesList,
   );
-  const celestialBodyPropertiesList: CelestialBodyProperties[] =
-    useSelector(selectCelestialBodyPropertiesList);
   const simulationScale: SimulationScale = useSelector(selectSimulationScale);
+  const store = useStore<RootState>();
 
-  // All hooks must run every render — early returns go AFTER hook calls.
-  if (!activeBody || !isBodyActive) {
-    return null;
-  }
+  const groupRef = useRef<THREE.Group>(null!);
+  const distanceRef = useRef<HTMLSpanElement>(null);
+  const velocityRef = useRef<HTMLSpanElement>(null);
 
-  const activeNameUpper = activeBody.name?.trim().toUpperCase();
-  const activeBodyProperties = celestialBodyPropertiesList.find(
-    (props) => props.name?.trim().toUpperCase() === activeNameUpper,
-  );
-  if (!activeBodyProperties) return null;
+  // Resolve the active body's properties + parent body name once per
+  // identity / scale change (NOT per frame). These are stable inputs to
+  // the imperative position calculation in useFrame.
+  const upperName = activeBodyName?.trim().toUpperCase() ?? "";
+  const activeProps: CelestialBodyProperties | null = upperName
+    ? celestialBodyPropertiesList.find(
+        (p) => p.name?.trim().toUpperCase() === upperName,
+      ) ?? null
+    : null;
+  const orbitingNameUpper =
+    activeProps?.orbitingBody?.trim().toUpperCase() ?? "";
 
-  const orbitingBodyName = activeBodyProperties.orbitingBody;
-  if (!orbitingBodyName) return null;
+  // Update text contents lazily — they only change perceptibly every few frames.
+  // Throttle by dropping writes when the new formatted string equals the last one.
+  const lastDistance = useRef<string>("");
+  const lastVelocity = useRef<string>("");
 
-  const activeBodySnapshot = simulationSnapshot.find(
-    (body) => body.name.trim().toUpperCase() === activeNameUpper,
-  );
-  const orbitingBodySnapshot = simulationSnapshot.find(
-    (body) =>
-      body.name.trim().toUpperCase() ===
-      orbitingBodyName.trim().toUpperCase(),
-  );
-  if (!activeBodySnapshot || !orbitingBodySnapshot) return null;
+  useFrame(() => {
+    if (!isBodyActive || !activeBodyName || !activeProps || !groupRef.current)
+      return;
 
-  // Compute the anchor position (drei's Html accepts a [x, y, z] tuple).
-  // Bodies with a non-1 positionScale (e.g. Moon) get the parent-relative scaling treatment.
-  const positionScale = activeBodyProperties.positionScale ?? 1;
-  let position: [number, number, number];
-  if (positionScale !== 1) {
-    const scaled: Vector3Simple = scaleDistance(
-      activeBodySnapshot.position,
-      orbitingBodySnapshot.position,
-      positionScale,
+    const state = store.getState();
+    const simulationData = state.simulation.simulationData;
+    const currentTimeStepKey = selectCurrentTimeStepKey(state);
+    if (!simulationData || !currentTimeStepKey) return;
+    const snapshot = simulationData[currentTimeStepKey];
+    if (!snapshot) return;
+
+    const activeBody = snapshot.find(
+      (b: CelestialBody) => b.name.trim().toUpperCase() === upperName,
     );
-    position = [
-      scaled.x / simulationScale.positionScale,
-      scaled.y / simulationScale.positionScale,
-      scaled.z / simulationScale.positionScale,
-    ];
-  } else {
-    position = [
-      activeBody.position.x / simulationScale.positionScale,
-      activeBody.position.y / simulationScale.positionScale,
-      activeBody.position.z / simulationScale.positionScale,
-    ];
-  }
+    if (!activeBody) return;
 
-  const distanceFromOrbitingBody = calculateDistance(
-    activeBodySnapshot.position,
-    orbitingBodySnapshot.position,
-    "AU", // TODO make this dynamic for future
-  );
+    const orbitingBody = orbitingNameUpper
+      ? snapshot.find(
+          (b: CelestialBody) =>
+            b.name.trim().toUpperCase() === orbitingNameUpper,
+        )
+      : undefined;
+    if (!orbitingBody) return;
 
-  const velocityDelta: Vector3Simple = subtractVectors(
-    activeBodySnapshot.velocity,
-    orbitingBodySnapshot.velocity,
-  );
-  const relativeVelocity = calculateMagnitude(velocityDelta);
+    // Anchor position (apply scaleDistance for non-1 positionScale bodies).
+    const positionScale = activeProps.positionScale ?? 1;
+    let pos: Vector3Simple = activeBody.position;
+    if (positionScale !== 1) {
+      pos = scaleDistance(activeBody.position, orbitingBody.position, positionScale);
+    }
+    groupRef.current.position.set(
+      pos.x / simulationScale.positionScale,
+      pos.y / simulationScale.positionScale,
+      pos.z / simulationScale.positionScale,
+    );
+
+    // Update displayed distance + velocity values via DOM refs (no React re-render).
+    const distance = calculateDistance(
+      activeBody.position,
+      orbitingBody.position,
+      "AU",
+    );
+    if (distance !== lastDistance.current && distanceRef.current) {
+      distanceRef.current.textContent = distance;
+      lastDistance.current = distance;
+    }
+
+    const velocityDelta: Vector3Simple = subtractVectors(
+      activeBody.velocity,
+      orbitingBody.velocity,
+    );
+    const relativeVelocity = formatToKM(calculateMagnitude(velocityDelta));
+    if (relativeVelocity !== lastVelocity.current && velocityRef.current) {
+      velocityRef.current.textContent = relativeVelocity;
+      lastVelocity.current = relativeVelocity;
+    }
+  });
+
+  // Reset the text caches when the active body changes so the new body's
+  // values get written at least once on the first frame.
+  useEffect(() => {
+    lastDistance.current = "";
+    lastVelocity.current = "";
+  }, [activeBodyName]);
+
+  if (!activeBodyName || !isBodyActive || !activeProps) return null;
+  const orbitingName = activeProps.orbitingBody;
+  if (!orbitingName) return null;
 
   // divider dimensions
   const diagonalLength: number = 20;
@@ -100,77 +133,70 @@ const PlanetInfoOverlayActive = () => {
   const totalHeight: number = diagonalLength;
 
   return (
-    <Html position={position} style={{ pointerEvents: "none" }}>
-      <Box
-        style={{
-          position: "relative",
-          width: totalWidth,
-          height: totalHeight,
-        }}
-      >
-        {/* SVG divider */}
-        <svg
-          width={totalWidth}
-          height={totalHeight}
-          style={{ position: "absolute", left: 0, bottom: 0 }}
-        >
-          {/* Diagonal segment: from the anchor (bottom left) up to the start of the horizontal line */}
-          <line
-            x1="0"
-            y1={totalHeight}
-            x2={diagonalLength}
-            y2={totalHeight - diagonalLength}
-            stroke="white"
-            strokeWidth="3"
-          />
-          {/* Horizontal segment: from end of the diagonal to the right */}
-          <line
-            x1={diagonalLength}
-            y1={totalHeight - diagonalLength}
-            x2={totalWidth}
-            y2={totalHeight - diagonalLength}
-            stroke="white"
-            strokeWidth="6"
-          />
-        </svg>
-
-        {/* Body name container: positioned above the horizontal line */}
+    <group ref={groupRef}>
+      <Html style={{ pointerEvents: "none" }}>
         <Box
           style={{
-            position: "absolute",
-            left: diagonalLength * 1.5,
-            bottom: totalHeight, // aligns with the horizontal line
-            width: horizontalLength,
-            textAlign: "left",
+            position: "relative",
+            width: totalWidth,
+            height: totalHeight,
           }}
         >
-          <Typography variant="h3"> {activeBody.name}</Typography>
-        </Box>
+          <svg
+            width={totalWidth}
+            height={totalHeight}
+            style={{ position: "absolute", left: 0, bottom: 0 }}
+          >
+            <line
+              x1="0"
+              y1={totalHeight}
+              x2={diagonalLength}
+              y2={totalHeight - diagonalLength}
+              stroke="white"
+              strokeWidth="3"
+            />
+            <line
+              x1={diagonalLength}
+              y1={totalHeight - diagonalLength}
+              x2={totalWidth}
+              y2={totalHeight - diagonalLength}
+              stroke="white"
+              strokeWidth="6"
+            />
+          </svg>
 
-        {/* Velocity info container: positioned below the horizontal line */}
-        <Box
-          style={{
-            position: "absolute",
-            left: diagonalLength * 1.5,
-            top: totalHeight, // starts at the horizontal line
-            width: horizontalLength,
-            textAlign: "left",
-          }}
-        >
-          <Typography variant="body2">
-            {orbitingBodySnapshot?.name && (
-              <>
-                Distance to {toTitleCase(orbitingBodySnapshot.name)}:{" "}
-                {distanceFromOrbitingBody}
-              </>
-            )}
-          </Typography>
-          <Typography variant="body2">
-            Relative Velocity: {formatToKM(relativeVelocity)}
-          </Typography>
+          <Box
+            style={{
+              position: "absolute",
+              left: diagonalLength * 1.5,
+              bottom: totalHeight,
+              width: horizontalLength,
+              textAlign: "left",
+            }}
+          >
+            <Typography variant="h3"> {activeBodyName}</Typography>
+          </Box>
+
+          <Box
+            style={{
+              position: "absolute",
+              left: diagonalLength * 1.5,
+              top: totalHeight,
+              width: horizontalLength,
+              textAlign: "left",
+            }}
+          >
+            <Typography variant="body2">
+              Distance to {toTitleCase(orbitingName)}:{" "}
+              <span ref={distanceRef}></span>
+            </Typography>
+            <Typography variant="body2">
+              Relative Velocity: <span ref={velocityRef}></span>
+            </Typography>
+          </Box>
         </Box>
-      </Box>
-    </Html>
+      </Html>
+    </group>
   );
 };
 

@@ -2,8 +2,11 @@ import React from "react";
 import IconButton from "@mui/material/IconButton";
 import Box from "@mui/material/Box";
 import { useDispatch, useSelector } from "react-redux";
-import { setActiveBody } from "@/app/store/slices/SimulationSlice";
-import { RootState } from "@/app/store/Store";
+import {
+  CelestialBodyProperties,
+  selectCelestialBodyPropertiesList,
+  setActiveBody,
+} from "@/app/store/slices/SimulationSlice";
 
 import MercuryIcon from "@/assets/icons/mercury.png";
 import VenusIcon from "@/assets/icons/venus.png";
@@ -33,10 +36,11 @@ const planetIcons: Record<string, StaticImageData> = {
 
 const BodySelector: React.FC = () => {
   const dispatch = useDispatch();
-  const bodies =
-    useSelector(
-      (state: RootState) => state.simulation.currentSimulationSnapshot,
-    ) || [];
+  const propsList = useSelector(selectCelestialBodyPropertiesList) ?? [];
+
+  const handleSelect = (name: string) => {
+    dispatch(setActiveBody(name));
+  };
 
   return (
     <Box
@@ -51,29 +55,25 @@ const BodySelector: React.FC = () => {
         p: 1,
         borderRadius: 2,
         width: { xs: "90%", sm: "25%" },
-        // height: { xs: "90%", sm: "100px" },
       }}
     >
-      {bodies.map((body) => {
-        const iconData = planetIcons[body.name.toUpperCase()];
-
+      {propsList.map((props: CelestialBodyProperties) => {
+        if (!props.name) return null;
+        const iconData = planetIcons[props.name.toUpperCase()];
         return (
           <IconButton
-            key={body.name}
-            onClick={() => {
-              dispatch(setActiveBody(body));
-            }}
+            key={props.name}
+            onClick={() => handleSelect(props.name as string)}
             sx={{
               m: "0 10px",
               width: { xs: "90%", sm: "10%" },
-              // height: { xs: "90%", sm: "100px" },
-              p: 0, // remove default padding
+              p: 0,
             }}
           >
             <Box
               component="img"
               src={iconData?.src ?? ""}
-              alt={body.name}
+              alt={props.name}
               sx={{
                 aspectRatio: "1/1",
                 width: "100%",
