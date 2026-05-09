@@ -24,6 +24,7 @@ import {
 import { useTheme } from "@mui/material/styles";
 import { Reticle } from "@/app/components/scene/Reticle";
 import { GhostLabel } from "@/app/components/scene/GhostLabel";
+import { bodyColorRgb01, toBodyKey } from "@/app/constants/BodyVisuals";
 
 const Scene = () => {
   const theme = useTheme();
@@ -106,6 +107,10 @@ const Scene = () => {
         const name = props.name;
         const radius: number = celestialBodyRadiusMap.get(name) ?? 1;
         const isSun = name.toUpperCase() === "SUN";
+        const bodyKey = toBodyKey(name);
+        const trailColor: [number, number, number] = bodyKey
+          ? bodyColorRgb01(bodyKey)
+          : [1, 1, 1];
 
         return (
           <React.Fragment key={name}>
@@ -121,7 +126,9 @@ const Scene = () => {
               }
               unlit={isSun}
             />
-            {!isSun && showTrails && <Trail bodyName={name} />}
+            {!isSun && showTrails && (
+              <Trail bodyName={name} color={trailColor} />
+            )}
           </React.Fragment>
         );
       })}

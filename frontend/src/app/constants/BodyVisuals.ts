@@ -124,3 +124,14 @@ export function toBodyKey(name: string): BodyKey | null {
     ? (upper as BodyKey)
     : null;
 }
+
+// RGB triplet in [0, 1] for shaders / vertex colors. Three.js expects
+// floats in this range, not 0-255 ints.
+export function bodyColorRgb01(key: BodyKey): [number, number, number] {
+  const num = parseInt(BODY_COLOR[key].replace("#", ""), 16);
+  return [
+    ((num >> 16) & 0xff) / 255,
+    ((num >> 8) & 0xff) / 255,
+    (num & 0xff) / 255,
+  ];
+}

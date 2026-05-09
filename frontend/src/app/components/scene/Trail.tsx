@@ -35,7 +35,7 @@ interface TrailProps {
  */
 const Trail: React.FC<TrailProps> = ({
   bodyName,
-  length = 300,
+  length = 1000,
   color = [1, 1, 1],
 }) => {
   const store = useStore<RootState>();
