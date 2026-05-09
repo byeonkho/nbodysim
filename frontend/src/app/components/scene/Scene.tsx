@@ -134,7 +134,17 @@ const Scene = () => {
           context.fill();
         }
 
-        scene.background = new THREE.CanvasTexture(canvas);
+        const bgTexture = new THREE.CanvasTexture(canvas);
+        // Canvas2D draws bytes in sRGB (browser default), but three.js's
+        // CanvasTexture defaults to NoColorSpace (linear). Without this,
+        // the renderer treats the sRGB bytes as already-linear and
+        // re-encodes them through sRGB on output — double-encoded, so
+        // #050610 lands on screen as roughly #28305b (visibly lifted /
+        // washed out). Marking the texture sRGB tells three.js to
+        // linearize on read and re-encode on write, preserving the drawn
+        // color 1:1.
+        bgTexture.colorSpace = THREE.SRGBColorSpace;
+        scene.background = bgTexture;
       }}
     >
       <AnimationController />

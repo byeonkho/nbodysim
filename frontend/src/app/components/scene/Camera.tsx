@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
@@ -125,9 +125,18 @@ const Camera: React.FC = () => {
   const { orbitDampingFactor } = useDevSettings();
   const store = useStore<RootState>();
 
-  // OrbitControls' minDistance prop. State so React reflows the prop.
-  // 0 means "no floor" — used in free-orbit mode (no body active).
-  const [minDistance, setMinDistance] = useState<number>(0);
+  // Min distance from camera to active body. Held in a ref (not React
+  // state) so it's always current without a render cycle of lag — the
+  // body-select effect writes the new value AND assigns it directly to
+  // OrbitControls' instance, both synchronously. If we used React state,
+  // the useEffect would call setState, then useFrame could fire one or
+  // more times with the closure's stale state value before React commits
+  // the new render — during that gap the camera-clip safety check below
+  // would skip (since minDistance reads as 0) and OrbitControls' prop
+  // would also still be 0/undefined → camera could dolly inside the
+  // body for that brief window. Using a ref + direct OrbitControls
+  // mutation makes both consumers see the new value immediately.
+  const minDistanceRef = useRef<number>(0);
 
   // Tween state. Non-null while a body-switch animation is in progress.
   const tweenRef = useRef<TweenState | null>(null);
@@ -171,6 +180,8 @@ const Camera: React.FC = () => {
   useEffect(() => {
     if (!isBodyActive || !activeBodyName || !controlsRef.current) {
       tweenRef.current = null;
+      minDistanceRef.current = 0;
+      controlsRef.current && (controlsRef.current.minDistance = 0);
       return;
     }
 
@@ -203,7 +214,12 @@ const Camera: React.FC = () => {
         ? (bodyRadius / simulationScale.radiusScale) *
           SimConstants.CAMERA_MIN_DISTANCE_MULTIPLIER
         : 0;
-    setMinDistance(min);
+    // Set both the ref (consumed by useFrame's safety) and OrbitControls'
+    // instance property (consumed by its dolly clamp) in the same tick.
+    // No React state, no commit gap — the next useFrame sees both
+    // updated values.
+    minDistanceRef.current = min;
+    controlsRef.current.minDistance = min;
 
     // Capture camera's current offset from the OLD target. This becomes
     // the offset from the NEW target — preserves spherical pose.
@@ -236,15 +252,6 @@ const Camera: React.FC = () => {
     // bodyName intentionally NOT included — we don't restart the tween
     // when activeBodyName re-fires with the same value.
   }, [activeBodyName, isBodyActive, simulationScale, store, camera]);
-
-  // Reset minDistance when body deselected. Separate from the tween
-  // effect so simulationScale changes don't restart the tween (only
-  // recompute min for OrbitControls' floor).
-  useEffect(() => {
-    if (!isBodyActive || !activeBodyName) {
-      setMinDistance(0);
-    }
-  }, [isBodyActive, activeBodyName]);
 
   useFrame(() => {
     const controls = controlsRef.current;
@@ -320,18 +327,17 @@ const Camera: React.FC = () => {
     // radially outward to the floor along its current direction (or pick
     // an arbitrary up-direction in the degenerate camera-at-body-center
     // case).
-    if (minDistance > 0) {
+    const minDist = minDistanceRef.current;
+    if (minDist > 0) {
       safetyDirScratch.current
         .copy(camera.position)
         .sub(bodyPosScratch.current);
       const dist = safetyDirScratch.current.length();
-      if (dist < minDistance) {
+      if (dist < minDist) {
         if (dist > EPSILON) {
-          safetyDirScratch.current
-            .divideScalar(dist)
-            .multiplyScalar(minDistance);
+          safetyDirScratch.current.divideScalar(dist).multiplyScalar(minDist);
         } else {
-          safetyDirScratch.current.set(0, minDistance, 0);
+          safetyDirScratch.current.set(0, minDist, 0);
         }
         camera.position
           .copy(bodyPosScratch.current)
@@ -350,7 +356,9 @@ const Camera: React.FC = () => {
       // from the body, but our per-frame tracking branch immediately
       // snaps target back, so the pan would feel like nothing happened.
       enablePan={!isBodyActive}
-      minDistance={minDistance > 0 ? minDistance : undefined}
+      // minDistance is set imperatively on the controls instance from
+      // the body-select effect (controlsRef.current.minDistance = ...)
+      // so it tracks minDistanceRef without a React state cycle's lag.
     />
   );
 };
