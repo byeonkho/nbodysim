@@ -131,12 +131,12 @@ const Scene = () => {
       {showPlanetInfoOverlay &&
         celestialBodyPropertiesList
           ?.filter(
-            (props) =>
+            (props: CelestialBodyProperties) =>
               props.name &&
               props.name.trim().toUpperCase() !==
                 (activeBodyName ?? "").trim().toUpperCase(),
           )
-          .map((props) => (
+          .map((props: CelestialBodyProperties) => (
             <GhostLabel
               key={props.name}
               bodyName={props.name as string}

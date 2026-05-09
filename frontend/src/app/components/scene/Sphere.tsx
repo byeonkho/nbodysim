@@ -50,7 +50,7 @@ const Sphere: React.FC<SphereProps> = ({
   const { positionScale, orbitingBodyNameUpper } = useMemo(() => {
     const nameUpper = name.toUpperCase();
     const bodyProps: CelestialBodyProperties | undefined = propsList?.find(
-      (bp) => bp.name?.toUpperCase() === nameUpper,
+      (bp: CelestialBodyProperties) => bp.name?.toUpperCase() === nameUpper,
     );
     return {
       positionScale: bodyProps?.positionScale ?? 1,
