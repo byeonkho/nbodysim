@@ -1,6 +1,7 @@
 "use client";
 
 import { Canvas } from "@react-three/fiber";
+import { Stars } from "@react-three/drei";
 import Camera from "@/app/components/scene/Camera";
 import Sphere from "@/app/components/scene/Sphere";
 import Trail from "@/app/components/scene/Trail";
@@ -8,7 +9,6 @@ import AnimationController from "@/app/components/scene/AnimationController";
 import React, { useMemo } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { bodyProperties } from "@/app/constants/SimConstants";
-import * as THREE from "three";
 import {
   CelestialBodyProperties,
   selectActiveBodyName,
@@ -25,33 +25,17 @@ import { Reticle } from "@/app/components/scene/Reticle";
 import { GhostLabel } from "@/app/components/scene/GhostLabel";
 import { bodyColorRgb01, toBodyKey } from "@/app/constants/BodyVisuals";
 
-// Deep-space canvas background — inspired by the design handoff's
-// `.starfield` recipe (frontend/design_handoff_spacesim_ui/index.html)
-// but tuned for Canvas2D. The CSS uses `radial-gradient(ellipse at ...)`
-// which auto-sizes to the container's farthest corner, producing very
-// wide, diffuse ellipses. Canvas2D's createRadialGradient is strictly
-// circular, so a literal port of the CSS values produces visible
-// circular blobs rather than the intended atmospheric wash. We
-// compensate by (a) making the radii ~1.4× the canvas (so each gradient
-// extends well past the visible edges into a uniform tint) and (b)
-// roughly halving the center alpha (since the same RGBA over a wider
-// area is perceptually brighter at any given pixel).
+// Background is rendered in CSS on the parent container (Layout.tsx), not
+// as a three.js scene.background. The canvas is transparent (`alpha: true`),
+// so the design handoff's gradient stack — `radial-gradient(ellipse at ...)`
+// pair over `#050610`, lifted verbatim from .starfield in the handoff
+// HTML — shows through directly via the browser's CSS rendering. This
+// sidesteps three.js's color pipeline entirely (no canvas-texture color
+// space, no tone mapping concerns), and the visual is pixel-identical to
+// the design mockup since the same browser renders both.
 //
-// Base color is `--color-space` from globals.css. Hardcoded here because
-// this texture is built inside R3F's onCreated callback before the
-// document is attached; reading CSS vars at that moment is fragile.
-const SPACE_BG_BASE = "#050610";
-// Glow #1 — cool blue, top-right.
-const GLOW1_X = 0.65;
-const GLOW1_Y = 0.3;
-const GLOW1_COLOR = "rgba(40, 60, 90, 0.16)";
-// Glow #2 — dusky purple, bottom-left.
-const GLOW2_X = 0.2;
-const GLOW2_Y = 0.85;
-const GLOW2_COLOR = "rgba(60, 30, 80, 0.10)";
-// Both glows use the same outer radius — sized so the gradient extends
-// past the canvas corners, avoiding any visible falloff edge.
-const GLOW_OUTER_RADIUS_FRAC = 1.4;
+// Stars are now drei's <Stars /> — procedural Points cloud rendered by
+// three.js on top of the transparent canvas, layered above the CSS bg.
 
 const Scene = () => {
   const showPlanetInfoOverlay = useSelector(selectShowPlanetInfoOverlay);
@@ -87,73 +71,34 @@ const Scene = () => {
       // NoToneMapping). R3F defaults to ACESFilmicToneMapping, which
       // is film-style midtone-lifting designed for HDR scenes — fights
       // a stylized palette where we want exact color match. With flat,
-      // the #050610 base color drawn into the canvas texture lands on
-      // screen as #050610, matching the design mockup.
+      // body materials render colors 1:1 from our half-Lambert wrap,
+      // matching the look the lighting balance was tuned against.
       flat
+      // Transparent canvas — the CSS background on Layout.tsx (the
+      // design handoff's gradient stack) shows through. Without this,
+      // the WebGL clear color (default opaque black) would hide the CSS.
+      gl={{ alpha: true }}
       onPointerMissed={() => {
         dispatch(setIsBodyActive(false));
       }}
       style={{ width: "100%", height: "100%" }}
-      onCreated={({ scene }) => {
-        const canvas = document.createElement("canvas");
-        canvas.width = 1024;
-        canvas.height = 1024;
-        const context = canvas.getContext("2d");
-        if (!context) return;
-
-        // 1. Fill the base inky-blue.
-        context.fillStyle = SPACE_BG_BASE;
-        context.fillRect(0, 0, canvas.width, canvas.height);
-
-        // 2. Layer the two nebula glows. Each glow is a wide circular
-        //    radial gradient centered at the spec'd position with outer
-        //    radius extending past the canvas edges, so the visible area
-        //    sees only the inner / mid region of the falloff. Two soft
-        //    color stops produce a smoother curve than a single linear
-        //    one — closer to the CSS ellipse's perceptual gradient.
-        const drawGlow = (fracX: number, fracY: number, color: string) => {
-          const cx = fracX * canvas.width;
-          const cy = fracY * canvas.height;
-          const outerR = canvas.width * GLOW_OUTER_RADIUS_FRAC;
-          const grad = context.createRadialGradient(cx, cy, 0, cx, cy, outerR);
-          grad.addColorStop(0, color);
-          // Mid-stop with reduced alpha makes the falloff curve gentler.
-          grad.addColorStop(0.4, color.replace(/[\d.]+\)$/, "0.04)"));
-          grad.addColorStop(1, "rgba(0,0,0,0)");
-          context.fillStyle = grad;
-          context.fillRect(0, 0, canvas.width, canvas.height);
-        };
-        drawGlow(GLOW1_X, GLOW1_Y, GLOW1_COLOR);
-        drawGlow(GLOW2_X, GLOW2_Y, GLOW2_COLOR);
-
-        // 3. Procedural starfield on top of the glow.
-        const numStars = 500;
-        for (let i = 0; i < numStars; i++) {
-          const x = Math.random() * canvas.width;
-          const y = Math.random() * canvas.height;
-          const minRadius = 0.05;
-          const maxRadius = 0.1;
-          const radius = minRadius + Math.random() * (maxRadius - minRadius);
-          const opacity = 0.5 + Math.random() * 0.5;
-          context.beginPath();
-          context.arc(x, y, radius, 0, Math.PI * 2);
-          context.fillStyle = `rgba(255, 255, 255, ${opacity})`;
-          context.fill();
-        }
-
-        const bgTexture = new THREE.CanvasTexture(canvas);
-        // Canvas2D draws bytes in sRGB (browser default), but three.js's
-        // CanvasTexture defaults to NoColorSpace (linear). Without this,
-        // the renderer treats the sRGB bytes as already-linear and
-        // re-encodes them through sRGB on output — double-encoded, so
-        // #050610 lands on screen as roughly #28305b (visibly lifted /
-        // washed out). Marking the texture sRGB tells three.js to
-        // linearize on read and re-encode on write, preserving the drawn
-        // color 1:1.
-        bgTexture.colorSpace = THREE.SRGBColorSpace;
-        scene.background = bgTexture;
-      }}
     >
+      {/* Procedural starfield. Replaces the previous canvas-baked stars
+          (which lived in scene.background). drei's <Stars /> is a
+          spherical Points cloud — radius is the sphere's radius (in
+          scene units), depth controls how thick the shell is, count
+          is total point count. Tuned to read as a deep-space starfield
+          without overwhelming the chrome at typical zoom. */}
+      <Stars
+        radius={500}
+        depth={100}
+        count={2000}
+        factor={4}
+        saturation={0}
+        fade
+        speed={0}
+      />
+
       <AnimationController />
       <Camera />
       {/* Ambient kept very low so the night side reads as dark. The
