@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Box } from "@mui/material";
 
 import Scene from "@/app/components/scene/Scene";
@@ -12,9 +12,20 @@ import { RightColumn } from "@/app/components/chrome/RightColumn";
 import { SimParamsDialog } from "@/app/components/chrome/SimParamsDialog";
 import { Timeline } from "@/app/components/chrome/Timeline";
 import { TopStatusStrip } from "@/app/components/chrome/TopStatusStrip";
+import { DevPanel } from "@/app/components/dev/DevPanel";
 
 const Layout: React.FC = () => {
   const [simParamsOpen, setSimParamsOpen] = useState(false);
+  const [devMode, setDevMode] = useState(false);
+
+  // Read ?dev=1 once on mount. The dev panel is gated rather than
+  // built into the user-facing chrome, so the gate doesn't need to
+  // re-evaluate mid-session.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    setDevMode(params.has("dev"));
+  }, []);
 
   return (
     <Box
@@ -73,6 +84,8 @@ const Layout: React.FC = () => {
           <Timeline />
 
           <SimParamsDialog open={simParamsOpen} onOpenChange={setSimParamsOpen} />
+
+          {devMode && <DevPanel />}
         </Box>
       </Box>
     </Box>
