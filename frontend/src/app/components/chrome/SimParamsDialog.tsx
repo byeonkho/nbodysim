@@ -7,6 +7,7 @@ import { initializeCelestialBodies } from "@/app/utils/initializeCelestialBodies
 import type { AppDispatch } from "@/app/store/Store";
 import { store } from "@/app/store/Store";
 import { requestRunSimulation } from "@/app/store/middleware/simulationRequestThunk";
+import { setLastSimRequest } from "@/app/store/slices/SimulationSlice";
 import {
   BODY_DISPLAY,
   BODY_ORDER,
@@ -63,17 +64,22 @@ export function SimParamsDialog({ open, onOpenChange }: SimParamsDialogProps) {
       return;
     }
     try {
-      await initializeCelestialBodies(dispatch, {
+      const requestPayload = {
         celestialBodyNames,
         date,
         frame,
         integrator,
         timeStepUnit,
-      });
+      };
+      await initializeCelestialBodies(dispatch, requestPayload);
       const sessionID =
         store.getState().simulation.simulationParameters?.simulationMetaData
           ?.sessionID;
       if (!sessionID) throw new Error("Failed to initialize sim session.");
+      // Persist the user's choices so the chrome (top status strip,
+      // frame compass, BUFFER calc) can read them. Stays in slice across
+      // chunk fetches; overwritten on the next Run.
+      dispatch(setLastSimRequest(requestPayload));
       dispatch(requestRunSimulation({ sessionID }));
       onOpenChange(false);
     } catch (err) {

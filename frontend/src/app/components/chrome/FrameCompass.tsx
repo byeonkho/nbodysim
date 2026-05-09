@@ -1,11 +1,16 @@
 "use client";
 
+import { useSelector } from "react-redux";
+import { selectLastSimRequest } from "@/app/store/slices/SimulationSlice";
+
 // Frame compass widget — shows the current display frame and a small
 // schematic of the orbital plane. Click handler stubbed; Phase 4 (#42)
 // wires a popover that cycles helio / bary / geo and applies the
 // client-side frame transform.
 
-export function FrameCompass({ frame = "Heliocentric" }: { frame?: string }) {
+export function FrameCompass() {
+  const lastReq = useSelector(selectLastSimRequest);
+  const frame = lastReq?.frame ?? "Heliocentric";
   return (
     <div
       className="glass pointer-events-auto absolute top-[96px] left-6 w-24 px-3 py-2.5 text-center"

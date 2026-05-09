@@ -44,6 +44,18 @@ interface SimulationMetadata {
   sessionID: string;
 }
 
+// Snapshot of the most recent SimParams form submission. Surfaces as the
+// real values for Frame / Integrator / Δt readouts in the top status
+// strip; also feeds the BUFFER seconds calculation. Distinct from
+// `simulationMetaData` (which is sessionID only — backend-driven).
+export interface LastSimRequest {
+  celestialBodyNames: string[];
+  date: string;
+  frame: string;
+  integrator: string;
+  timeStepUnit: string;
+}
+
 interface ActiveBodyState {
   isBodyActive: boolean;
   activeBodyName: string | null;
@@ -71,6 +83,7 @@ export interface SimulationScale {
 export interface SimulationParameters {
   celestialBodyPropertiesList: CelestialBodyProperties[];
   simulationMetaData: SimulationMetadata | null;
+  lastRequest: LastSimRequest | null;
   showGrid: boolean;
   showAxes: boolean;
   showPlanetInfoOverlay: boolean;
@@ -94,6 +107,7 @@ const initialState: SimulationState = {
   simulationParameters: {
     celestialBodyPropertiesList: [],
     simulationMetaData: null,
+    lastRequest: null,
     showGrid: false,
     showAxes: false,
     showPlanetInfoOverlay: false,
@@ -265,6 +279,12 @@ export const simulationSlice = createSlice({
     ) => {
       state.activeBodyState.activeBodyName = action.payload;
       state.activeBodyState.isBodyActive = true;
+    },
+    setLastSimRequest: (
+      state: SimulationState,
+      action: PayloadAction<LastSimRequest>,
+    ) => {
+      state.simulationParameters.lastRequest = action.payload;
     },
     setIsBodyActive: (
       state: SimulationState,
@@ -459,6 +479,9 @@ export const selectIsUpdating = (state: RootState) =>
 export const selectSessionID = (state: RootState) =>
   state.simulation.simulationParameters?.simulationMetaData?.sessionID;
 
+export const selectLastSimRequest = (state: RootState) =>
+  state.simulation.simulationParameters?.lastRequest;
+
 export const {
   loadSimulation,
   updateDataReceived,
@@ -475,6 +498,7 @@ export const {
   setCurrentTimeStepIndex,
   setActiveBody,
   setIsBodyActive,
+  setLastSimRequest,
 } = simulationSlice.actions;
 
 export default simulationSlice.reducer;

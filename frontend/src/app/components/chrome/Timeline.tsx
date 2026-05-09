@@ -5,6 +5,7 @@ import { useDispatch, useSelector } from "react-redux";
 import {
   cycleSimulationScale,
   selectCurrentTimeStepIndex,
+  selectCurrentTimeStepKey,
   selectIsPaused,
   selectShowAxes,
   selectShowGrid,
@@ -21,6 +22,7 @@ import {
   toggleShowPlanetInfoOverlay,
   toggleShowTrails,
 } from "@/app/store/slices/SimulationSlice";
+import { formatTPlus, isoToDateOrNull } from "@/app/utils/dateMath";
 
 // Bottom timeline: transport + rate + scrubber + view toggles. Replaces
 // TimeControls.tsx + MiscActionBar.tsx + ControlsContainer.tsx. Scrubber
@@ -164,9 +166,12 @@ function Scrubber() {
   const dispatch = useDispatch();
   const total = useSelector(selectTotalTimeSteps);
   const idx = useSelector(selectCurrentTimeStepIndex);
+  const utcKey = useSelector(selectCurrentTimeStepKey);
   const trackRef = useRef<HTMLDivElement>(null);
 
   const progress = total > 1 ? idx / (total - 1) : 0;
+  const utcDate = isoToDateOrNull(utcKey);
+  const tPlus = utcDate ? formatTPlus(utcDate) : "T+— d";
 
   const seek = (clientX: number) => {
     if (!trackRef.current || total <= 1) return;
@@ -187,7 +192,7 @@ function Scrubber() {
     <div className="flex-1 px-2">
       <div className="mb-1.5 flex justify-between">
         <span className="eyebrow">TIMELINE · {total} STEPS</span>
-        <span className="eyebrow">EPOCH J2000 · T+— d</span>
+        <span className="eyebrow">EPOCH J2000 · {tPlus}</span>
       </div>
       <div
         ref={trackRef}

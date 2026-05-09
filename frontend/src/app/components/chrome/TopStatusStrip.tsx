@@ -3,17 +3,24 @@
 import { useSelector } from "react-redux";
 import {
   selectCelestialBodyPropertiesList,
+  selectCurrentTimeStepIndex,
   selectCurrentTimeStepKey,
+  selectLastSimRequest,
+  selectTotalTimeSteps,
 } from "@/app/store/slices/SimulationSlice";
+import {
+  formatJD,
+  formatTimeStep,
+  isoToDateOrNull,
+  julianDate,
+} from "@/app/utils/dateMath";
+import { FpsValue } from "@/app/components/chrome/FpsValue";
 
-// Top glass strip: telemetry cells per the design handoff. Phase 1 ships
-// real values for UTC + Bodies and static placeholders for Frame /
-// Integrator / Δt / FPS. Phase 2 (todo #58) wires JD, BUFFER, and
-// surfaces the chosen frame/integrator/Δt to Redux.
-//
-// The strip handles its own absolute positioning; it lives inside
-// Layout.tsx's pointer-events:none overlay container, but opts itself in
-// to interactivity via pointer-events-auto.
+// Top glass strip telemetry. Frame / Integrator / Δt come from the
+// most-recent SimParams submission (selectLastSimRequest); UTC + JD
+// from the active timestep key; Bodies from the props list; BUFFER
+// from the buffered-vs-played delta; FPS from a self-contained RAF
+// loop. Cells render as static text or one of two helper components.
 
 function StatusCell({
   label,
@@ -36,6 +43,23 @@ function StatusCell({
   );
 }
 
+function StatusCellWith({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex h-full items-baseline gap-1.5 border-r border-white/[0.06] px-3.5">
+      <span className="eyebrow self-center">{label}</span>
+      <span className="tabular text-hi self-center font-mono text-[11px]">
+        {children}
+      </span>
+    </div>
+  );
+}
+
 function formatUtc(iso: string): string {
   if (!iso) return "—";
   const [date, time = ""] = iso.split("T");
@@ -43,8 +67,21 @@ function formatUtc(iso: string): string {
 }
 
 export function TopStatusStrip() {
-  const utc = useSelector(selectCurrentTimeStepKey);
+  const utcKey = useSelector(selectCurrentTimeStepKey);
   const bodies = useSelector(selectCelestialBodyPropertiesList);
+  const lastReq = useSelector(selectLastSimRequest);
+  const total = useSelector(selectTotalTimeSteps);
+  const idx = useSelector(selectCurrentTimeStepIndex);
+
+  const utcDate = isoToDateOrNull(utcKey);
+  const jdStr = utcDate ? formatJD(julianDate(utcDate)) : "—";
+
+  const frameDisplay = lastReq?.frame ?? "—";
+  const integratorDisplay = (lastReq?.integrator ?? "—").toUpperCase();
+  const deltaTDisplay = lastReq ? formatTimeStep(lastReq.timeStepUnit) : "—";
+
+  const buffered = Math.max(0, total - idx);
+  const bufferedStr = buffered.toLocaleString("en-US");
 
   return (
     <div
@@ -65,15 +102,23 @@ export function TopStatusStrip() {
         </span>
       </div>
 
-      <StatusCell label="UTC" value={formatUtc(utc)} />
-      <StatusCell label="Frame" value="Heliocentric" />
-      <StatusCell label="Integrator" value="RK4" valueClass="text-accent" />
-      <StatusCell label="Δt" value="3600 s" />
+      <StatusCell label="UTC" value={formatUtc(utcKey)} />
+      <StatusCell label="JD" value={jdStr} />
+      <StatusCell label="Frame" value={frameDisplay} />
+      <StatusCell
+        label="Integrator"
+        value={integratorDisplay}
+        valueClass="text-accent"
+      />
+      <StatusCell label="Δt" value={deltaTDisplay} />
 
       <div className="flex-1" />
 
       <StatusCell label="Bodies" value={String(bodies?.length ?? 0)} />
-      <StatusCell label="FPS" value="—" valueClass="text-success" />
+      <StatusCell label="Buffer" value={bufferedStr} />
+      <StatusCellWith label="FPS">
+        <FpsValue className="text-success" />
+      </StatusCellWith>
     </div>
   );
 }
