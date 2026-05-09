@@ -23,6 +23,24 @@ interface SphereProps {
   unlit?: boolean;
 }
 
+// Half-Lambert wrap shading: replaces `saturate(dot(N, L))` with
+// `dot(N, L) * 0.5 + 0.5` in the standard physical fragment shader, so
+// even surfaces facing away from the Sun get a fraction of irradiance.
+// Softens the day/night terminator from a knife-edge into a gradient,
+// faking the atmospheric-scattering look without an atmosphere shader.
+// Patched via onBeforeCompile to keep meshStandardMaterial's full PBR
+// pipeline (textures, normal maps) intact.
+//
+// Defined at module scope so the function identity is stable across
+// renders — otherwise R3F treats every render's new closure as a
+// different material, forcing a recompile per frame.
+const halfLambertOverride = (shader: { fragmentShader: string }) => {
+  shader.fragmentShader = shader.fragmentShader.replace(
+    "float dotNL = saturate( dot( geometryNormal, directLight.direction ) );",
+    "float dotNL = dot( geometryNormal, directLight.direction ) * 0.5 + 0.5;",
+  );
+};
+
 /**
  * Renders one celestial body. Position updates imperatively inside useFrame
  * by reading the live snapshot from Redux via store.getState() — never
@@ -133,13 +151,15 @@ const Sphere: React.FC<SphereProps> = ({
             simulationScale.positionScale,
           );
           if (lightRef.current) {
+            // Sun's light position tracks the Sun's mesh position so the
+            // light direction is correct in geo (Sun moves) and helio
+            // (Sun stays at origin). Intensity / decay set on the JSX
+            // element below — fixed values, not scale-dependent.
             setBodyWorldPosition(
               lightRef.current.position,
               pos,
               simulationScale.positionScale,
             );
-            lightRef.current.intensity = simulationScale.positionScale * 0.0001;
-            lightRef.current.distance = simulationScale.positionScale;
           }
         }
       }
@@ -160,10 +180,22 @@ const Sphere: React.FC<SphereProps> = ({
         {unlit ? (
           <meshBasicMaterial map={textureUrl ? texture : undefined} />
         ) : (
-          <meshStandardMaterial map={textureUrl ? texture : undefined} />
+          <meshStandardMaterial
+            map={textureUrl ? texture : undefined}
+            onBeforeCompile={halfLambertOverride}
+          />
         )}
       </mesh>
-      {unlit && <pointLight ref={lightRef} color={0xffffff} />}
+      {/* decay=0 → no distance falloff, so every body gets equal direct
+          light from the Sun regardless of scene-space distance. Real
+          inverse-square would make outer planets pitch black or inner
+          ones blown out at our scales; standard artistic license for
+          solar-system viz. Intensity is unitless three.js (post-r155
+          uses physically-based units when renderer.useLegacyLights=false,
+          but we leave that default). */}
+      {unlit && (
+        <pointLight ref={lightRef} color={0xffffff} intensity={1.5} decay={0} />
+      )}
     </>
   );
 };

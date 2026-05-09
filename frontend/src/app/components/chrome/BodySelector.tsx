@@ -5,6 +5,7 @@ import {
   type CelestialBodyProperties,
   selectActiveBodyName,
   selectCelestialBodyPropertiesList,
+  selectIsBodyActive,
   setActiveBody,
 } from "@/app/store/slices/SimulationSlice";
 import {
@@ -21,6 +22,7 @@ import { BodySphere } from "@/app/components/chrome/BodySphere";
 export function BodySelector() {
   const dispatch = useDispatch();
   const activeName = useSelector(selectActiveBodyName);
+  const isBodyActive = useSelector(selectIsBodyActive);
   const enabledList = useSelector(selectCelestialBodyPropertiesList) ?? [];
 
   const enabled = new Set<string>(
@@ -38,7 +40,10 @@ export function BodySelector() {
     >
       {BODY_ORDER.map((key) => {
         const isEnabled = enabled.has(key);
-        const isActive = isEnabled && activeKey === key;
+        // Gate on isBodyActive so deselecting via empty-space click (which
+        // flips isBodyActive=false but leaves activeBodyName populated)
+        // drops the highlight in lockstep with the reticle.
+        const isActive = isEnabled && isBodyActive && activeKey === key;
         return (
           <BodyPill
             key={key}

@@ -23,6 +23,7 @@ import {
 } from "@/app/dev/devSettingsStore";
 import { setBodyWorldPosition } from "@/app/utils/coordinates";
 import { findEarthIndex, writePivotInto } from "@/app/utils/framePivot";
+import SimConstants from "@/app/constants/SimConstants";
 
 const Camera: React.FC = () => {
   const { camera, gl } = useThree();
@@ -50,6 +51,12 @@ const Camera: React.FC = () => {
   const radius = (activeRadius ?? 1) / simulationScale.radiusScale;
 
   const trackingZoomRef = useRef<number>(radius);
+  // Floor for trackingZoomRef so the active-body zoom can't clip into
+  // the body. Recomputed on body switch and scale toggle (since rendered
+  // radius depends on simulationScale.radiusScale). 0 when no body is
+  // active — the wheel handler treats 0 as "no floor" via Math.max with
+  // a tiny epsilon, keeping the original behavior for free-orbit mode.
+  const minTrackingZoomRef = useRef<number>(0);
 
   /* eslint-disable react-hooks/immutability */
   useEffect(() => {
@@ -84,9 +91,12 @@ const Camera: React.FC = () => {
       e.preventDefault();
       const { zoomSensitivity } = getDevSettings();
       trackingZoomRef.current *= 1 + e.deltaY * zoomSensitivity;
+      // Lower bound is body-radius-aware when a body is active, falls
+      // back to a tiny epsilon when not (free-orbit doesn't use this
+      // value, so the floor is just a sanity guard).
       trackingZoomRef.current = THREE.MathUtils.clamp(
         trackingZoomRef.current,
-        0.00001,
+        Math.max(minTrackingZoomRef.current, 0.00001),
         1e20,
       );
     };
@@ -96,6 +106,39 @@ const Camera: React.FC = () => {
       gl.domElement.removeEventListener("wheel", onWheel);
     };
   }, [gl.domElement]);
+
+  // Recompute the camera-distance floor whenever the active body changes
+  // OR the scale preset changes. Both move the rendered radius (the
+  // latter by changing simulationScale.radiusScale on a live toggle).
+  // If the existing trackingZoom is now below the floor — e.g. user was
+  // 0.05 wu from Earth and switched to Sun, or toggled from Realistic
+  // (Earth ~0.064 wu) to a future preset with a larger Earth — bump it
+  // up so the next frame's lerp doesn't drive the camera through the
+  // surface.
+  useEffect(() => {
+    if (!activeBodyName || !isBodyActive) {
+      minTrackingZoomRef.current = 0;
+      return;
+    }
+    const propsList =
+      store.getState().simulation.simulationParameters
+        .celestialBodyPropertiesList;
+    const bodyProps = propsList?.find(
+      (bp: CelestialBodyProperties) =>
+        bp.name?.toUpperCase() === activeBodyName.toUpperCase(),
+    );
+    const bodyRadius = bodyProps?.radius;
+    if (bodyRadius == null) {
+      minTrackingZoomRef.current = 0;
+      return;
+    }
+    const renderedRadius = bodyRadius / simulationScale.radiusScale;
+    const min = renderedRadius * SimConstants.CAMERA_MIN_DISTANCE_MULTIPLIER;
+    minTrackingZoomRef.current = min;
+    if (trackingZoomRef.current < min) {
+      trackingZoomRef.current = min;
+    }
+  }, [activeBodyName, isBodyActive, simulationScale, store]);
 
   // Reused across frames — no per-frame allocation.
   const targetScratch = useRef(new THREE.Vector3());
@@ -116,8 +159,16 @@ const Camera: React.FC = () => {
 
       if (simulationData && currentTimeStepKey) {
         const snapshot = simulationData[currentTimeStepKey];
+        // Case-insensitive lookup — every other body match in the
+        // codebase upper-cases on both sides; matching that convention
+        // avoids a silent miss if naming case ever drifts (e.g. backend
+        // canonicalizes to upper-case but BodySelector keeps mixed-case
+        // BODY_DISPLAY values). When the lookup misses, the camera-
+        // tracking branch silently no-ops and the min-distance floor
+        // never gets enforced, so this match needs to be robust.
+        const upperActiveName = activeBodyName.toUpperCase();
         const body = snapshot?.find(
-          (b: CelestialBody) => b.name === activeBodyName,
+          (b: CelestialBody) => b.name.toUpperCase() === upperActiveName,
         );
         if (body) {
           // Apply display-frame pivot: in geo mode the active body

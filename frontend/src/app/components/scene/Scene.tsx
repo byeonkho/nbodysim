@@ -21,13 +21,18 @@ import {
   setIsBodyActive,
   SimulationScale,
 } from "@/app/store/slices/SimulationSlice";
-import { useTheme } from "@mui/material/styles";
 import { Reticle } from "@/app/components/scene/Reticle";
 import { GhostLabel } from "@/app/components/scene/GhostLabel";
 import { bodyColorRgb01, toBodyKey } from "@/app/constants/BodyVisuals";
 
+// Deep-space canvas color used for the procedural starfield background.
+// Was previously read off the MUI theme (theme.canvas.canvasMain /
+// canvasGradientEdge — both `#00060c`). Hardcoded after MUI removal;
+// not a design token because the starfield gradient is tuned against
+// this single value, not derived from the chrome palette.
+const SPACE_CANVAS_COLOR = "#00060c";
+
 const Scene = () => {
-  const theme = useTheme();
   const showPlanetInfoOverlay = useSelector(selectShowPlanetInfoOverlay);
   const dispatch = useDispatch();
   const celestialBodyPropertiesList = useSelector(
@@ -69,9 +74,9 @@ const Scene = () => {
         if (!context) return;
 
         const gradient = context.createLinearGradient(0, 0, canvas.width, 0);
-        gradient.addColorStop(0, theme.canvas.canvasMain);
-        gradient.addColorStop(0.5, theme.canvas.canvasGradientEdge);
-        gradient.addColorStop(1, theme.canvas.canvasGradientEdge);
+        gradient.addColorStop(0, SPACE_CANVAS_COLOR);
+        gradient.addColorStop(0.5, SPACE_CANVAS_COLOR);
+        gradient.addColorStop(1, SPACE_CANVAS_COLOR);
 
         context.fillStyle = gradient;
         context.fillRect(0, 0, canvas.width, canvas.height);
@@ -95,7 +100,15 @@ const Scene = () => {
     >
       <AnimationController />
       <Camera />
-      <ambientLight intensity={Math.PI / 2} />
+      {/* Ambient kept very low so the night side reads as dark. The
+          Sun's pointLight (in Sphere.tsx) does the heavy lifting; the
+          half-Lambert wrap on lit bodies softens the terminator. */}
+      <ambientLight intensity={0.05} />
+      {/* Faint cool fill from above, even fainter warm tint from below.
+          Fakes the negligible-but-non-zero starlight + zodiacal-light
+          ambient that keeps deep-space surfaces from being pure void.
+          Visible mostly as subtle silhouette detail on the dark side. */}
+      <hemisphereLight args={[0xb0c4ff, 0x2a2118, 0.08]} />
       {showAxes && <axesHelper args={[simulationScale.AXES.SIZE]} />}
       {showGrid && (
         <gridHelper

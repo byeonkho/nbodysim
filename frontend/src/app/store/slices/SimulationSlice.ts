@@ -116,16 +116,23 @@ export interface SimulationParameters {
 const CAMERA_PRESET_STORAGE_KEY = "spacesim.cameraPreset";
 const DISPLAY_FRAME_STORAGE_KEY = "spacesim.displayFrame";
 
-function readInitialCameraPreset(): CameraPreset {
-  if (typeof window === "undefined") return "top-down";
+// SSR-safe: callers must NOT use these during module init / initialState
+// construction. Reading localStorage at module-load time produces a
+// different initial Redux state on server (no window → default) vs client
+// (window → stored value), which causes hydration mismatches in any
+// SSR'd component that displays the value (e.g. FrameCompass). Use these
+// only inside a useEffect, then dispatch setDisplayFrame / setCameraPreset
+// to reconcile the store. See PrefsHydrator.tsx.
+export function readStoredCameraPreset(): CameraPreset | null {
+  if (typeof window === "undefined") return null;
   const stored = window.localStorage.getItem(CAMERA_PRESET_STORAGE_KEY);
-  return stored === "free" ? "free" : "top-down";
+  return stored === "free" || stored === "top-down" ? stored : null;
 }
 
-function readInitialDisplayFrame(): DisplayFrame {
-  if (typeof window === "undefined") return "helio";
+export function readStoredDisplayFrame(): DisplayFrame | null {
+  if (typeof window === "undefined") return null;
   const stored = window.localStorage.getItem(DISPLAY_FRAME_STORAGE_KEY);
-  return stored === "geo" ? "geo" : "helio";
+  return stored === "geo" || stored === "helio" ? stored : null;
 }
 
 interface SimulationState {
@@ -153,8 +160,10 @@ const initialState: SimulationState = {
     showPlanetInfoOverlay: true,
     showTrails: true,
     simulationScale: SimConstants.SCALE.SEMI_REALISTIC, // default scale
-    cameraPreset: readInitialCameraPreset(),
-    displayFrame: readInitialDisplayFrame(),
+    // Hard-coded SSR-safe defaults. localStorage rehydration happens
+    // post-mount in PrefsHydrator → setCameraPreset / setDisplayFrame.
+    cameraPreset: "top-down",
+    displayFrame: "helio",
   },
   simulationData: null,
   timeState: {
@@ -371,6 +380,19 @@ export const simulationSlice = createSlice({
         window.localStorage.setItem(CAMERA_PRESET_STORAGE_KEY, next);
       }
     },
+    // Direct setter (vs. toggleCameraPreset). Used by PrefsHydrator on
+    // mount to reconcile the SSR-safe initial state with the value
+    // persisted in localStorage. Writes through to storage so it stays
+    // a no-op if the user calls it with the already-stored value.
+    setCameraPreset: (
+      state: SimulationState,
+      action: PayloadAction<CameraPreset>,
+    ) => {
+      state.simulationParameters.cameraPreset = action.payload;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(CAMERA_PRESET_STORAGE_KEY, action.payload);
+      }
+    },
     cycleDisplayFrame: (state: SimulationState) => {
       // helio → geo → helio. Bary deferred — see DisplayFrame type comment.
       const next: DisplayFrame =
@@ -378,6 +400,16 @@ export const simulationSlice = createSlice({
       state.simulationParameters.displayFrame = next;
       if (typeof window !== "undefined") {
         window.localStorage.setItem(DISPLAY_FRAME_STORAGE_KEY, next);
+      }
+    },
+    // Direct setter — see setCameraPreset's comment for rationale.
+    setDisplayFrame: (
+      state: SimulationState,
+      action: PayloadAction<DisplayFrame>,
+    ) => {
+      state.simulationParameters.displayFrame = action.payload;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(DISPLAY_FRAME_STORAGE_KEY, action.payload);
       }
     },
     setIsBodyActive: (
@@ -600,7 +632,9 @@ export const {
   setIsBodyActive,
   setLastSimRequest,
   toggleCameraPreset,
+  setCameraPreset,
   cycleDisplayFrame,
+  setDisplayFrame,
 } = simulationSlice.actions;
 
 export default simulationSlice.reducer;

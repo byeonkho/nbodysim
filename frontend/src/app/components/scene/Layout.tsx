@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Box } from "@mui/material";
 
 import Scene from "@/app/components/scene/Scene";
 import UpdateModal from "@/app/components/interface/misc/UpdateModal";
@@ -28,49 +27,16 @@ const Layout: React.FC = () => {
   }, []);
 
   return (
-    <Box
-      sx={{
-        display: "flex",
-        width: "100vw",
-        height: "100vh",
-        overflow: "hidden",
-      }}
-    >
-      <Box
-        sx={{
-          flexGrow: 1,
-          position: "relative",
-          overflow: "hidden",
-        }}
-      >
-        <Box
-          sx={{
-            position: "absolute",
-            zIndex: 0,
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            backgroundColor: "black",
-          }}
-        >
+    <div className="flex w-screen h-screen overflow-hidden">
+      <div className="grow relative overflow-hidden">
+        <div className="absolute inset-0 z-0 bg-black">
           <Scene />
-        </Box>
+        </div>
 
         {/* UI Overlays. Each chrome component opts itself into pointer
             events; the wrapper is pointer-events:none so the scene
             beneath stays grabbable wherever chrome doesn't sit. */}
-        <Box
-          sx={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            zIndex: 1,
-            width: "100%",
-            height: "100%",
-            pointerEvents: "none",
-          }}
-        >
+        <div className="absolute inset-0 z-10 pointer-events-none">
           <UpdateModal />
 
           <TopStatusStrip />
@@ -86,9 +52,9 @@ const Layout: React.FC = () => {
           <SimParamsDialog open={simParamsOpen} onOpenChange={setSimParamsOpen} />
 
           {devMode && <DevPanel />}
-        </Box>
-      </Box>
-    </Box>
+        </div>
+      </div>
+    </div>
   );
 };
 

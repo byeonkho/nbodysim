@@ -257,7 +257,7 @@ export function Reticle() {
             }}
           >
             <div className="text-accent text-[10px] font-semibold">
-              ● TGT · {display}
+              {display}
             </div>
             <div className="text-dim mt-0.5 text-[9.5px]">
               Range <span ref={rangeRef}>—</span> · v{" "}
