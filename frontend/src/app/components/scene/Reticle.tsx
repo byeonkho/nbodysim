@@ -25,7 +25,7 @@ import {
   scaleDistanceInto,
   subtractInto,
 } from "@/app/utils/helpers";
-import { BODY_DISPLAY, BODY_NAIF, toBodyKey } from "@/app/constants/BodyVisuals";
+import { BODY_DISPLAY, toBodyKey } from "@/app/constants/BodyVisuals";
 
 // In-scene reticle on the active body — three concentric accent rings,
 // N/E/S/W tick marks, leader line, and a label cluster offset to the
@@ -172,7 +172,6 @@ export function Reticle() {
 
   const bodyKey = toBodyKey(upperName);
   const display = bodyKey ? BODY_DISPLAY[bodyKey].toUpperCase() : upperName;
-  const naif = bodyKey ? BODY_NAIF[bodyKey] : "—";
 
   return (
     <group ref={groupRef}>
@@ -243,7 +242,7 @@ export function Reticle() {
             }}
           >
             <div className="text-accent text-[10px] font-semibold">
-              ● TGT · {display} ({naif})
+              ● TGT · {display}
             </div>
             <div className="text-dim mt-0.5 text-[9.5px]">
               Range <span ref={rangeRef}>—</span> · v{" "}

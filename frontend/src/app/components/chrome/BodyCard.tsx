@@ -23,7 +23,7 @@ import { computeOrbitalElements } from "@/app/utils/orbitalElements";
 import { BODY_DISPLAY, toBodyKey } from "@/app/constants/BodyVisuals";
 import { BodySphere } from "@/app/components/chrome/BodySphere";
 
-// Right-column body card. Identity (name, NAIF, orbiting body) comes from
+// Right-column body card. Identity (name, orbiting body) comes from
 // selectors and only changes on body switch. Numerics update at 5 Hz via
 // DOM refs — subscribing to Redux per frame would force a React rerender
 // of the whole card on every tick.
@@ -47,6 +47,31 @@ export function BodyCard() {
   );
   const orbitingNameUpper =
     activeProps?.orbitingBody?.trim().toUpperCase() ?? "";
+
+  // State vector reference body — what range/speed/position are computed
+  // against. Independent of Keplerian orbital reference (which is always
+  // orbitingNameUpper, frame-invariant — orbital shape is a physical
+  // characterization, not a viewing convention).
+  //
+  // Resolution rules:
+  //   1. Moon is special-cased to Earth regardless of display frame —
+  //      the Moon's natural reference body is always Earth, and showing
+  //      its heliocentric position in helio mode is huge wobbly numbers
+  //      that don't read as anything meaningful.
+  //   2. In geo mode, every other body uses Earth as reference (matches
+  //      the 3D scene's pivot — what you see is what's tabulated).
+  //   3. In helio mode, every other body uses its orbitingBody (Sun for
+  //      planets, leaving "Range to Sun" as the natural readout).
+  //
+  // Edge case: if the resolved reference IS the active body (Sun in
+  // helio, Earth in geo), all state vector rows render "—" — there's
+  // no meaningful self-relative measurement.
+  const stateVectorRefNameUpper =
+    upperName === "MOON"
+      ? "EARTH"
+      : displayFrame === "geo"
+        ? "EARTH"
+        : orbitingNameUpper;
 
   const rangeRef = useRef<HTMLSpanElement>(null);
   const speedRef = useRef<HTMLSpanElement>(null);
@@ -75,9 +100,17 @@ export function BodyCard() {
   const orbitingMu = orbitingProps?.mu;
 
   useEffect(() => {
-    if (!upperName || !activeProps || !orbitingNameUpper) return;
+    if (!upperName || !activeProps) return;
 
-    const writeDashes = () => {
+    const writeStateVectorDashes = () => {
+      if (rangeRef.current) rangeRef.current.textContent = "—";
+      if (speedRef.current) speedRef.current.textContent = "—";
+      if (rxRef.current) rxRef.current.textContent = "—";
+      if (ryRef.current) ryRef.current.textContent = "—";
+      if (vmagRef.current) vmagRef.current.textContent = "—";
+    };
+
+    const writeKeplerianDashes = () => {
       if (semiMajorRef.current) semiMajorRef.current.textContent = "—";
       if (eccentricityRef.current) eccentricityRef.current.textContent = "—";
       if (inclinationRef.current) inclinationRef.current.textContent = "—";
@@ -96,34 +129,57 @@ export function BodyCard() {
       const body = snapshot.find(
         (b: CelestialBody) => b.name.trim().toUpperCase() === upperName,
       );
-      const orbiting = snapshot.find(
-        (b: CelestialBody) =>
-          b.name.trim().toUpperCase() === orbitingNameUpper,
-      );
-      if (!body || !orbiting) return;
+      if (!body) return;
 
-      if (rangeRef.current) {
-        rangeRef.current.textContent = calculateDistance(
-          body.position,
-          orbiting.position,
-          "AU",
+      // State vector reference: skipped if the active body IS the
+      // reference (no self-relative measurement makes sense), or if the
+      // reference name resolves empty (Sun in helio: no orbitingBody).
+      const stateRef =
+        stateVectorRefNameUpper && stateVectorRefNameUpper !== upperName
+          ? snapshot.find(
+              (b: CelestialBody) =>
+                b.name.trim().toUpperCase() === stateVectorRefNameUpper,
+            )
+          : undefined;
+
+      if (stateRef) {
+        if (rangeRef.current) {
+          rangeRef.current.textContent = calculateDistance(
+            body.position,
+            stateRef.position,
+            "AU",
+          );
+        }
+        subtractInto(velocityScratch.current, body.velocity, stateRef.velocity);
+        const speedStr = formatToKM(
+          calculateMagnitude(velocityScratch.current),
         );
+        if (speedRef.current) speedRef.current.textContent = speedStr;
+        if (vmagRef.current) vmagRef.current.textContent = speedStr;
+        if (rxRef.current)
+          rxRef.current.textContent = formatScientificKm(
+            body.position.x - stateRef.position.x,
+          );
+        if (ryRef.current)
+          ryRef.current.textContent = formatScientificKm(
+            body.position.y - stateRef.position.y,
+          );
+      } else {
+        writeStateVectorDashes();
       }
 
-      subtractInto(velocityScratch.current, body.velocity, orbiting.velocity);
-      const speedStr = formatToKM(calculateMagnitude(velocityScratch.current));
-      if (speedRef.current) speedRef.current.textContent = speedStr;
-      if (vmagRef.current) vmagRef.current.textContent = speedStr;
+      // Keplerian elements — uses the orbital reference body (orbitingNameUpper)
+      // unconditionally. Frame-independent: orbit shape doesn't change because
+      // you decided to look from somewhere else. µ comes from the orbiting body's
+      // CelestialBodyProperties; if missing (no chunks yet) we render dashes.
+      const orbiting = orbitingNameUpper
+        ? snapshot.find(
+            (b: CelestialBody) =>
+              b.name.trim().toUpperCase() === orbitingNameUpper,
+          )
+        : undefined;
 
-      if (rxRef.current)
-        rxRef.current.textContent = formatScientificKm(body.position.x);
-      if (ryRef.current)
-        ryRef.current.textContent = formatScientificKm(body.position.y);
-
-      // Keplerian elements — only computable when µ for the orbiting body
-      // is known (i.e. at least one chunk has been received and the slice
-      // has merged µ into the props list). No µ → render dashes.
-      if (orbitingMu && orbitingMu > 0) {
+      if (orbiting && orbitingMu && orbitingMu > 0) {
         const elements = computeOrbitalElements(
           body.position,
           body.velocity,
@@ -152,17 +208,24 @@ export function BodyCard() {
         } else {
           // Degenerate state — can happen briefly mid-frame on snapshot
           // boundary issues; show dashes rather than NaN.
-          writeDashes();
+          writeKeplerianDashes();
         }
       } else {
-        writeDashes();
+        writeKeplerianDashes();
       }
     };
 
     tick();
     const id = window.setInterval(tick, REFRESH_HZ_MS);
     return () => window.clearInterval(id);
-  }, [store, upperName, orbitingNameUpper, activeProps, orbitingMu]);
+  }, [
+    store,
+    upperName,
+    orbitingNameUpper,
+    stateVectorRefNameUpper,
+    activeProps,
+    orbitingMu,
+  ]);
 
   if (!upperName || !activeProps) {
     return <BodyCardEmpty />;
@@ -172,8 +235,12 @@ export function BodyCard() {
   const display = bodyKey
     ? BODY_DISPLAY[bodyKey]
     : toTitleCase(activeName ?? "");
-  const orbitingDisplay = orbitingNameUpper
-    ? toTitleCase(orbitingNameUpper)
+  // Range label reflects the state-vector reference body (frame-aware),
+  // not the orbital reference. So Mars in geo says "Range to Earth"
+  // even though the Keplerian section below still characterises Mars's
+  // heliocentric orbit.
+  const stateVectorRefDisplay = stateVectorRefNameUpper
+    ? toTitleCase(stateVectorRefNameUpper)
     : "—";
 
   return (
@@ -194,7 +261,7 @@ export function BodyCard() {
       </div>
 
       <SectionLabel>State vector · J2000</SectionLabel>
-      <KvRow k={`Range to ${orbitingDisplay}`} valueRef={rangeRef} />
+      <KvRow k={`Range to ${stateVectorRefDisplay}`} valueRef={rangeRef} />
       <KvRow k="Speed" valueRef={speedRef} accent />
       <KvRow k="r⃗ · x" valueRef={rxRef} />
       <KvRow k="r⃗ · y" valueRef={ryRef} />
