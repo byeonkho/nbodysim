@@ -153,7 +153,20 @@ const Camera: React.FC = () => {
 
   /* eslint-disable react-hooks/immutability */
   useEffect(() => {
-    camera.near = 0.1;
+    // near=0.001 (was 0.1) so the near plane sits well inside the
+    // smallest body's safety margin. With minDistance ≈ bodyRadius × 2.5
+    // and the smallest tracked body being the Moon (rendered radius
+    // ~0.017 wu, so min ~0.043 wu, surface-to-min clearance ~0.026 wu),
+    // a near plane of 0.1 was *larger* than the clearance — when you
+    // dolly toward smaller bodies the safety pushes the camera back to
+    // min, but the near plane still eats the body's near hemisphere
+    // and the body renders as a torus around the reticle (looks like
+    // clipping but is actually near-plane culling). 0.001 leaves
+    // plenty of margin for every body. Far plane stays at 1e12 (we're
+    // dealing with AU-scale distances). Z-buffer precision is fine
+    // because three.js uses a logarithmic-style depth distribution by
+    // default for perspective cameras.
+    camera.near = 0.001;
     camera.far = 1e12;
     camera.updateProjectionMatrix();
   }, [camera]);

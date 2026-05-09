@@ -83,6 +83,13 @@ const Scene = () => {
 
   return (
     <Canvas
+      // `flat` disables tone mapping (sets renderer.toneMapping =
+      // NoToneMapping). R3F defaults to ACESFilmicToneMapping, which
+      // is film-style midtone-lifting designed for HDR scenes — fights
+      // a stylized palette where we want exact color match. With flat,
+      // the #050610 base color drawn into the canvas texture lands on
+      // screen as #050610, matching the design mockup.
+      flat
       onPointerMissed={() => {
         dispatch(setIsBodyActive(false));
       }}
