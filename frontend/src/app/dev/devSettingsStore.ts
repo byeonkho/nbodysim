@@ -27,12 +27,20 @@ export interface DevSettings {
    * stay buttery while zoom stays responsive.
    */
   cameraZoomLerpRate: number;
+  /**
+   * Number of trailing snapshot points each body's Trail renders.
+   * Hard-capped at MAX_TRAIL_POINTS in Trail.tsx — buffer geometry is
+   * allocated once at that size and the slider just changes how many
+   * points get drawn, so dragging is allocation-free.
+   */
+  trailLength: number;
 }
 
 const DEFAULTS: DevSettings = {
   zoomSensitivity: 0.001,
   orbitDampingFactor: 0.01,
   cameraZoomLerpRate: 0.1,
+  trailLength: 1000,
 };
 
 let state: DevSettings = { ...DEFAULTS };

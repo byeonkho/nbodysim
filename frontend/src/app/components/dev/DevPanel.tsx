@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useSelector } from "react-redux";
 import {
   selectCurrentTimeStepIndex,
@@ -7,7 +8,6 @@ import {
   selectTotalTimeSteps,
 } from "@/app/store/slices/SimulationSlice";
 import {
-  getDevSettings,
   setDevSetting,
   useDevSettings,
   type DevSettings,
@@ -15,27 +15,56 @@ import {
 
 // Dev-only panel — mounted only when the URL has ?dev=1 (Decision 9 in
 // design.md). Re-styled to match the redesign palette: glass surface,
-// eyebrow labels, mono numerics. Holds the chunk-buffer metrics and
-// camera tunable sliders previously hosted in MiniDrawer.
+// eyebrow labels, mono numerics. Holds the chunk-buffer metrics, camera
+// tunable sliders, and the trail-length tunable.
 //
-// Not part of the user-facing flow; safe to delete if dev tooling
-// migrates elsewhere.
+// Positioned bottom-left, right of the LeftRail and above the bottom
+// timeline, so it never overlaps the right column (body card / event
+// log). Collapsible via the chevron — collapsed state hides the body
+// but keeps the header so re-expanding is a single click.
 
 export function DevPanel() {
+  const [expanded, setExpanded] = useState(true);
   return (
     <div
-      className="glass pointer-events-auto absolute right-6 bottom-[140px] z-20 flex w-[280px] flex-col gap-2 p-4"
+      className="glass pointer-events-auto absolute bottom-[130px] left-[100px] z-20 flex w-[280px] flex-col p-0"
       style={{ borderRadius: 14 }}
     >
-      <div className="text-hi text-[12px] font-semibold tracking-[-0.01em]">
-        Dev panel
-      </div>
-      <p className="text-subdim text-[10px] tracking-[0.04em] uppercase">
-        ?dev=1
-      </p>
+      <button
+        type="button"
+        onClick={() => setExpanded((p) => !p)}
+        className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-white/[0.02]"
+      >
+        <div className="flex items-baseline gap-2">
+          <span className="text-hi text-[12px] font-semibold tracking-[-0.01em]">
+            Dev panel
+          </span>
+          <span className="text-subdim text-[9px] tracking-[0.18em] uppercase">
+            ?dev=1
+          </span>
+        </div>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 12 12"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          fill="none"
+          strokeLinecap="round"
+          className={`text-dim transition-transform ${
+            expanded ? "rotate-180" : ""
+          }`}
+        >
+          <path d="M3 5l3 3 3-3" />
+        </svg>
+      </button>
 
-      <DevMetrics />
-      <CameraSliders />
+      {expanded && (
+        <div className="flex flex-col gap-2 px-4 pb-4">
+          <DevMetrics />
+          <Tunables />
+        </div>
+      )}
     </div>
   );
 }
@@ -47,7 +76,7 @@ function DevMetrics() {
   const bytes = useSelector(selectSimulationDataSize);
 
   return (
-    <section className="mt-1 flex flex-col gap-1.5 border-t border-dashed border-white/[0.06] pt-2.5">
+    <section className="flex flex-col gap-1.5 border-t border-dashed border-white/[0.06] pt-2.5">
       <p className="eyebrow">CHUNK BUFFER</p>
       <Row k="Total steps" v={total.toLocaleString("en-US")} />
       <Row k="Current step" v={idx.toLocaleString("en-US")} />
@@ -57,12 +86,21 @@ function DevMetrics() {
   );
 }
 
-function CameraSliders() {
+function Tunables() {
   const settings = useDevSettings();
 
   return (
     <section className="flex flex-col gap-3 border-t border-dashed border-white/[0.06] pt-2.5">
-      <p className="eyebrow">CAMERA TUNABLES</p>
+      <p className="eyebrow">TUNABLES</p>
+      <DevSlider
+        label="Trail length"
+        valueKey="trailLength"
+        value={settings.trailLength}
+        min={100}
+        max={5000}
+        step={100}
+        format={(v) => Math.round(v).toLocaleString("en-US")}
+      />
       <DevSlider
         label="Zoom sensitivity"
         valueKey="zoomSensitivity"
@@ -149,6 +187,3 @@ function formatBytes(n: number): string {
   const i = Math.floor(Math.log(n) / Math.log(1024));
   return `${(n / Math.pow(1024, i)).toFixed(2)} ${units[i] ?? "B"}`;
 }
-
-// Quiet a "no-unused" if getDevSettings becomes used elsewhere.
-void getDevSettings;

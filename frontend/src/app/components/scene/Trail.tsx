@@ -13,12 +13,18 @@ import {
 } from "@/app/store/slices/SimulationSlice";
 import { writeBodyWorldPositionToArray } from "@/app/utils/coordinates";
 import { scaleDistanceInto } from "@/app/utils/helpers";
+import { getDevSettings } from "@/app/dev/devSettingsStore";
 
 interface TrailProps {
   bodyName: string;
-  length?: number;
   color?: [number, number, number];
 }
+
+// Hard cap on trail buffer size. The dev-settings slider controls how
+// many points are *drawn*; the buffer is allocated once at this max so
+// dragging the slider doesn't reallocate or rebuild geometry on every
+// step. 5000 × 6 floats × 4 bytes × ~9 trails ≈ 1 MB total — negligible.
+const MAX_TRAIL_POINTS = 5000;
 
 /**
  * Orbital trail rendered as a polyline. Reads simulation state directly
@@ -35,22 +41,22 @@ interface TrailProps {
  */
 const Trail: React.FC<TrailProps> = ({
   bodyName,
-  length = 1000,
   color = [1, 1, 1],
 }) => {
   const store = useStore<RootState>();
 
-  // Built once per Trail instance, persists across frames. The Float32Arrays
-  // backing the attributes are mutated in useFrame.
+  // Allocated once per Trail instance at MAX_TRAIL_POINTS and reused
+  // across frames. Float32Arrays mutated in useFrame; setDrawRange
+  // controls how many points actually render.
   const lineObject = useMemo(() => {
     const geom = new THREE.BufferGeometry();
     geom.setAttribute(
       "position",
-      new THREE.BufferAttribute(new Float32Array(length * 3), 3),
+      new THREE.BufferAttribute(new Float32Array(MAX_TRAIL_POINTS * 3), 3),
     );
     geom.setAttribute(
       "color",
-      new THREE.BufferAttribute(new Float32Array(length * 3), 3),
+      new THREE.BufferAttribute(new Float32Array(MAX_TRAIL_POINTS * 3), 3),
     );
     geom.setDrawRange(0, 0);
 
@@ -64,7 +70,7 @@ const Trail: React.FC<TrailProps> = ({
     // lines is cheap, the optimisation wasn't saving anything useful.
     line.frustumCulled = false;
     return line;
-  }, [length]);
+  }, []);
 
   // <primitive object> doesn't auto-dispose user-managed objects.
   useEffect(() => {
@@ -106,6 +112,9 @@ const Trail: React.FC<TrailProps> = ({
       return;
     }
 
+    // Live tunable: dev-settings slider clamps to MAX_TRAIL_POINTS so
+    // the buffer write loop never overruns the allocated geometry.
+    const length = Math.min(MAX_TRAIL_POINTS, getDevSettings().trailLength);
     const start = Math.max(0, currentTimeStepIndex - length);
     const end = currentTimeStepIndex;
     const total = end - start;
