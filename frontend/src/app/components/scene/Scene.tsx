@@ -1,7 +1,6 @@
 "use client";
 
 import { Canvas } from "@react-three/fiber";
-import { Stats } from "@react-three/drei";
 import Camera from "@/app/components/scene/Camera";
 import Sphere from "@/app/components/scene/Sphere";
 import Trail from "@/app/components/scene/Trail";
@@ -94,7 +93,6 @@ const Scene = () => {
       }}
     >
       <AnimationController />
-      {process.env.NODE_ENV === "development" && <Stats />}
       <Camera />
       <ambientLight intensity={Math.PI / 2} />
       {showAxes && <axesHelper args={[simulationScale.AXES.SIZE]} />}
