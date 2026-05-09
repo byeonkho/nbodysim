@@ -80,9 +80,26 @@ const Trail: React.FC<TrailProps> = ({
     };
   }, [lineObject]);
 
-  // Reused across the K=300 inner-loop iterations to avoid allocating
-  // a Vector3Simple for every moon-scale point per frame.
+  // Reused across inner-loop iterations to avoid allocating a
+  // Vector3Simple for every moon-scale point per frame.
   const posScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+
+  // Cached snapshot indices for this body and its orbiting parent.
+  // Backend's binary wire format guarantees stable body ordering across
+  // every chunk of a session, so we resolve the index once on the first
+  // valid snapshot and skip the per-iteration .find — at trailLength
+  // 5000 × ~9 trails that's 45 000 .find calls + closure allocations
+  // saved per frame (the dominant cost of the trail render path).
+  const bodyIndexRef = useRef<number>(-1);
+  const orbitingIndexRef = useRef<number>(-1);
+
+  // Defensive reset on bodyName change. Trail components are keyed per
+  // body in Scene.tsx, so the name is stable for an instance's lifetime
+  // in practice — this guards future scene-graph changes.
+  useEffect(() => {
+    bodyIndexRef.current = -1;
+    orbitingIndexRef.current = -1;
+  }, [bodyName]);
 
   // Three.js BufferGeometry attribute arrays are mutated in place every frame
   // to avoid re-uploading the buffer. React 19's hook-immutability rule flags
@@ -127,20 +144,49 @@ const Trail: React.FC<TrailProps> = ({
     const positionScale = bodyProps?.positionScale ?? 1;
     const orbitingBodyName = bodyProps?.orbitingBody;
 
+    // Lazy-resolve cached snapshot indices on the first valid snapshot.
+    // Costs one full-snapshot scan per Trail; subsequent frames are
+    // O(1) per iteration.
+    if (bodyIndexRef.current === -1) {
+      const probeKey = timeStepKeys[end];
+      const probe = simulationData[probeKey];
+      if (probe) {
+        const target = bodyName.toUpperCase();
+        for (let j = 0; j < probe.length; j++) {
+          if (probe[j].name.toUpperCase() === target) {
+            bodyIndexRef.current = j;
+            break;
+          }
+        }
+        if (orbitingBodyName) {
+          const orbitingTarget = orbitingBodyName.toUpperCase();
+          for (let j = 0; j < probe.length; j++) {
+            if (probe[j].name.toUpperCase() === orbitingTarget) {
+              orbitingIndexRef.current = j;
+              break;
+            }
+          }
+        }
+      }
+    }
+    const bodyIdx = bodyIndexRef.current;
+    if (bodyIdx < 0) {
+      geom.setDrawRange(0, 0);
+      return;
+    }
+    const orbitingIdx = orbitingIndexRef.current;
+
     let count = 0;
     for (let i = start; i <= end; i++) {
       const key = timeStepKeys[i];
       const snapshot = simulationData[key];
       if (!snapshot) continue;
-      const body = snapshot.find((b: CelestialBody) => b.name === bodyName);
+      const body = snapshot[bodyIdx];
       if (!body) continue;
 
       let pos: Vector3Simple = body.position;
-      if (positionScale !== 1 && orbitingBodyName) {
-        const orbiting = snapshot.find(
-          (b: CelestialBody) =>
-            b.name.toUpperCase() === orbitingBodyName.toUpperCase(),
-        );
+      if (positionScale !== 1 && orbitingIdx >= 0) {
+        const orbiting = snapshot[orbitingIdx];
         if (orbiting) {
           scaleDistanceInto(
             posScratch.current,
