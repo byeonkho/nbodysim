@@ -139,6 +139,8 @@ const Camera: React.FC = () => {
   const bodyPosScratch = useRef(new THREE.Vector3());
   const targetDeltaScratch = useRef(new THREE.Vector3());
   const desiredCameraScratch = useRef(new THREE.Vector3());
+  // Holds camera-to-body offset for the post-update min-distance safety.
+  const safetyDirScratch = useRef(new THREE.Vector3());
 
   /* eslint-disable react-hooks/immutability */
   useEffect(() => {
@@ -305,6 +307,37 @@ const Camera: React.FC = () => {
     }
 
     controls.update();
+
+    // Hard safety: enforce camera-to-body min distance against the body's
+    // ACTUAL rendered position. OrbitControls' built-in `minDistance` prop
+    // SHOULD enforce this through its dolly path, but in practice has
+    // empirically been seen to leak — possibly due to React state lag on
+    // setMinDistance during body switches, possibly OrbitControls' damping
+    // applying user input across multiple frames before the next clamp,
+    // possibly a drei/three.js version quirk we haven't isolated. This
+    // block is the last word: distance from camera to body strictly
+    // >= minDistance, no exceptions. If we're inside, push the camera
+    // radially outward to the floor along its current direction (or pick
+    // an arbitrary up-direction in the degenerate camera-at-body-center
+    // case).
+    if (minDistance > 0) {
+      safetyDirScratch.current
+        .copy(camera.position)
+        .sub(bodyPosScratch.current);
+      const dist = safetyDirScratch.current.length();
+      if (dist < minDistance) {
+        if (dist > EPSILON) {
+          safetyDirScratch.current
+            .divideScalar(dist)
+            .multiplyScalar(minDistance);
+        } else {
+          safetyDirScratch.current.set(0, minDistance, 0);
+        }
+        camera.position
+          .copy(bodyPosScratch.current)
+          .add(safetyDirScratch.current);
+      }
+    }
   });
 
   return (
