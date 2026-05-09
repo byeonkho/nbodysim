@@ -4,7 +4,7 @@
 
 Pick bodies, reference frame, integrator, and time step. The backend computes trajectories from JPL initial conditions using a pluggable N-body integrator; the frontend tape-plays them in 3D at adjustable speed. Trajectories arrive as zstd-compressed binary chunks over HTTP/2, decoded in a Web Worker, so you can scrub, pause, and rewind without the simulation needing to keep up with the camera.
 
-**Live demo:** _coming soon — see [ROADMAP.md](ROADMAP.md)._
+**Live demo:** _coming soon — see [ARCHITECTURE.md](ARCHITECTURE.md)._
 
 ---
 
@@ -69,7 +69,7 @@ Open <http://localhost:3000>. The frontend defaults to a backend at `http://loca
 - **Frontend** buffers the timestep map and tape-plays it at 60fps via R3F's `useFrame`. When the buffer dips below threshold, the next chunk is prefetched; old chunks are evicted at a cap.
 - **Two scale presets** — Realistic uses true positions and radii (planets are tiny dots at solar-system distance); Semi-Realistic compresses the system for a more compact view, with per-body exception scaling for tightly-coupled pairs (e.g. Earth–Moon).
 
-For a deeper architectural discussion, planned work, and known tradeoffs, see **[ROADMAP.md](ROADMAP.md)**.
+For a deeper architectural discussion, planned work, and known tradeoffs, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ---
 
@@ -86,7 +86,7 @@ For a deeper architectural discussion, planned work, and known tradeoffs, see **
 
 ## Status
 
-Active development. The simulation runs end-to-end; current focus is hardening the integrator architecture and preparing for hosted deployment. Planned work, known tradeoffs, and tech-choice rationale are tracked in [ROADMAP.md](ROADMAP.md).
+Active development. The simulation runs end-to-end; current focus is hardening the integrator architecture and preparing for hosted deployment. Planned work, known tradeoffs, and tech-choice rationale are tracked in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
