@@ -29,7 +29,10 @@ const Layout: React.FC = () => {
   return (
     <div className="flex w-screen h-screen overflow-hidden">
       <div className="grow relative overflow-hidden">
-        <div className="absolute inset-0 z-0 bg-black">
+        {/* bg-space matches the canvas texture's base color (#050610),
+            so any sliver of background visible before the WebGL canvas
+            paints is the same inky blue rather than pure black. */}
+        <div className="absolute inset-0 z-0 bg-space">
           <Scene />
         </div>
 
