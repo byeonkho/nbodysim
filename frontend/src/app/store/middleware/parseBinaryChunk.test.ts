@@ -7,19 +7,20 @@ import { parseBinaryChunk } from "./parseBinaryChunk";
 // agrees with the documented format. Backend has its own test pinning the
 // same layout from the Java side; if either side drifts, one test fails first.
 function buildChunkBytes(
-  bodyNames: string[],
+  bodies: Array<{ name: string; mu: number }>,
   timesteps: Array<{
     millis: number;
     bodies: Array<{ pos: [number, number, number]; vel: [number, number, number] }>;
   }>,
 ): Uint8Array {
   const encoder = new TextEncoder();
-  const encodedNames = bodyNames.map((n) => encoder.encode(n));
+  const encodedNames = bodies.map((b) => encoder.encode(b.name));
   const headerSize =
     2 +
-    encodedNames.reduce((sum, b) => sum + 2 + b.length, 0) +
+    // Each body: 2 (nameLen) + name bytes + 8 (µ).
+    encodedNames.reduce((sum, b) => sum + 2 + b.length + 8, 0) +
     4;
-  const perTimestep = 8 + bodyNames.length * 6 * 8;
+  const perTimestep = 8 + bodies.length * 6 * 8;
   const total = headerSize + timesteps.length * perTimestep;
 
   const buf = new ArrayBuffer(total);
@@ -27,13 +28,16 @@ function buildChunkBytes(
   const out = new Uint8Array(buf);
   let offset = 0;
 
-  view.setUint16(offset, bodyNames.length, true);
+  view.setUint16(offset, bodies.length, true);
   offset += 2;
-  for (const name of encodedNames) {
-    view.setUint16(offset, name.length, true);
+  for (let i = 0; i < bodies.length; i++) {
+    const nameBytes = encodedNames[i];
+    view.setUint16(offset, nameBytes.length, true);
     offset += 2;
-    out.set(name, offset);
-    offset += name.length;
+    out.set(nameBytes, offset);
+    offset += nameBytes.length;
+    view.setFloat64(offset, bodies[i].mu, true);
+    offset += 8;
   }
   view.setUint32(offset, timesteps.length, true);
   offset += 4;
@@ -56,7 +60,10 @@ function buildChunkBytes(
 describe("parseBinaryChunk", () => {
   it("parses a known byte layout into the expected structure", () => {
     const bytes = buildChunkBytes(
-      ["Earth", "Moon"],
+      [
+        { name: "Earth", mu: 3.986004418e14 },
+        { name: "Moon", mu: 4.9028000661e12 },
+      ],
       [
         {
           millis: Date.UTC(2024, 5, 5),
@@ -71,18 +78,22 @@ describe("parseBinaryChunk", () => {
     const result = parseBinaryChunk(bytes);
 
     const key = "2024-06-05T00:00:00.000Z";
-    expect(Object.keys(result)).toEqual([key]);
-    expect(result[key]).toEqual([
+    expect(Object.keys(result.data)).toEqual([key]);
+    expect(result.data[key]).toEqual([
       { name: "Earth", position: { x: 1, y: 2, z: 3 }, velocity: { x: 4, y: 5, z: 6 } },
       { name: "Moon", position: { x: 7, y: 8, z: 9 }, velocity: { x: 10, y: 11, z: 12 } },
     ]);
+    expect(result.mu).toEqual({
+      Earth: 3.986004418e14,
+      Moon: 4.9028000661e12,
+    });
   });
 
   it("preserves multi-byte UTF-8 in body names", () => {
     // "Α" (Greek capital alpha) is 2 bytes in UTF-8; nameLength counts bytes,
     // not characters. Catches the off-by-one if we accidentally use char count.
     const bytes = buildChunkBytes(
-      ["Α"],
+      [{ name: "Α", mu: 1 }],
       [
         {
           millis: 0,
@@ -93,12 +104,16 @@ describe("parseBinaryChunk", () => {
 
     const result = parseBinaryChunk(bytes);
     const key = "1970-01-01T00:00:00.000Z";
-    expect(result[key][0].name).toBe("Α");
+    expect(result.data[key][0].name).toBe("Α");
+    expect(result.mu["Α"]).toBe(1);
   });
 
   it("handles multiple timesteps in header order", () => {
     const bytes = buildChunkBytes(
-      ["A", "B"],
+      [
+        { name: "A", mu: 100 },
+        { name: "B", mu: 200 },
+      ],
       [
         {
           millis: 1000,
@@ -118,7 +133,26 @@ describe("parseBinaryChunk", () => {
     );
 
     const result = parseBinaryChunk(bytes);
-    expect(result["1970-01-01T00:00:01.000Z"][0].position.x).toBe(1);
-    expect(result["1970-01-01T00:00:02.000Z"][1].position.x).toBe(4);
+    expect(result.data["1970-01-01T00:00:01.000Z"][0].position.x).toBe(1);
+    expect(result.data["1970-01-01T00:00:02.000Z"][1].position.x).toBe(4);
+    expect(result.mu).toEqual({ A: 100, B: 200 });
+  });
+
+  it("propagates µ=0 for backend missing-entry fallback", () => {
+    // Backend writes 0.0 when the µ map is missing an entry. Parser surfaces
+    // it as-is — downstream Keplerian-element code treats µ=0 as "unknown"
+    // and skips that body's elements rather than producing NaN.
+    const bytes = buildChunkBytes(
+      [{ name: "Earth", mu: 0 }],
+      [
+        {
+          millis: 0,
+          bodies: [{ pos: [0, 0, 0], vel: [0, 0, 0] }],
+        },
+      ],
+    );
+
+    const result = parseBinaryChunk(bytes);
+    expect(result.mu.Earth).toBe(0);
   });
 });

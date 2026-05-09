@@ -45,13 +45,17 @@ self.onmessage = async (event: MessageEvent<DecodeRequest>) => {
     const t0 = performance.now();
     const decompressed = decoder.decode(compressed, uncompressedSize);
     const t1 = performance.now();
-    const data = parseBinaryChunk(decompressed);
+    const parsed = parseBinaryChunk(decompressed);
     const t2 = performance.now();
     console.log(
       `[zstd worker] zstd=${(t1 - t0) | 0}ms binary=${(t2 - t1) | 0}ms total=${(t2 - t0) | 0}ms (${(uncompressedSize / 1024) | 0}KB)`,
     );
 
-    const payload = { messageType: "SIM_DATA", data };
+    const payload = {
+      messageType: "SIM_DATA",
+      data: parsed.data,
+      mu: parsed.mu,
+    };
     const response: DecodeSuccess = { id, payload };
     self.postMessage(response);
   } catch (err) {

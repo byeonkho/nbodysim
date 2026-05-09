@@ -33,6 +33,11 @@ export interface CelestialBody {
 
 export interface CelestialBodyProperties {
   mass?: number;
+  // Standard gravitational parameter µ = G·M, units m³/s². Populated from
+  // the binary chunk header on the first chunk dispatch (constant per
+  // session — backend value is sourced from Orekit's CelestialBody.getGM()).
+  // Used by orbital-element computation in the body card.
+  mu?: number;
   radius?: number;
   name?: string;
   orbitingBody?: string;
@@ -186,7 +191,10 @@ export const simulationSlice = createSlice({
 
     updateDataReceived: (
       state,
-      action: PayloadAction<{ data: SimulationData }>,
+      action: PayloadAction<{
+        data: SimulationData;
+        mu?: Record<string, number>;
+      }>,
     ) => {
       if (!state.simulationData) {
         state.simulationData = action.payload.data;
@@ -197,6 +205,36 @@ export const simulationSlice = createSlice({
         };
         console.log("Simulation data updated:", state.simulationData);
       }
+
+      // Merge µ from the chunk header into the body properties list. µ is
+      // constant per session, but the backend ships it on every chunk to
+      // avoid a separate metadata channel — overwriting on each merge is
+      // fine and idempotent. µ=0 means "unknown" (backend missing-entry
+      // fallback) and is left undefined on the props so downstream code
+      // can detect "no µ" rather than computing nonsense from zero.
+      const muMap = action.payload.mu;
+      if (muMap && state.simulationParameters.celestialBodyPropertiesList) {
+        state.simulationParameters.celestialBodyPropertiesList =
+          state.simulationParameters.celestialBodyPropertiesList.map(
+            (body: CelestialBodyProperties): CelestialBodyProperties => {
+              if (!body.name) return body;
+              const upperName = body.name.trim().toUpperCase();
+              // Match case-insensitively; backend names come from Orekit
+              // and frontend list comes from the SimParams form, so
+              // capitalisation can drift.
+              let mu: number | undefined;
+              for (const key of Object.keys(muMap)) {
+                if (key.trim().toUpperCase() === upperName) {
+                  const value = muMap[key];
+                  if (value > 0) mu = value;
+                  break;
+                }
+              }
+              return mu !== undefined ? { ...body, mu } : body;
+            },
+          );
+      }
+
       // unlock rendering loop
       state.timeState.isUpdating = false;
       state.timeState.isPaused = false;

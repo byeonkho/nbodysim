@@ -21,6 +21,12 @@ import personal.spacesim.constants.PhysicsConstants;
 public class CelestialBodyWrapper {
 
     private final double mass;
+    // Standard gravitational parameter (µ = G·M, units m³/s²). Sourced
+    // directly from Orekit's getGM() — the canonical value JPL ephemerides
+    // are computed against. Kept alongside `mass` to avoid the round-trip
+    // precision loss of dividing by G and multiplying back when downstream
+    // code (e.g. orbital-element computation) needs µ directly.
+    private final double mu;
     private final double radius;
     private final String name;
     private String orbitingBody;
@@ -39,7 +45,8 @@ public class CelestialBodyWrapper {
         CelestialBody body = CelestialBodyFactory.getBody(name);
 
         this.name = name;
-        this.mass = body.getGM() / PhysicsConstants.GRAVITATIONAL_CONSTANT;
+        this.mu = body.getGM();
+        this.mass = this.mu / PhysicsConstants.GRAVITATIONAL_CONSTANT;
         Double radiusValue = PhysicsConstants.RADIUS_MAP.get(name.toUpperCase());
         if (radiusValue == null) {
             throw new IllegalArgumentException("Unknown celestial body: " + name);

@@ -9,7 +9,6 @@ import {
 } from "@/app/store/slices/SimulationSlice";
 import {
   BODY_DISPLAY,
-  BODY_NAIF,
   BODY_ORDER,
   type BodyKey,
 } from "@/app/constants/BodyVisuals";
@@ -87,11 +86,6 @@ function BodyPill({
       >
         {BODY_DISPLAY[bodyKey]}
       </span>
-      {active && (
-        <span className="tabular text-subdim ml-0.5 font-mono text-[9px]">
-          {BODY_NAIF[bodyKey]}
-        </span>
-      )}
     </button>
   );
 }

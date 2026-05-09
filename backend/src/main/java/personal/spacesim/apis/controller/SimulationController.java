@@ -13,9 +13,11 @@ import personal.spacesim.dtos.SimulationRequestDTO;
 import personal.spacesim.dtos.SimulationResponseDTO;
 import personal.spacesim.services.SimulationSessionService;
 import personal.spacesim.simulation.body.CelestialBodySnapshot;
+import personal.spacesim.simulation.body.CelestialBodyWrapper;
 import personal.spacesim.utils.compressor.ZstdCompressor;
 import personal.spacesim.utils.serializers.BinaryResponseSerializer;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -100,7 +102,19 @@ public class SimulationController {
         long tSim = System.nanoTime();
         logger.info("[{}] Simulation computed in {}ms", sessionID, (tSim - t0) / 1_000_000);
 
-        byte[] binaryPayload = binaryResponseSerializer.serialize(chunkData);
+        // Build the µ map from the session's body wrappers. µ is constant per
+        // body for the session's lifetime; resending per chunk is only
+        // bodyCount × 8 bytes and avoids needing a separate metadata channel
+        // / coordination with the chunk fetch on the client. Insertion-ordered
+        // map preserves body order matching the snapshot lists.
+        List<CelestialBodyWrapper> bodyWrappers =
+                simulationSessionService.getSimulationResults(sessionID);
+        Map<String, Double> muByName = new LinkedHashMap<>();
+        for (CelestialBodyWrapper w : bodyWrappers) {
+            muByName.put(w.getName(), w.getMu());
+        }
+
+        byte[] binaryPayload = binaryResponseSerializer.serialize(chunkData, muByName);
         long tBin = System.nanoTime();
         logger.info(
                 "[{}] Binary serialized in {}ms ({} KB)",

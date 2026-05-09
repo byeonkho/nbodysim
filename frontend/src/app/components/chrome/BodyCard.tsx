@@ -18,11 +18,8 @@ import {
   subtractInto,
   toTitleCase,
 } from "@/app/utils/helpers";
-import {
-  BODY_DISPLAY,
-  BODY_NAIF,
-  toBodyKey,
-} from "@/app/constants/BodyVisuals";
+import { computeOrbitalElements } from "@/app/utils/orbitalElements";
+import { BODY_DISPLAY, toBodyKey } from "@/app/constants/BodyVisuals";
 import { BodySphere } from "@/app/components/chrome/BodySphere";
 
 // Right-column body card. Identity (name, NAIF, orbiting body) comes from
@@ -30,11 +27,12 @@ import { BodySphere } from "@/app/components/chrome/BodySphere";
 // DOM refs — subscribing to Redux per frame would force a React rerender
 // of the whole card on every tick.
 //
-// Phase 3 (#59) appends Keplerian elements; Phase 5 (#60) appends
-// integrator residuals. Both will live as additional sections below
-// State vector.
+// Phase 5 (#60) will append integrator residuals as another section below
+// Keplerian elements.
 
 const REFRESH_HZ_MS = 200;
+const AU_METRES = 1.495978707e11;
+const RAD_TO_DEG = 180 / Math.PI;
 
 export function BodyCard() {
   const activeName = useSelector(selectActiveBodyName);
@@ -54,10 +52,36 @@ export function BodyCard() {
   const ryRef = useRef<HTMLSpanElement>(null);
   const vmagRef = useRef<HTMLSpanElement>(null);
 
+  // Keplerian elements refs — populated only when the orbiting body's µ is
+  // known. Sun rows render "—" because the Sun has no orbiting body in the
+  // current scene topology.
+  const semiMajorRef = useRef<HTMLSpanElement>(null);
+  const eccentricityRef = useRef<HTMLSpanElement>(null);
+  const inclinationRef = useRef<HTMLSpanElement>(null);
+  const trueAnomalyRef = useRef<HTMLSpanElement>(null);
+  const periodRef = useRef<HTMLSpanElement>(null);
+
   const velocityScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+
+  // µ comes from the orbiting body's CelestialBodyProperties, which is
+  // populated by SimulationSlice from the binary chunk header. May be
+  // undefined briefly between body-switch and first chunk, so guard reads.
+  const orbitingProps = propsList?.find(
+    (p: CelestialBodyProperties) =>
+      p.name?.trim().toUpperCase() === orbitingNameUpper,
+  );
+  const orbitingMu = orbitingProps?.mu;
 
   useEffect(() => {
     if (!upperName || !activeProps || !orbitingNameUpper) return;
+
+    const writeDashes = () => {
+      if (semiMajorRef.current) semiMajorRef.current.textContent = "—";
+      if (eccentricityRef.current) eccentricityRef.current.textContent = "—";
+      if (inclinationRef.current) inclinationRef.current.textContent = "—";
+      if (trueAnomalyRef.current) trueAnomalyRef.current.textContent = "—";
+      if (periodRef.current) periodRef.current.textContent = "—";
+    };
 
     const tick = () => {
       const state = store.getState();
@@ -93,18 +117,56 @@ export function BodyCard() {
         rxRef.current.textContent = formatScientificKm(body.position.x);
       if (ryRef.current)
         ryRef.current.textContent = formatScientificKm(body.position.y);
+
+      // Keplerian elements — only computable when µ for the orbiting body
+      // is known (i.e. at least one chunk has been received and the slice
+      // has merged µ into the props list). No µ → render dashes.
+      if (orbitingMu && orbitingMu > 0) {
+        const elements = computeOrbitalElements(
+          body.position,
+          body.velocity,
+          orbiting.position,
+          orbiting.velocity,
+          orbitingMu,
+        );
+        if (elements) {
+          if (semiMajorRef.current)
+            semiMajorRef.current.textContent = formatSemiMajorAxis(
+              elements.semiMajorAxis,
+            );
+          if (eccentricityRef.current)
+            eccentricityRef.current.textContent =
+              elements.eccentricity.toFixed(4);
+          if (inclinationRef.current)
+            inclinationRef.current.textContent = formatDegrees(
+              elements.inclination * RAD_TO_DEG,
+            );
+          if (trueAnomalyRef.current)
+            trueAnomalyRef.current.textContent = formatDegrees(
+              elements.trueAnomaly * RAD_TO_DEG,
+            );
+          if (periodRef.current)
+            periodRef.current.textContent = formatPeriod(elements.period);
+        } else {
+          // Degenerate state — can happen briefly mid-frame on snapshot
+          // boundary issues; show dashes rather than NaN.
+          writeDashes();
+        }
+      } else {
+        writeDashes();
+      }
     };
+
     tick();
     const id = window.setInterval(tick, REFRESH_HZ_MS);
     return () => window.clearInterval(id);
-  }, [store, upperName, orbitingNameUpper, activeProps]);
+  }, [store, upperName, orbitingNameUpper, activeProps, orbitingMu]);
 
   if (!upperName || !activeProps) {
     return <BodyCardEmpty />;
   }
 
   const bodyKey = toBodyKey(upperName);
-  const naif = bodyKey ? BODY_NAIF[bodyKey] : "—";
   const display = bodyKey
     ? BODY_DISPLAY[bodyKey]
     : toTitleCase(activeName ?? "");
@@ -122,10 +184,6 @@ export function BodyCard() {
         <div className="text-hi text-[17px] font-semibold tracking-[-0.015em]">
           {display}
         </div>
-        <div className="flex-1" />
-        <div className="text-subdim tabular font-mono text-[10px] tracking-[0.04em]">
-          NAIF · {naif}
-        </div>
       </div>
 
       <div className="text-dim mb-1.5 text-[11px] leading-[1.55]">
@@ -138,6 +196,13 @@ export function BodyCard() {
       <KvRow k="r⃗ · x" valueRef={rxRef} />
       <KvRow k="r⃗ · y" valueRef={ryRef} />
       <KvRow k="v⃗ · ‖" valueRef={vmagRef} />
+
+      <SectionLabel>Keplerian elements</SectionLabel>
+      <KvRow k="Semi-major axis · a" valueRef={semiMajorRef} />
+      <KvRow k="Eccentricity · e" valueRef={eccentricityRef} />
+      <KvRow k="Inclination · i" valueRef={inclinationRef} />
+      <KvRow k="True anomaly · ν" valueRef={trueAnomalyRef} />
+      <KvRow k="Period · T" valueRef={periodRef} />
     </div>
   );
 }
@@ -191,6 +256,35 @@ function formatScientificKm(meters: number): string {
   const mantissa = km / Math.pow(10, exp);
   const sign = km < 0 ? "−" : "+";
   return `${sign}${Math.abs(mantissa).toFixed(3)}×10${superScript(exp)} km`;
+}
+
+function formatSemiMajorAxis(metres: number): string {
+  if (!Number.isFinite(metres)) return "—";
+  if (metres < 0) return "hyperbolic";
+  // Switch units at the Earth-Moon scale: AU below ~0.001 AU is unhelpful
+  // (the Moon's a is ~0.00257 AU = 384 400 km — we want km for that one).
+  const au = metres / AU_METRES;
+  if (Math.abs(au) >= 0.01) {
+    return `${au.toFixed(4)} AU`;
+  }
+  const km = metres / 1000;
+  return `${Math.round(km).toLocaleString("en-US")} km`;
+}
+
+function formatDegrees(deg: number): string {
+  if (!Number.isFinite(deg)) return "—";
+  return `${deg.toFixed(2)}°`;
+}
+
+function formatPeriod(seconds: number): string {
+  if (!Number.isFinite(seconds)) return "—";
+  const days = seconds / 86400;
+  // Below 100 days, days reads cleaner; above, years.
+  if (days < 100) {
+    return `${days.toFixed(2)} d`;
+  }
+  const years = days / 365.25;
+  return `${years.toFixed(2)} yr`;
 }
 
 function superScript(n: number): string {
