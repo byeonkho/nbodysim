@@ -297,29 +297,24 @@ export const simulationSlice = createSlice({
     togglePause: (state) => {
       state.timeState.isPaused = !state.timeState.isPaused;
     },
+    // View toggles are unconditional — the sim-data guard that used to wrap
+    // each of these silently dropped clicks before the user had loaded a
+    // sim, leaving the chip stuck on whatever its initial-state value was.
+    // The scene's render branches already gate on isPaused / data presence
+    // separately; the slice flag is just a UI preference.
     toggleShowGrid: (state) => {
-      if (state.simulationData) {
-        state.simulationParameters.showGrid =
-          !state.simulationParameters.showGrid;
-      }
+      state.simulationParameters.showGrid = !state.simulationParameters.showGrid;
     },
     toggleShowAxes: (state) => {
-      if (state.simulationData) {
-        state.simulationParameters.showAxes =
-          !state.simulationParameters.showAxes;
-      }
+      state.simulationParameters.showAxes = !state.simulationParameters.showAxes;
     },
     toggleShowPlanetInfoOverlay: (state) => {
-      if (state.simulationData) {
-        state.simulationParameters.showPlanetInfoOverlay =
-          !state.simulationParameters.showPlanetInfoOverlay;
-      }
+      state.simulationParameters.showPlanetInfoOverlay =
+        !state.simulationParameters.showPlanetInfoOverlay;
     },
     toggleShowTrails: (state) => {
-      if (state.simulationData) {
-        state.simulationParameters.showTrails =
-          !state.simulationParameters.showTrails;
-      }
+      state.simulationParameters.showTrails =
+        !state.simulationParameters.showTrails;
     },
 
     setIsUpdating: (state, action: PayloadAction<boolean>) => {
@@ -420,7 +415,10 @@ export const simulationSlice = createSlice({
       state.activeBodyState.isBodyActive = action.payload;
     },
     cycleSimulationScale: (state) => {
-      if (state.simulationParameters.simulationScale && state.simulationData) {
+      // Same reasoning as the view toggles above — the simulationData
+      // guard dropped pre-sim clicks. The body-list re-mapping further
+      // down has its own guard so it's still safe before bodies exist.
+      if (state.simulationParameters.simulationScale) {
         const currentScale = state.simulationParameters.simulationScale;
         const scaleOptions: string[] = Object.keys(SimConstants.SCALE); //ES6 objects have defined insertion order
         // for string keys

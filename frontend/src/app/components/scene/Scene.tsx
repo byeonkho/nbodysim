@@ -25,30 +25,33 @@ import { Reticle } from "@/app/components/scene/Reticle";
 import { GhostLabel } from "@/app/components/scene/GhostLabel";
 import { bodyColorRgb01, toBodyKey } from "@/app/constants/BodyVisuals";
 
-// Deep-space canvas background — matches the design handoff's `.starfield`
-// CSS recipe (frontend/design_handoff_spacesim_ui/index.html). Inky blue
-// base with two soft elliptical glows that read as distant nebulae /
-// zodiacal light: cool blue top-right, dusky purple bottom-left. Fades
-// over ~50% of each ellipse before going transparent.
+// Deep-space canvas background — inspired by the design handoff's
+// `.starfield` recipe (frontend/design_handoff_spacesim_ui/index.html)
+// but tuned for Canvas2D. The CSS uses `radial-gradient(ellipse at ...)`
+// which auto-sizes to the container's farthest corner, producing very
+// wide, diffuse ellipses. Canvas2D's createRadialGradient is strictly
+// circular, so a literal port of the CSS values produces visible
+// circular blobs rather than the intended atmospheric wash. We
+// compensate by (a) making the radii ~1.4× the canvas (so each gradient
+// extends well past the visible edges into a uniform tint) and (b)
+// roughly halving the center alpha (since the same RGBA over a wider
+// area is perceptually brighter at any given pixel).
 //
-// The base color is `--color-space` from globals.css (`#050610`); we
-// don't read that from the DOM here because this canvas is built once
-// at scene mount inside an onCreated callback, and reaching for CSS vars
-// at that moment would couple us to the document tree the Three.js
-// canvas isn't part of. Hardcoded; if globals.css's --color-space ever
-// drifts, update this in lockstep.
+// Base color is `--color-space` from globals.css. Hardcoded here because
+// this texture is built inside R3F's onCreated callback before the
+// document is attached; reading CSS vars at that moment is fragile.
 const SPACE_BG_BASE = "#050610";
-// Glow #1 — cool blue, top-right (60% x, 35% y in CSS coords; we map
-// (0,0) to top-left, max to bottom-right of canvas, matching CSS).
-const GLOW1_X = 0.6;
-const GLOW1_Y = 0.35;
-const GLOW1_COLOR = "rgba(40, 60, 90, 0.30)";
-const GLOW1_FADE_END = 0.55; // gradient stops at 55% radius
+// Glow #1 — cool blue, top-right.
+const GLOW1_X = 0.65;
+const GLOW1_Y = 0.3;
+const GLOW1_COLOR = "rgba(40, 60, 90, 0.16)";
 // Glow #2 — dusky purple, bottom-left.
 const GLOW2_X = 0.2;
-const GLOW2_Y = 0.8;
-const GLOW2_COLOR = "rgba(60, 30, 80, 0.18)";
-const GLOW2_FADE_END = 0.5;
+const GLOW2_Y = 0.85;
+const GLOW2_COLOR = "rgba(60, 30, 80, 0.10)";
+// Both glows use the same outer radius — sized so the gradient extends
+// past the canvas corners, avoiding any visible falloff edge.
+const GLOW_OUTER_RADIUS_FRAC = 1.4;
 
 const Scene = () => {
   const showPlanetInfoOverlay = useSelector(selectShowPlanetInfoOverlay);
@@ -95,30 +98,26 @@ const Scene = () => {
         context.fillStyle = SPACE_BG_BASE;
         context.fillRect(0, 0, canvas.width, canvas.height);
 
-        // 2. Layer the two nebula glows. Canvas2D's createRadialGradient
-        //    takes (x0,y0,r0, x1,y1,r1) for two circles defining the
-        //    gradient — we use a zero-radius inner circle (point source)
-        //    and an outer circle sized to half the canvas so the fade
-        //    spans the full visible area (ellipse approximation; canvas
-        //    only supports circular gradients, but at 1024×1024 the
-        //    visual difference from a true ellipse is negligible).
-        const drawGlow = (
-          fracX: number,
-          fracY: number,
-          color: string,
-          fadeFrac: number,
-        ) => {
+        // 2. Layer the two nebula glows. Each glow is a wide circular
+        //    radial gradient centered at the spec'd position with outer
+        //    radius extending past the canvas edges, so the visible area
+        //    sees only the inner / mid region of the falloff. Two soft
+        //    color stops produce a smoother curve than a single linear
+        //    one — closer to the CSS ellipse's perceptual gradient.
+        const drawGlow = (fracX: number, fracY: number, color: string) => {
           const cx = fracX * canvas.width;
           const cy = fracY * canvas.height;
-          const outerR = (canvas.width / 2) * (fadeFrac / 0.5); // tune so 0.5 = half-canvas
+          const outerR = canvas.width * GLOW_OUTER_RADIUS_FRAC;
           const grad = context.createRadialGradient(cx, cy, 0, cx, cy, outerR);
           grad.addColorStop(0, color);
+          // Mid-stop with reduced alpha makes the falloff curve gentler.
+          grad.addColorStop(0.4, color.replace(/[\d.]+\)$/, "0.04)"));
           grad.addColorStop(1, "rgba(0,0,0,0)");
           context.fillStyle = grad;
           context.fillRect(0, 0, canvas.width, canvas.height);
         };
-        drawGlow(GLOW1_X, GLOW1_Y, GLOW1_COLOR, GLOW1_FADE_END);
-        drawGlow(GLOW2_X, GLOW2_Y, GLOW2_COLOR, GLOW2_FADE_END);
+        drawGlow(GLOW1_X, GLOW1_Y, GLOW1_COLOR);
+        drawGlow(GLOW2_X, GLOW2_Y, GLOW2_COLOR);
 
         // 3. Procedural starfield on top of the glow.
         const numStars = 500;
