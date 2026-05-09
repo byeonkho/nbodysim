@@ -10,6 +10,7 @@ import {
   setActiveBody,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
+import { setBodyWorldPosition } from "@/app/utils/coordinates";
 import { scaleDistanceInto } from "@/app/utils/helpers";
 import * as THREE from "three";
 
@@ -99,12 +100,17 @@ const Sphere: React.FC<SphereProps> = ({
             }
           }
 
-          const x = pos.x / simulationScale.positionScale;
-          const y = pos.y / simulationScale.positionScale;
-          const z = pos.z / simulationScale.positionScale;
-          meshRef.current.position.set(x, y, z);
+          setBodyWorldPosition(
+            meshRef.current.position,
+            pos,
+            simulationScale.positionScale,
+          );
           if (lightRef.current) {
-            lightRef.current.position.set(x, y, z);
+            setBodyWorldPosition(
+              lightRef.current.position,
+              pos,
+              simulationScale.positionScale,
+            );
             lightRef.current.intensity = simulationScale.positionScale * 0.0001;
             lightRef.current.distance = simulationScale.positionScale;
           }

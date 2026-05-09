@@ -11,6 +11,7 @@ import {
   selectTimeStepKeys,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
+import { writeBodyWorldPositionToArray } from "@/app/utils/coordinates";
 import { scaleDistanceInto } from "@/app/utils/helpers";
 
 interface TrailProps {
@@ -143,9 +144,12 @@ const Trail: React.FC<TrailProps> = ({
       }
 
       const idx = count * 3;
-      positions[idx] = pos.x / simulationScale.positionScale;
-      positions[idx + 1] = pos.y / simulationScale.positionScale;
-      positions[idx + 2] = pos.z / simulationScale.positionScale;
+      writeBodyWorldPositionToArray(
+        positions,
+        idx,
+        pos,
+        simulationScale.positionScale,
+      );
 
       // Fade older points toward black (visually equivalent to alpha fade
       // on the dark background — no custom shader needed).

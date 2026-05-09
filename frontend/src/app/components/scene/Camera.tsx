@@ -20,6 +20,7 @@ import {
   getDevSettings,
   useDevSettings,
 } from "@/app/dev/devSettingsStore";
+import { setBodyWorldPosition } from "@/app/utils/coordinates";
 
 const Camera: React.FC = () => {
   const { camera, gl } = useThree();
@@ -112,10 +113,10 @@ const Camera: React.FC = () => {
           (b: CelestialBody) => b.name === activeBodyName,
         );
         if (body) {
-          targetScratch.current.set(
-            body.position.x / scale.positionScale,
-            body.position.y / scale.positionScale,
-            body.position.z / scale.positionScale,
+          setBodyWorldPosition(
+            targetScratch.current,
+            body.position,
+            scale.positionScale,
           );
           controlsRef.current.target.lerp(targetScratch.current, 0.01);
 

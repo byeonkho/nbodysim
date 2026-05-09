@@ -14,6 +14,7 @@ import {
   type Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
 import type { RootState } from "@/app/store/Store";
+import { setBodyWorldPosition } from "@/app/utils/coordinates";
 import { calculateDistance, scaleDistanceInto } from "@/app/utils/helpers";
 import { BODY_DISPLAY, toBodyKey } from "@/app/constants/BodyVisuals";
 
@@ -77,10 +78,10 @@ export function GhostLabel({ bodyName }: { bodyName: string }) {
         pos = posScratch.current;
       }
     }
-    groupRef.current.position.set(
-      pos.x / simulationScale.positionScale,
-      pos.y / simulationScale.positionScale,
-      pos.z / simulationScale.positionScale,
+    setBodyWorldPosition(
+      groupRef.current.position,
+      pos,
+      simulationScale.positionScale,
     );
 
     frameCounter.current++;
