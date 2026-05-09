@@ -1,11 +1,17 @@
 "use client";
 
-// Left rail — six icon buttons. All click handlers stubbed in Phase 1;
-// real wiring lands across later phases:
+import { useDispatch, useSelector } from "react-redux";
+import {
+  selectCameraPreset,
+  toggleCameraPreset,
+} from "@/app/store/slices/SimulationSlice";
+
+// Left rail — six icon buttons. Settings opens the SimParams dialog
+// (state owned by Layout); Camera toggles the binary top-down/free
+// preset (slice). Other handlers remain stubbed:
 //   - layers icon: Phase 1B (#38) stylized-vs-realistic toggle popover
 //   - drift icon: Phase 7 (#39) reality-drift overlay toggle
-//   - top-down camera icon: Phase 2 (#58) camera-preset switch
-//   - settings icon: opens Sim Params (Phase 1, sub-commit 4)
+//   - target / scope icons: TBD
 
 interface RailIcon {
   d: string;
@@ -46,22 +52,39 @@ export function LeftRail({
   onSettingsClick,
   settingsActive,
 }: LeftRailProps) {
+  const dispatch = useDispatch();
+  const cameraPreset = useSelector(selectCameraPreset);
+  const cameraActive = cameraPreset === "top-down";
+
   return (
     <div
       className="glass pointer-events-auto absolute top-1/2 left-6 flex -translate-y-1/2 flex-col gap-1 p-2"
       style={{ borderRadius: 14 }}
     >
       {ICONS.map((icon, i) => {
-        const isSettings = icon.label === "Settings";
+        let onClick: (() => void) | undefined;
+        let active: boolean;
+        if (icon.label === "Settings") {
+          onClick = onSettingsClick;
+          active = Boolean(settingsActive);
+        } else if (icon.label === "Camera") {
+          onClick = () => dispatch(toggleCameraPreset());
+          active = cameraActive;
+        } else {
+          onClick = undefined;
+          active = i === activeIndex;
+        }
         return (
           <RailButton
             key={icon.label}
-            label={icon.label}
-            path={icon.d}
-            active={
-              isSettings ? Boolean(settingsActive) : i === activeIndex
+            label={
+              icon.label === "Camera"
+                ? `Camera · ${cameraActive ? "Top-down" : "Free"}`
+                : icon.label
             }
-            onClick={isSettings ? onSettingsClick : undefined}
+            path={icon.d}
+            active={active}
+            onClick={onClick}
           />
         );
       })}

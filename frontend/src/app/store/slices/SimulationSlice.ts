@@ -80,6 +80,8 @@ export interface SimulationScale {
   };
 }
 
+export type CameraPreset = "top-down" | "free";
+
 export interface SimulationParameters {
   celestialBodyPropertiesList: CelestialBodyProperties[];
   simulationMetaData: SimulationMetadata | null;
@@ -89,6 +91,15 @@ export interface SimulationParameters {
   showPlanetInfoOverlay: boolean;
   showTrails: boolean;
   simulationScale: SimulationScale;
+  cameraPreset: CameraPreset;
+}
+
+const CAMERA_PRESET_STORAGE_KEY = "spacesim.cameraPreset";
+
+function readInitialCameraPreset(): CameraPreset {
+  if (typeof window === "undefined") return "top-down";
+  const stored = window.localStorage.getItem(CAMERA_PRESET_STORAGE_KEY);
+  return stored === "free" ? "free" : "top-down";
 }
 
 interface SimulationState {
@@ -113,6 +124,7 @@ const initialState: SimulationState = {
     showPlanetInfoOverlay: false,
     showTrails: true,
     simulationScale: SimConstants.SCALE.SEMI_REALISTIC, // default scale
+    cameraPreset: readInitialCameraPreset(),
   },
   simulationData: null,
   timeState: {
@@ -285,6 +297,16 @@ export const simulationSlice = createSlice({
       action: PayloadAction<LastSimRequest>,
     ) => {
       state.simulationParameters.lastRequest = action.payload;
+    },
+    toggleCameraPreset: (state: SimulationState) => {
+      const next: CameraPreset =
+        state.simulationParameters.cameraPreset === "top-down"
+          ? "free"
+          : "top-down";
+      state.simulationParameters.cameraPreset = next;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(CAMERA_PRESET_STORAGE_KEY, next);
+      }
     },
     setIsBodyActive: (
       state: SimulationState,
@@ -482,6 +504,9 @@ export const selectSessionID = (state: RootState) =>
 export const selectLastSimRequest = (state: RootState) =>
   state.simulation.simulationParameters?.lastRequest;
 
+export const selectCameraPreset = (state: RootState) =>
+  state.simulation.simulationParameters?.cameraPreset ?? "top-down";
+
 export const {
   loadSimulation,
   updateDataReceived,
@@ -499,6 +524,7 @@ export const {
   setActiveBody,
   setIsBodyActive,
   setLastSimRequest,
+  toggleCameraPreset,
 } = simulationSlice.actions;
 
 export default simulationSlice.reducer;

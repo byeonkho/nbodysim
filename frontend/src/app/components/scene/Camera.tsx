@@ -4,9 +4,11 @@ import { OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { useSelector, useStore } from "react-redux";
 import {
+  type CameraPreset,
   CelestialBody,
   CelestialBodyProperties,
   selectActiveBodyName,
+  selectCameraPreset,
   selectCurrentTimeStepKey,
   selectIsBodyActive,
   selectSimulationScale,
@@ -25,6 +27,7 @@ const Camera: React.FC = () => {
   const activeBodyName: string | null = useSelector(selectActiveBodyName);
   const isBodyActive: boolean = useSelector(selectIsBodyActive);
   const simulationScale: SimulationScale = useSelector(selectSimulationScale);
+  const cameraPreset: CameraPreset = useSelector(selectCameraPreset);
   const { orbitDampingFactor } = useDevSettings();
   const store = useStore<RootState>();
 
@@ -56,15 +59,22 @@ const Camera: React.FC = () => {
   useEffect(() => {
     if (!controlsRef.current) return;
     const D = simulationScale.AXES.SIZE;
-    // Top-down preset (Decision 2 / Phase 1): the design's compass and
-    // ghost-label projection assume an ecliptic-plane view. A small
-    // forward offset keeps OrbitControls out of pole gimbal lock; the
-    // user can still orbit freely from there.
-    camera.position.set(0, D * 0.5, D * 0.05);
+    // Two binary presets (Phase 2 of redesign):
+    // - "top-down": ecliptic-plane view that the design's compass and
+    //   ghost labels assume. Tiny forward offset avoids OrbitControls
+    //   pole gimbal lock.
+    // - "free": the original perspective view; user-friendly first frame
+    //   for unconstrained orbiting.
+    if (cameraPreset === "top-down") {
+      camera.position.set(0, D * 0.5, D * 0.05);
+      trackingZoomRef.current = D * 0.5;
+    } else {
+      camera.position.set(0, D * 0.15, D * 0.3);
+      trackingZoomRef.current = D * 0.3;
+    }
     controlsRef.current.target.set(0, 0, 0);
     controlsRef.current.update();
-    trackingZoomRef.current = D * 0.5;
-  }, [camera, simulationScale]);
+  }, [camera, simulationScale, cameraPreset]);
 
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
