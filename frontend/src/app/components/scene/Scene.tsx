@@ -83,17 +83,22 @@ const Scene = () => {
       }}
       style={{ width: "100%", height: "100%" }}
     >
-      {/* Procedural starfield. Replaces the previous canvas-baked stars
-          (which lived in scene.background). drei's <Stars /> is a
-          spherical Points cloud — radius is the sphere's radius (in
-          scene units), depth controls how thick the shell is, count
-          is total point count. Tuned to read as a deep-space starfield
-          without overwhelming the chrome at typical zoom. */}
+      {/* Procedural starfield. drei's <Stars /> is a spherical Points
+          cloud at finite radius — to read as "infinity" against any
+          plausible camera zoom, the sphere needs to be much larger than
+          the user can ever zoom out (otherwise it visibly clumps into
+          a discrete ball, which is what happens at small radii). 100k
+          gives plenty of headroom past even the realistic-preset
+          AXES.SIZE (80k); when #66 ships a max-zoom-out clamp tied to
+          scale, the upper bound stays well inside this sphere.
+          Saturation 0 = pure white. fade enabled so stars near the
+          inside edge of the depth shell taper out instead of cutting
+          off sharply. */}
       <Stars
-        radius={500}
-        depth={100}
-        count={2000}
-        factor={4}
+        radius={100000}
+        depth={50000}
+        count={8000}
+        factor={6}
         saturation={0}
         fade
         speed={0}
