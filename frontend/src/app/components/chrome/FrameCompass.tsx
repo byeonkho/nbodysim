@@ -1,20 +1,49 @@
 "use client";
 
-import { useSelector } from "react-redux";
-import { selectLastSimRequest } from "@/app/store/slices/SimulationSlice";
+import { useDispatch, useSelector } from "react-redux";
+import {
+  cycleDisplayFrame,
+  selectDisplayFrame,
+} from "@/app/store/slices/SimulationSlice";
 
-// Frame compass widget — shows the current display frame and a small
-// schematic of the orbital plane. Click handler stubbed; Phase 4 (#42)
-// wires a popover that cycles helio / bary / geo and applies the
-// client-side frame transform.
+// Frame compass widget. Clicking cycles the display frame (helio → geo →
+// helio) and triggers the per-frame pivot transform applied in Sphere.tsx
+// and Trail.tsx — instant switch, no buffer reload, because the backend
+// always emits Sun-relative snapshots regardless of integration frame.
+//
+// Helio: Sun anchored at origin; planets sweep their orbits.
+// Geo:   Earth anchored at origin; Sun and outer planets sweep around
+//        Earth, Mars exhibits retrograde loop motion.
+//
+// Bary deferred — see DisplayFrame type comment in SimulationSlice.
+
+const FRAME_LABELS: Record<"helio" | "geo", string> = {
+  helio: "Heliocentric",
+  geo: "Geocentric",
+};
 
 export function FrameCompass() {
-  const lastReq = useSelector(selectLastSimRequest);
-  const frame = lastReq?.frame ?? "Heliocentric";
+  const dispatch = useDispatch();
+  const frame = useSelector(selectDisplayFrame);
+  const label = FRAME_LABELS[frame];
+
+  const onClick = () => {
+    dispatch(cycleDisplayFrame());
+  };
+
+  // Schematic glyph in the compass changes with frame so the UI hints
+  // at "what's pinned at origin": ☉ for helio, ⊕ (Earth symbol) for geo.
+  const centerGlyph = frame === "helio" ? "☉" : "⊕";
+  const centerColor =
+    frame === "helio" ? "var(--color-amber)" : "var(--color-body-earth)";
+
   return (
-    <div
-      className="glass pointer-events-auto absolute top-[96px] left-6 w-24 px-3 py-2.5 text-center"
+    <button
+      type="button"
+      onClick={onClick}
+      className="glass pointer-events-auto absolute top-[96px] left-6 w-24 px-3 py-2.5 text-center transition-colors hover:bg-white/[0.04]"
       style={{ borderRadius: 10 }}
+      aria-label={`Cycle display frame (currently ${label})`}
     >
       <div className="eyebrow mb-1.5">FRAME</div>
       <svg
@@ -71,19 +100,19 @@ export function FrameCompass() {
         >
           +X
         </text>
-        <circle cx="32" cy="32" r="4" fill="var(--color-amber)" />
+        <circle cx="32" cy="32" r="4" fill={centerColor} />
         <text
           x="32"
           y="50"
           fontSize="8"
-          fill="var(--color-amber)"
+          fill={centerColor}
           fontFamily="var(--font-mono)"
           textAnchor="middle"
         >
-          ☉
+          {centerGlyph}
         </text>
       </svg>
-      <div className="text-hi mt-1 text-[10px] font-medium">{frame}</div>
-    </div>
+      <div className="text-hi mt-1 text-[10px] font-medium">{label}</div>
+    </button>
   );
 }

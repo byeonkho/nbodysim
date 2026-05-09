@@ -27,6 +27,7 @@ interface SliceShape {
       showAxes: boolean;
       showTrails: boolean;
       showPlanetInfoOverlay: boolean;
+      displayFrame: "helio" | "geo";
       lastRequest: {
         celestialBodyNames: string[];
         integrator: string;
@@ -91,6 +92,11 @@ function describe(action: KnownAction, state: SliceShape): string | null {
     case "simulation/setActiveBody": {
       const name = state.simulation.activeBodyState.activeBodyName ?? "—";
       return `Now tracking · ${name}`;
+    }
+
+    case "simulation/cycleDisplayFrame": {
+      const f = state.simulation.simulationParameters.displayFrame;
+      return f === "geo" ? "Frame → Geocentric" : "Frame → Heliocentric";
     }
 
     case "simulation/setLastSimRequest": {

@@ -8,6 +8,7 @@ import {
   selectActiveBodyName,
   selectCelestialBodyPropertiesList,
   selectCurrentTimeStepKey,
+  selectDisplayFrame,
   type Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
 import type { RootState } from "@/app/store/Store";
@@ -37,6 +38,7 @@ const RAD_TO_DEG = 180 / Math.PI;
 export function BodyCard() {
   const activeName = useSelector(selectActiveBodyName);
   const propsList = useSelector(selectCelestialBodyPropertiesList);
+  const displayFrame = useSelector(selectDisplayFrame);
   const store = useStore<RootState>();
 
   const upperName = activeName?.trim().toUpperCase() ?? "";
@@ -187,7 +189,8 @@ export function BodyCard() {
       </div>
 
       <div className="text-dim mb-1.5 text-[11px] leading-[1.55]">
-        Tracking in heliocentric frame.
+        Tracking in {displayFrame === "geo" ? "geocentric" : "heliocentric"}{" "}
+        frame.
       </div>
 
       <SectionLabel>State vector · J2000</SectionLabel>

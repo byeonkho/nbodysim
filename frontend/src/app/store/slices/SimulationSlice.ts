@@ -87,6 +87,19 @@ export interface SimulationScale {
 
 export type CameraPreset = "top-down" | "free";
 
+// Display frame is a *render-time* choice independent of the integration
+// frame the backend used. Backend snapshots are always Sun-relative
+// (Simulation.snapshotFromState shifts by the Sun's state regardless of
+// session frame), so switching display frames is just a per-frame pivot
+// subtraction on the client — no buffer flush, no resubmit. See todo #42.
+//
+// Barycentric is intentionally not shipped in Phase 4: a correct bary
+// pivot is a mass-weighted average of all bodies, and computing it per
+// trail history point per frame is hot-path-expensive. Adding it
+// correctly needs a shared per-timestep pivot cache; deferred to keep
+// Phase 4 scope tight. Mars retrograde works fine with helio + geo.
+export type DisplayFrame = "helio" | "geo";
+
 export interface SimulationParameters {
   celestialBodyPropertiesList: CelestialBodyProperties[];
   simulationMetaData: SimulationMetadata | null;
@@ -97,14 +110,22 @@ export interface SimulationParameters {
   showTrails: boolean;
   simulationScale: SimulationScale;
   cameraPreset: CameraPreset;
+  displayFrame: DisplayFrame;
 }
 
 const CAMERA_PRESET_STORAGE_KEY = "spacesim.cameraPreset";
+const DISPLAY_FRAME_STORAGE_KEY = "spacesim.displayFrame";
 
 function readInitialCameraPreset(): CameraPreset {
   if (typeof window === "undefined") return "top-down";
   const stored = window.localStorage.getItem(CAMERA_PRESET_STORAGE_KEY);
   return stored === "free" ? "free" : "top-down";
+}
+
+function readInitialDisplayFrame(): DisplayFrame {
+  if (typeof window === "undefined") return "helio";
+  const stored = window.localStorage.getItem(DISPLAY_FRAME_STORAGE_KEY);
+  return stored === "geo" ? "geo" : "helio";
 }
 
 interface SimulationState {
@@ -124,12 +145,16 @@ const initialState: SimulationState = {
     celestialBodyPropertiesList: [],
     simulationMetaData: null,
     lastRequest: null,
-    showGrid: false,
+    // Grid, trail, label defaults match the design's first-paint look —
+    // user can toggle off via the bottom-right view chips. Axes stays
+    // off (it's a debug overlay; on by default would clutter the demo).
+    showGrid: true,
     showAxes: false,
-    showPlanetInfoOverlay: false,
+    showPlanetInfoOverlay: true,
     showTrails: true,
     simulationScale: SimConstants.SCALE.SEMI_REALISTIC, // default scale
     cameraPreset: readInitialCameraPreset(),
+    displayFrame: readInitialDisplayFrame(),
   },
   simulationData: null,
   timeState: {
@@ -346,6 +371,15 @@ export const simulationSlice = createSlice({
         window.localStorage.setItem(CAMERA_PRESET_STORAGE_KEY, next);
       }
     },
+    cycleDisplayFrame: (state: SimulationState) => {
+      // helio → geo → helio. Bary deferred — see DisplayFrame type comment.
+      const next: DisplayFrame =
+        state.simulationParameters.displayFrame === "helio" ? "geo" : "helio";
+      state.simulationParameters.displayFrame = next;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(DISPLAY_FRAME_STORAGE_KEY, next);
+      }
+    },
     setIsBodyActive: (
       state: SimulationState,
       action: PayloadAction<boolean>,
@@ -545,6 +579,9 @@ export const selectLastSimRequest = (state: RootState) =>
 export const selectCameraPreset = (state: RootState) =>
   state.simulation.simulationParameters?.cameraPreset ?? "top-down";
 
+export const selectDisplayFrame = (state: RootState): DisplayFrame =>
+  state.simulation.simulationParameters?.displayFrame ?? "helio";
+
 export const {
   loadSimulation,
   updateDataReceived,
@@ -563,6 +600,7 @@ export const {
   setIsBodyActive,
   setLastSimRequest,
   toggleCameraPreset,
+  cycleDisplayFrame,
 } = simulationSlice.actions;
 
 export default simulationSlice.reducer;

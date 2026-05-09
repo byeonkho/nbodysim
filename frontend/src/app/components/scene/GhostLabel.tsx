@@ -15,6 +15,7 @@ import {
 } from "@/app/store/slices/SimulationSlice";
 import type { RootState } from "@/app/store/Store";
 import { setBodyWorldPosition } from "@/app/utils/coordinates";
+import { findEarthIndex, writePivotInto } from "@/app/utils/framePivot";
 import { calculateDistance, scaleDistanceInto } from "@/app/utils/helpers";
 import { BODY_DISPLAY, toBodyKey } from "@/app/constants/BodyVisuals";
 
@@ -33,6 +34,9 @@ export function GhostLabel({ bodyName }: { bodyName: string }) {
   const groupRef = useRef<THREE.Group>(null!);
   const auRef = useRef<HTMLDivElement>(null);
   const posScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const shiftedScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const pivotScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const earthIdxRef = useRef<number>(-1);
   const frameCounter = useRef(0);
   const lastAu = useRef<string>("");
 
@@ -78,6 +82,28 @@ export function GhostLabel({ bodyName }: { bodyName: string }) {
         pos = posScratch.current;
       }
     }
+
+    // Apply display-frame pivot, same shape as Sphere.tsx / Trail.tsx /
+    // Reticle.tsx. Without this the label sits at the body's heliocentric
+    // world coordinate while the rendered body sits at its geocentric one
+    // — labels jumble on top of each other near the Sun's heliocentric
+    // origin in geo mode.
+    const displayFrame =
+      state.simulation.simulationParameters.displayFrame;
+    if (displayFrame !== "helio" && earthIdxRef.current === -1) {
+      earthIdxRef.current = findEarthIndex(snapshot);
+    }
+    writePivotInto(
+      pivotScratch.current,
+      snapshot,
+      displayFrame,
+      earthIdxRef.current,
+    );
+    shiftedScratch.current.x = pos.x - pivotScratch.current.x;
+    shiftedScratch.current.y = pos.y - pivotScratch.current.y;
+    shiftedScratch.current.z = pos.z - pivotScratch.current.z;
+    pos = shiftedScratch.current;
+
     setBodyWorldPosition(
       groupRef.current.position,
       pos,

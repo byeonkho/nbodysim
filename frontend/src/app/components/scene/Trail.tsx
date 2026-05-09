@@ -12,6 +12,7 @@ import {
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
 import { writeBodyWorldPositionToArray } from "@/app/utils/coordinates";
+import { findEarthIndex, writePivotInto } from "@/app/utils/framePivot";
 import { scaleDistanceInto } from "@/app/utils/helpers";
 import { getDevSettings } from "@/app/dev/devSettingsStore";
 
@@ -83,6 +84,14 @@ const Trail: React.FC<TrailProps> = ({
   // Reused across inner-loop iterations to avoid allocating a
   // Vector3Simple for every moon-scale point per frame.
   const posScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  // Pivot scratch — holds the per-timestep frame pivot (Earth's position
+  // in geo mode, zero in helio). Same pre-allocate-once contract as
+  // posScratch; mutated in place inside the inner loop.
+  const pivotScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  // Frame-pivot work vector — separate from posScratch because in the
+  // positionScale != 1 branch posScratch already holds the scaled
+  // position; we need a third slot to write the final shifted pos into.
+  const shiftedScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
 
   // Cached snapshot indices for this body and its orbiting parent.
   // Backend's binary wire format guarantees stable body ordering across
@@ -92,6 +101,10 @@ const Trail: React.FC<TrailProps> = ({
   // saved per frame (the dominant cost of the trail render path).
   const bodyIndexRef = useRef<number>(-1);
   const orbitingIndexRef = useRef<number>(-1);
+  // Earth index for geo-frame pivot lookup; cached per Trail instance
+  // for the same reason as bodyIndexRef. -1 means unresolved (helio
+  // mode or pre-first-valid-snapshot).
+  const earthIndexRef = useRef<number>(-1);
 
   // Defensive reset on bodyName change. Trail components are keyed per
   // body in Scene.tsx, so the name is stable for an instance's lifetime
@@ -99,6 +112,7 @@ const Trail: React.FC<TrailProps> = ({
   useEffect(() => {
     bodyIndexRef.current = -1;
     orbitingIndexRef.current = -1;
+    earthIndexRef.current = -1;
   }, [bodyName]);
 
   // Three.js BufferGeometry attribute arrays are mutated in place every frame
@@ -114,6 +128,7 @@ const Trail: React.FC<TrailProps> = ({
       state.simulation.simulationParameters.simulationScale;
     const celestialBodyPropertiesList =
       state.simulation.simulationParameters.celestialBodyPropertiesList;
+    const displayFrame = state.simulation.simulationParameters.displayFrame;
     const timeStepKeys = selectTimeStepKeys(state);
 
     const geom = lineObject.geometry;
@@ -167,6 +182,9 @@ const Trail: React.FC<TrailProps> = ({
             }
           }
         }
+        // Earth index for geo-frame pivot. Resolved alongside the body
+        // indices so the per-iteration frame transform is O(1).
+        earthIndexRef.current = findEarthIndex(probe);
       }
     }
     const bodyIdx = bodyIndexRef.current;
@@ -175,6 +193,7 @@ const Trail: React.FC<TrailProps> = ({
       return;
     }
     const orbitingIdx = orbitingIndexRef.current;
+    const earthIdx = earthIndexRef.current;
 
     let count = 0;
     for (let i = start; i <= end; i++) {
@@ -197,6 +216,20 @@ const Trail: React.FC<TrailProps> = ({
           pos = posScratch.current;
         }
       }
+
+      // Frame transform: subtract this snapshot's pivot from `pos`. This
+      // is the per-history-point reprojection — geo trails show the
+      // body's path *as it was relative to Earth at each moment*, not
+      // relative to Earth's current position. Without this loop being
+      // pivoted per-i, geocentric trails draw a Frankenstein "where it
+      // was, but pretending Earth was always where it is now" line.
+      // Helio path: pivot is zeros, subtraction is a 3-add no-op (cheap
+      // enough that branching for it costs more than executing it).
+      writePivotInto(pivotScratch.current, snapshot, displayFrame, earthIdx);
+      shiftedScratch.current.x = pos.x - pivotScratch.current.x;
+      shiftedScratch.current.y = pos.y - pivotScratch.current.y;
+      shiftedScratch.current.z = pos.z - pivotScratch.current.z;
+      pos = shiftedScratch.current;
 
       const idx = count * 3;
       writeBodyWorldPositionToArray(

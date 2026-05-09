@@ -13,6 +13,7 @@ import {
   selectIsBodyActive,
   selectSimulationScale,
   SimulationScale,
+  Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
 import * as THREE from "three";
 import { RootState } from "@/app/store/Store";
@@ -21,6 +22,7 @@ import {
   useDevSettings,
 } from "@/app/dev/devSettingsStore";
 import { setBodyWorldPosition } from "@/app/utils/coordinates";
+import { findEarthIndex, writePivotInto } from "@/app/utils/framePivot";
 
 const Camera: React.FC = () => {
   const { camera, gl } = useThree();
@@ -98,6 +100,11 @@ const Camera: React.FC = () => {
   // Reused across frames — no per-frame allocation.
   const targetScratch = useRef(new THREE.Vector3());
   const offsetScratch = useRef(new THREE.Vector3());
+  // Frame-pivot scratches for display-frame transform (geo mode anchors
+  // Earth at world origin). Same allocation-free pattern as Sphere.tsx.
+  const pivotScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const shiftedScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const earthIdxRef = useRef<number>(-1);
 
   useFrame(() => {
     if (isBodyActive && activeBodyName) {
@@ -113,9 +120,29 @@ const Camera: React.FC = () => {
           (b: CelestialBody) => b.name === activeBodyName,
         );
         if (body) {
+          // Apply display-frame pivot: in geo mode the active body
+          // renders at (body - earth), so the camera target has to track
+          // the same coordinate. Without this the camera would lerp
+          // toward the body's heliocentric position — empty space, 1 AU
+          // from where the body actually is.
+          const displayFrame =
+            state.simulation.simulationParameters.displayFrame;
+          if (displayFrame !== "helio" && earthIdxRef.current === -1) {
+            earthIdxRef.current = findEarthIndex(snapshot);
+          }
+          writePivotInto(
+            pivotScratch.current,
+            snapshot,
+            displayFrame,
+            earthIdxRef.current,
+          );
+          shiftedScratch.current.x = body.position.x - pivotScratch.current.x;
+          shiftedScratch.current.y = body.position.y - pivotScratch.current.y;
+          shiftedScratch.current.z = body.position.z - pivotScratch.current.z;
+
           setBodyWorldPosition(
             targetScratch.current,
-            body.position,
+            shiftedScratch.current,
             scale.positionScale,
           );
           controlsRef.current.target.lerp(targetScratch.current, 0.01);

@@ -17,6 +17,7 @@ import {
 } from "@/app/store/slices/SimulationSlice";
 import type { RootState } from "@/app/store/Store";
 import { setBodyWorldPosition } from "@/app/utils/coordinates";
+import { findEarthIndex, writePivotInto } from "@/app/utils/framePivot";
 import {
   calculateDistance,
   calculateMagnitude,
@@ -45,7 +46,10 @@ export function Reticle() {
   const rangeRef = useRef<HTMLSpanElement>(null);
   const velRef = useRef<HTMLSpanElement>(null);
   const posScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const shiftedScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const pivotScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const velScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const earthIdxRef = useRef<number>(-1);
   const lastRange = useRef<string>("");
   const lastVel = useRef<string>("");
 
@@ -75,17 +79,23 @@ export function Reticle() {
     );
     if (!body) return;
 
+    // Orbiting body lookup is optional — the Sun has no orbiting body,
+    // and previously the early-return-on-missing-orbiting path stopped
+    // the reticle from following the Sun entirely. In helio that was
+    // invisible (Sun sits at scene origin = group default 0,0,0), but in
+    // geo origin = Earth, exposing the bug. Position update runs
+    // unconditionally; range/velocity rows fall back to "—" when the
+    // body has no orbiting reference.
     const orbiting = orbitingNameUpper
       ? snapshot.find(
           (b: CelestialBody) =>
             b.name.trim().toUpperCase() === orbitingNameUpper,
         )
       : undefined;
-    if (!orbiting) return;
 
     const positionScale = activeProps.positionScale ?? 1;
     let pos: Vector3Simple = body.position;
-    if (positionScale !== 1) {
+    if (positionScale !== 1 && orbiting) {
       scaleDistanceInto(
         posScratch.current,
         body.position,
@@ -94,11 +104,47 @@ export function Reticle() {
       );
       pos = posScratch.current;
     }
+
+    // Apply display-frame pivot. Reticle marks the body in scene world
+    // space, so it has to follow the same pivot subtraction Sphere.tsx
+    // applies — otherwise in geo mode the reticle floats at the body's
+    // heliocentric coordinate while the rendered body sits at its
+    // geocentric one (1 AU mismatch).
+    const displayFrame =
+      state.simulation.simulationParameters.displayFrame;
+    if (displayFrame !== "helio" && earthIdxRef.current === -1) {
+      earthIdxRef.current = findEarthIndex(snapshot);
+    }
+    writePivotInto(
+      pivotScratch.current,
+      snapshot,
+      displayFrame,
+      earthIdxRef.current,
+    );
+    shiftedScratch.current.x = pos.x - pivotScratch.current.x;
+    shiftedScratch.current.y = pos.y - pivotScratch.current.y;
+    shiftedScratch.current.z = pos.z - pivotScratch.current.z;
+    pos = shiftedScratch.current;
+
     setBodyWorldPosition(
       groupRef.current.position,
       pos,
       simulationScale.positionScale,
     );
+
+    if (!orbiting) {
+      // Body has no orbiting reference (the Sun). Show dashes for
+      // range/velocity rather than stale values from a previous body.
+      if (rangeRef.current && lastRange.current !== "—") {
+        rangeRef.current.textContent = "—";
+        lastRange.current = "—";
+      }
+      if (velRef.current && lastVel.current !== "—") {
+        velRef.current.textContent = "—";
+        lastVel.current = "—";
+      }
+      return;
+    }
 
     const range = calculateDistance(body.position, orbiting.position, "AU");
     if (range !== lastRange.current && rangeRef.current) {
@@ -114,7 +160,9 @@ export function Reticle() {
   });
 
   // Reset cached values on body switch so first frame after switch writes
-  // through unconditionally.
+  // through unconditionally. earthIdxRef is invariant across body switches
+  // (Earth's snapshot index is the same regardless of which body is
+  // active) so it doesn't need resetting here.
   useEffect(() => {
     lastRange.current = "";
     lastVel.current = "";

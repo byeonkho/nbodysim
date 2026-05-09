@@ -11,6 +11,7 @@ import {
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
 import { setBodyWorldPosition } from "@/app/utils/coordinates";
+import { findEarthIndex, writePivotInto } from "@/app/utils/framePivot";
 import { scaleDistanceInto } from "@/app/utils/helpers";
 import * as THREE from "three";
 
@@ -70,6 +71,14 @@ const Sphere: React.FC<SphereProps> = ({
   // Reused across frames so moon-style scaled positions don't allocate a
   // Vector3Simple per frame.
   const posScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  // Frame-pivot scratch: holds the snapshot pivot point (Earth's position
+  // in geo, zero in helio) so we can subtract it from `pos` without
+  // allocating per frame.
+  const pivotScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  // Pivot body index, lazily resolved on the first valid snapshot. Same
+  // caching pattern Trail.tsx uses for body/orbiting indices: backend
+  // guarantees stable body order within a session.
+  const earthIdxRef = useRef<number>(-1);
 
   useFrame((_, delta) => {
     const state = store.getState();
@@ -77,6 +86,7 @@ const Sphere: React.FC<SphereProps> = ({
     const currentTimeStepKey = selectCurrentTimeStepKey(state);
     const simulationScale =
       state.simulation.simulationParameters.simulationScale;
+    const displayFrame = state.simulation.simulationParameters.displayFrame;
 
     if (simulationData && currentTimeStepKey) {
       const snapshot = simulationData[currentTimeStepKey];
@@ -99,6 +109,23 @@ const Sphere: React.FC<SphereProps> = ({
               pos = posScratch.current;
             }
           }
+
+          // Apply display-frame pivot subtraction. Helio writes a zero
+          // pivot, so the math is free in that case but we keep one code
+          // path to avoid branching the world-position write below.
+          if (displayFrame !== "helio" && earthIdxRef.current === -1) {
+            earthIdxRef.current = findEarthIndex(snapshot);
+          }
+          writePivotInto(
+            pivotScratch.current,
+            snapshot,
+            displayFrame,
+            earthIdxRef.current,
+          );
+          posScratch.current.x = pos.x - pivotScratch.current.x;
+          posScratch.current.y = pos.y - pivotScratch.current.y;
+          posScratch.current.z = pos.z - pivotScratch.current.z;
+          pos = posScratch.current;
 
           setBodyWorldPosition(
             meshRef.current.position,
