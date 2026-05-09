@@ -79,19 +79,35 @@ export function Reticle() {
     );
     if (!body) return;
 
-    // Orbiting body lookup is optional — the Sun has no orbiting body,
-    // and previously the early-return-on-missing-orbiting path stopped
-    // the reticle from following the Sun entirely. In helio that was
-    // invisible (Sun sits at scene origin = group default 0,0,0), but in
-    // geo origin = Earth, exposing the bug. Position update runs
-    // unconditionally; range/velocity rows fall back to "—" when the
-    // body has no orbiting reference.
+    const displayFrame =
+      state.simulation.simulationParameters.displayFrame;
+
+    // Orbital reference (orbitingNameUpper) is used for the positionScale
+    // visual fudge below. Frame-aware state-vector reference (computed
+    // here) is used for the range/velocity readouts. Mirrors BodyCard's
+    // Option A: Moon → Earth always, geo → Earth, helio → orbiting body.
+    // Edge case: active body == reference (Sun in helio, Earth in geo)
+    // → undefined, range/velocity render dashes.
     const orbiting = orbitingNameUpper
       ? snapshot.find(
           (b: CelestialBody) =>
             b.name.trim().toUpperCase() === orbitingNameUpper,
         )
       : undefined;
+
+    const stateRefNameUpper =
+      upperName === "MOON"
+        ? "EARTH"
+        : displayFrame === "geo"
+          ? "EARTH"
+          : orbitingNameUpper;
+    const stateRef =
+      stateRefNameUpper && stateRefNameUpper !== upperName
+        ? snapshot.find(
+            (b: CelestialBody) =>
+              b.name.trim().toUpperCase() === stateRefNameUpper,
+          )
+        : undefined;
 
     const positionScale = activeProps.positionScale ?? 1;
     let pos: Vector3Simple = body.position;
@@ -110,8 +126,6 @@ export function Reticle() {
     // applies — otherwise in geo mode the reticle floats at the body's
     // heliocentric coordinate while the rendered body sits at its
     // geocentric one (1 AU mismatch).
-    const displayFrame =
-      state.simulation.simulationParameters.displayFrame;
     if (displayFrame !== "helio" && earthIdxRef.current === -1) {
       earthIdxRef.current = findEarthIndex(snapshot);
     }
@@ -132,9 +146,10 @@ export function Reticle() {
       simulationScale.positionScale,
     );
 
-    if (!orbiting) {
-      // Body has no orbiting reference (the Sun). Show dashes for
-      // range/velocity rather than stale values from a previous body.
+    if (!stateRef) {
+      // No frame-aware state reference (Sun in helio, or active body
+      // IS the reference in geo). Show dashes — no meaningful
+      // self-relative range/velocity.
       if (rangeRef.current && lastRange.current !== "—") {
         rangeRef.current.textContent = "—";
         lastRange.current = "—";
@@ -146,12 +161,12 @@ export function Reticle() {
       return;
     }
 
-    const range = calculateDistance(body.position, orbiting.position, "AU");
+    const range = calculateDistance(body.position, stateRef.position, "AU");
     if (range !== lastRange.current && rangeRef.current) {
       rangeRef.current.textContent = range;
       lastRange.current = range;
     }
-    subtractInto(velScratch.current, body.velocity, orbiting.velocity);
+    subtractInto(velScratch.current, body.velocity, stateRef.velocity);
     const vel = formatToKM(calculateMagnitude(velScratch.current));
     if (vel !== lastVel.current && velRef.current) {
       velRef.current.textContent = vel;
