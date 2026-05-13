@@ -33,6 +33,11 @@ export interface CelestialBody {
 
 export interface CelestialBodyProperties {
   mass?: number;
+  // Standard gravitational parameter µ = G·M, units m³/s². Populated from
+  // the binary chunk header on the first chunk dispatch (constant per
+  // session — backend value is sourced from Orekit's CelestialBody.getGM()).
+  // Used by orbital-element computation in the body card.
+  mu?: number;
   radius?: number;
   name?: string;
   orbitingBody?: string;
@@ -42,6 +47,18 @@ export interface CelestialBodyProperties {
 
 interface SimulationMetadata {
   sessionID: string;
+}
+
+// Snapshot of the most recent SimParams form submission. Surfaces as the
+// real values for Frame / Integrator / Δt readouts in the top status
+// strip; also feeds the BUFFER seconds calculation. Distinct from
+// `simulationMetaData` (which is sessionID only — backend-driven).
+export interface LastSimRequest {
+  celestialBodyNames: string[];
+  date: string;
+  frame: string;
+  integrator: string;
+  timeStepUnit: string;
 }
 
 interface ActiveBodyState {
@@ -68,14 +85,54 @@ export interface SimulationScale {
   };
 }
 
+export type CameraPreset = "top-down" | "free";
+
+// Display frame is a *render-time* choice independent of the integration
+// frame the backend used. Backend snapshots are always Sun-relative
+// (Simulation.snapshotFromState shifts by the Sun's state regardless of
+// session frame), so switching display frames is just a per-frame pivot
+// subtraction on the client — no buffer flush, no resubmit. See todo #42.
+//
+// Barycentric is intentionally not shipped in Phase 4: a correct bary
+// pivot is a mass-weighted average of all bodies, and computing it per
+// trail history point per frame is hot-path-expensive. Adding it
+// correctly needs a shared per-timestep pivot cache; deferred to keep
+// Phase 4 scope tight. Mars retrograde works fine with helio + geo.
+export type DisplayFrame = "helio" | "geo";
+
 export interface SimulationParameters {
   celestialBodyPropertiesList: CelestialBodyProperties[];
   simulationMetaData: SimulationMetadata | null;
+  lastRequest: LastSimRequest | null;
   showGrid: boolean;
   showAxes: boolean;
   showPlanetInfoOverlay: boolean;
   showTrails: boolean;
   simulationScale: SimulationScale;
+  cameraPreset: CameraPreset;
+  displayFrame: DisplayFrame;
+}
+
+const CAMERA_PRESET_STORAGE_KEY = "spacesim.cameraPreset";
+const DISPLAY_FRAME_STORAGE_KEY = "spacesim.displayFrame";
+
+// SSR-safe: callers must NOT use these during module init / initialState
+// construction. Reading localStorage at module-load time produces a
+// different initial Redux state on server (no window → default) vs client
+// (window → stored value), which causes hydration mismatches in any
+// SSR'd component that displays the value (e.g. FrameCompass). Use these
+// only inside a useEffect, then dispatch setDisplayFrame / setCameraPreset
+// to reconcile the store. See PrefsHydrator.tsx.
+export function readStoredCameraPreset(): CameraPreset | null {
+  if (typeof window === "undefined") return null;
+  const stored = window.localStorage.getItem(CAMERA_PRESET_STORAGE_KEY);
+  return stored === "free" || stored === "top-down" ? stored : null;
+}
+
+export function readStoredDisplayFrame(): DisplayFrame | null {
+  if (typeof window === "undefined") return null;
+  const stored = window.localStorage.getItem(DISPLAY_FRAME_STORAGE_KEY);
+  return stored === "geo" || stored === "helio" ? stored : null;
 }
 
 interface SimulationState {
@@ -94,11 +151,19 @@ const initialState: SimulationState = {
   simulationParameters: {
     celestialBodyPropertiesList: [],
     simulationMetaData: null,
-    showGrid: false,
+    lastRequest: null,
+    // Grid, trail, label defaults match the design's first-paint look —
+    // user can toggle off via the bottom-right view chips. Axes stays
+    // off (it's a debug overlay; on by default would clutter the demo).
+    showGrid: true,
     showAxes: false,
-    showPlanetInfoOverlay: false,
+    showPlanetInfoOverlay: true,
     showTrails: true,
     simulationScale: SimConstants.SCALE.SEMI_REALISTIC, // default scale
+    // Hard-coded SSR-safe defaults. localStorage rehydration happens
+    // post-mount in PrefsHydrator → setCameraPreset / setDisplayFrame.
+    cameraPreset: "top-down",
+    displayFrame: "helio",
   },
   simulationData: null,
   timeState: {
@@ -160,7 +225,10 @@ export const simulationSlice = createSlice({
 
     updateDataReceived: (
       state,
-      action: PayloadAction<{ data: SimulationData }>,
+      action: PayloadAction<{
+        data: SimulationData;
+        mu?: Record<string, number>;
+      }>,
     ) => {
       if (!state.simulationData) {
         state.simulationData = action.payload.data;
@@ -171,6 +239,36 @@ export const simulationSlice = createSlice({
         };
         console.log("Simulation data updated:", state.simulationData);
       }
+
+      // Merge µ from the chunk header into the body properties list. µ is
+      // constant per session, but the backend ships it on every chunk to
+      // avoid a separate metadata channel — overwriting on each merge is
+      // fine and idempotent. µ=0 means "unknown" (backend missing-entry
+      // fallback) and is left undefined on the props so downstream code
+      // can detect "no µ" rather than computing nonsense from zero.
+      const muMap = action.payload.mu;
+      if (muMap && state.simulationParameters.celestialBodyPropertiesList) {
+        state.simulationParameters.celestialBodyPropertiesList =
+          state.simulationParameters.celestialBodyPropertiesList.map(
+            (body: CelestialBodyProperties): CelestialBodyProperties => {
+              if (!body.name) return body;
+              const upperName = body.name.trim().toUpperCase();
+              // Match case-insensitively; backend names come from Orekit
+              // and frontend list comes from the SimParams form, so
+              // capitalisation can drift.
+              let mu: number | undefined;
+              for (const key of Object.keys(muMap)) {
+                if (key.trim().toUpperCase() === upperName) {
+                  const value = muMap[key];
+                  if (value > 0) mu = value;
+                  break;
+                }
+              }
+              return mu !== undefined ? { ...body, mu } : body;
+            },
+          );
+      }
+
       // unlock rendering loop
       state.timeState.isUpdating = false;
       state.timeState.isPaused = false;
@@ -199,29 +297,24 @@ export const simulationSlice = createSlice({
     togglePause: (state) => {
       state.timeState.isPaused = !state.timeState.isPaused;
     },
+    // View toggles are unconditional — the sim-data guard that used to wrap
+    // each of these silently dropped clicks before the user had loaded a
+    // sim, leaving the chip stuck on whatever its initial-state value was.
+    // The scene's render branches already gate on isPaused / data presence
+    // separately; the slice flag is just a UI preference.
     toggleShowGrid: (state) => {
-      if (state.simulationData) {
-        state.simulationParameters.showGrid =
-          !state.simulationParameters.showGrid;
-      }
+      state.simulationParameters.showGrid = !state.simulationParameters.showGrid;
     },
     toggleShowAxes: (state) => {
-      if (state.simulationData) {
-        state.simulationParameters.showAxes =
-          !state.simulationParameters.showAxes;
-      }
+      state.simulationParameters.showAxes = !state.simulationParameters.showAxes;
     },
     toggleShowPlanetInfoOverlay: (state) => {
-      if (state.simulationData) {
-        state.simulationParameters.showPlanetInfoOverlay =
-          !state.simulationParameters.showPlanetInfoOverlay;
-      }
+      state.simulationParameters.showPlanetInfoOverlay =
+        !state.simulationParameters.showPlanetInfoOverlay;
     },
     toggleShowTrails: (state) => {
-      if (state.simulationData) {
-        state.simulationParameters.showTrails =
-          !state.simulationParameters.showTrails;
-      }
+      state.simulationParameters.showTrails =
+        !state.simulationParameters.showTrails;
     },
 
     setIsUpdating: (state, action: PayloadAction<boolean>) => {
@@ -266,6 +359,54 @@ export const simulationSlice = createSlice({
       state.activeBodyState.activeBodyName = action.payload;
       state.activeBodyState.isBodyActive = true;
     },
+    setLastSimRequest: (
+      state: SimulationState,
+      action: PayloadAction<LastSimRequest>,
+    ) => {
+      state.simulationParameters.lastRequest = action.payload;
+    },
+    toggleCameraPreset: (state: SimulationState) => {
+      const next: CameraPreset =
+        state.simulationParameters.cameraPreset === "top-down"
+          ? "free"
+          : "top-down";
+      state.simulationParameters.cameraPreset = next;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(CAMERA_PRESET_STORAGE_KEY, next);
+      }
+    },
+    // Direct setter (vs. toggleCameraPreset). Used by PrefsHydrator on
+    // mount to reconcile the SSR-safe initial state with the value
+    // persisted in localStorage. Writes through to storage so it stays
+    // a no-op if the user calls it with the already-stored value.
+    setCameraPreset: (
+      state: SimulationState,
+      action: PayloadAction<CameraPreset>,
+    ) => {
+      state.simulationParameters.cameraPreset = action.payload;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(CAMERA_PRESET_STORAGE_KEY, action.payload);
+      }
+    },
+    cycleDisplayFrame: (state: SimulationState) => {
+      // helio → geo → helio. Bary deferred — see DisplayFrame type comment.
+      const next: DisplayFrame =
+        state.simulationParameters.displayFrame === "helio" ? "geo" : "helio";
+      state.simulationParameters.displayFrame = next;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(DISPLAY_FRAME_STORAGE_KEY, next);
+      }
+    },
+    // Direct setter — see setCameraPreset's comment for rationale.
+    setDisplayFrame: (
+      state: SimulationState,
+      action: PayloadAction<DisplayFrame>,
+    ) => {
+      state.simulationParameters.displayFrame = action.payload;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(DISPLAY_FRAME_STORAGE_KEY, action.payload);
+      }
+    },
     setIsBodyActive: (
       state: SimulationState,
       action: PayloadAction<boolean>,
@@ -274,7 +415,10 @@ export const simulationSlice = createSlice({
       state.activeBodyState.isBodyActive = action.payload;
     },
     cycleSimulationScale: (state) => {
-      if (state.simulationParameters.simulationScale && state.simulationData) {
+      // Same reasoning as the view toggles above — the simulationData
+      // guard dropped pre-sim clicks. The body-list re-mapping further
+      // down has its own guard so it's still safe before bodies exist.
+      if (state.simulationParameters.simulationScale) {
         const currentScale = state.simulationParameters.simulationScale;
         const scaleOptions: string[] = Object.keys(SimConstants.SCALE); //ES6 objects have defined insertion order
         // for string keys
@@ -459,6 +603,15 @@ export const selectIsUpdating = (state: RootState) =>
 export const selectSessionID = (state: RootState) =>
   state.simulation.simulationParameters?.simulationMetaData?.sessionID;
 
+export const selectLastSimRequest = (state: RootState) =>
+  state.simulation.simulationParameters?.lastRequest;
+
+export const selectCameraPreset = (state: RootState) =>
+  state.simulation.simulationParameters?.cameraPreset ?? "top-down";
+
+export const selectDisplayFrame = (state: RootState): DisplayFrame =>
+  state.simulation.simulationParameters?.displayFrame ?? "helio";
+
 export const {
   loadSimulation,
   updateDataReceived,
@@ -475,6 +628,11 @@ export const {
   setCurrentTimeStepIndex,
   setActiveBody,
   setIsBodyActive,
+  setLastSimRequest,
+  toggleCameraPreset,
+  setCameraPreset,
+  cycleDisplayFrame,
+  setDisplayFrame,
 } = simulationSlice.actions;
 
 export default simulationSlice.reducer;

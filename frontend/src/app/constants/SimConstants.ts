@@ -48,6 +48,16 @@ const SimConstants = {
   MAX_TIMESTEPS: 30_000,
   TIMESTEP_CHUNK_SIZE: 10_000,
   MAX_SPEED_MULTIPLIER: 128, // exponent of 2
+  // Minimum camera-to-active-body distance, expressed as a multiplier of
+  // the body's currently rendered radius. 1.0 = touching the surface;
+  // 2.5 = comfortable close-up where the body fills ~47° of the view at
+  // a 50° FOV — close enough to see surface detail, far enough that the
+  // surface doesn't engulf the entire viewport (which reads as clipping
+  // even though the camera is technically outside the sphere). Coupled
+  // to the scale toggle: rendered radius depends on
+  // simulationScale.radiusScale, so the actual minimum distance moves
+  // with the scale preset (Camera.tsx recomputes on scale change).
+  CAMERA_MIN_DISTANCE_MULTIPLIER: 2.5,
 };
 
 export interface BodyProperties {

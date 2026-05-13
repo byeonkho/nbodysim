@@ -4,12 +4,18 @@
 //
 // Wire format (after zstd, all little-endian):
 //   uint16   bodyCount
-//   per body: uint16 nameLength, UTF-8 name bytes
+//   per body: uint16 nameLength, UTF-8 name bytes, float64 mu
 //   uint32   timestepCount
 //   per timestep:
 //     int64    timestamp (millis since UNIX epoch, UTC)
 //     per body (header order):
 //       float64 × 6   (px, py, pz, vx, vy, vz)
+//
+// `mu` is the standard gravitational parameter (G·M, m³/s²) for each body —
+// constant per session, sent once with names. Used client-side to derive
+// Keplerian orbital elements from (r, v) state vectors. µ=0 means "unknown"
+// (backend missing-entry fallback) and downstream code skips Keplerian
+// rendering for that body rather than producing NaN cascades.
 
 export interface CelestialBody {
   name: string;
@@ -17,11 +23,16 @@ export interface CelestialBody {
   velocity: { x: number; y: number; z: number };
 }
 
+export interface ParsedChunk {
+  // Per-timestep snapshots keyed by ISO-8601 UTC string.
+  data: Record<string, CelestialBody[]>;
+  // Per-body µ (m³/s²) keyed by body name as written in the header.
+  mu: Record<string, number>;
+}
+
 const utf8Decoder = new TextDecoder("utf-8");
 
-export function parseBinaryChunk(
-  bytes: Uint8Array,
-): Record<string, CelestialBody[]> {
+export function parseBinaryChunk(bytes: Uint8Array): ParsedChunk {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let offset = 0;
 
@@ -29,6 +40,7 @@ export function parseBinaryChunk(
   offset += 2;
 
   const names: string[] = new Array(bodyCount);
+  const mu: Record<string, number> = {};
   for (let i = 0; i < bodyCount; i++) {
     const nameLen = view.getUint16(offset, true);
     offset += 2;
@@ -37,8 +49,11 @@ export function parseBinaryChunk(
       bytes.byteOffset + offset,
       nameLen,
     );
-    names[i] = utf8Decoder.decode(nameBytes);
+    const name = utf8Decoder.decode(nameBytes);
+    names[i] = name;
     offset += nameLen;
+    mu[name] = view.getFloat64(offset, true);
+    offset += 8;
   }
 
   const timestepCount = view.getUint32(offset, true);
@@ -67,5 +82,5 @@ export function parseBinaryChunk(
     data[isoKey] = snapshot;
   }
 
-  return data;
+  return { data, mu };
 }

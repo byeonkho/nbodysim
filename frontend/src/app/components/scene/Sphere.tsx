@@ -10,6 +10,8 @@ import {
   setActiveBody,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
+import { setBodyWorldPosition } from "@/app/utils/coordinates";
+import { findEarthIndex, writePivotInto } from "@/app/utils/framePivot";
 import { scaleDistanceInto } from "@/app/utils/helpers";
 import * as THREE from "three";
 
@@ -20,6 +22,24 @@ interface SphereProps {
   rotationSpeed?: number;
   unlit?: boolean;
 }
+
+// Half-Lambert wrap shading: replaces `saturate(dot(N, L))` with
+// `dot(N, L) * 0.5 + 0.5` in the standard physical fragment shader, so
+// even surfaces facing away from the Sun get a fraction of irradiance.
+// Softens the day/night terminator from a knife-edge into a gradient,
+// faking the atmospheric-scattering look without an atmosphere shader.
+// Patched via onBeforeCompile to keep meshStandardMaterial's full PBR
+// pipeline (textures, normal maps) intact.
+//
+// Defined at module scope so the function identity is stable across
+// renders — otherwise R3F treats every render's new closure as a
+// different material, forcing a recompile per frame.
+const halfLambertOverride = (shader: { fragmentShader: string }) => {
+  shader.fragmentShader = shader.fragmentShader.replace(
+    "float dotNL = saturate( dot( geometryNormal, directLight.direction ) );",
+    "float dotNL = dot( geometryNormal, directLight.direction ) * 0.5 + 0.5;",
+  );
+};
 
 /**
  * Renders one celestial body. Position updates imperatively inside useFrame
@@ -50,7 +70,7 @@ const Sphere: React.FC<SphereProps> = ({
   const { positionScale, orbitingBodyNameUpper } = useMemo(() => {
     const nameUpper = name.toUpperCase();
     const bodyProps: CelestialBodyProperties | undefined = propsList?.find(
-      (bp) => bp.name?.toUpperCase() === nameUpper,
+      (bp: CelestialBodyProperties) => bp.name?.toUpperCase() === nameUpper,
     );
     return {
       positionScale: bodyProps?.positionScale ?? 1,
@@ -69,6 +89,14 @@ const Sphere: React.FC<SphereProps> = ({
   // Reused across frames so moon-style scaled positions don't allocate a
   // Vector3Simple per frame.
   const posScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  // Frame-pivot scratch: holds the snapshot pivot point (Earth's position
+  // in geo, zero in helio) so we can subtract it from `pos` without
+  // allocating per frame.
+  const pivotScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  // Pivot body index, lazily resolved on the first valid snapshot. Same
+  // caching pattern Trail.tsx uses for body/orbiting indices: backend
+  // guarantees stable body order within a session.
+  const earthIdxRef = useRef<number>(-1);
 
   useFrame((_, delta) => {
     const state = store.getState();
@@ -76,6 +104,7 @@ const Sphere: React.FC<SphereProps> = ({
     const currentTimeStepKey = selectCurrentTimeStepKey(state);
     const simulationScale =
       state.simulation.simulationParameters.simulationScale;
+    const displayFrame = state.simulation.simulationParameters.displayFrame;
 
     if (simulationData && currentTimeStepKey) {
       const snapshot = simulationData[currentTimeStepKey];
@@ -99,14 +128,38 @@ const Sphere: React.FC<SphereProps> = ({
             }
           }
 
-          const x = pos.x / simulationScale.positionScale;
-          const y = pos.y / simulationScale.positionScale;
-          const z = pos.z / simulationScale.positionScale;
-          meshRef.current.position.set(x, y, z);
+          // Apply display-frame pivot subtraction. Helio writes a zero
+          // pivot, so the math is free in that case but we keep one code
+          // path to avoid branching the world-position write below.
+          if (displayFrame !== "helio" && earthIdxRef.current === -1) {
+            earthIdxRef.current = findEarthIndex(snapshot);
+          }
+          writePivotInto(
+            pivotScratch.current,
+            snapshot,
+            displayFrame,
+            earthIdxRef.current,
+          );
+          posScratch.current.x = pos.x - pivotScratch.current.x;
+          posScratch.current.y = pos.y - pivotScratch.current.y;
+          posScratch.current.z = pos.z - pivotScratch.current.z;
+          pos = posScratch.current;
+
+          setBodyWorldPosition(
+            meshRef.current.position,
+            pos,
+            simulationScale.positionScale,
+          );
           if (lightRef.current) {
-            lightRef.current.position.set(x, y, z);
-            lightRef.current.intensity = simulationScale.positionScale * 0.0001;
-            lightRef.current.distance = simulationScale.positionScale;
+            // Sun's light position tracks the Sun's mesh position so the
+            // light direction is correct in geo (Sun moves) and helio
+            // (Sun stays at origin). Intensity / decay set on the JSX
+            // element below — fixed values, not scale-dependent.
+            setBodyWorldPosition(
+              lightRef.current.position,
+              pos,
+              simulationScale.positionScale,
+            );
           }
         }
       }
@@ -127,10 +180,22 @@ const Sphere: React.FC<SphereProps> = ({
         {unlit ? (
           <meshBasicMaterial map={textureUrl ? texture : undefined} />
         ) : (
-          <meshStandardMaterial map={textureUrl ? texture : undefined} />
+          <meshStandardMaterial
+            map={textureUrl ? texture : undefined}
+            onBeforeCompile={halfLambertOverride}
+          />
         )}
       </mesh>
-      {unlit && <pointLight ref={lightRef} color={0xffffff} />}
+      {/* decay=0 → no distance falloff, so every body gets equal direct
+          light from the Sun regardless of scene-space distance. Real
+          inverse-square would make outer planets pitch black or inner
+          ones blown out at our scales; standard artistic license for
+          solar-system viz. Intensity is unitless three.js (post-r155
+          uses physically-based units when renderer.useLegacyLights=false,
+          but we leave that default). */}
+      {unlit && (
+        <pointLight ref={lightRef} color={0xffffff} intensity={1.5} decay={0} />
+      )}
     </>
   );
 };

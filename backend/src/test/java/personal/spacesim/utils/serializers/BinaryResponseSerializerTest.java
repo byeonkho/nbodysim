@@ -52,7 +52,7 @@ class BinaryResponseSerializerTest {
         // Empty/null inputs serialise to a 6-byte header: bodyCount=0, timestepCount=0.
         // No per-body section, no per-timestep section.
         BinaryResponseSerializer ser = new BinaryResponseSerializer();
-        byte[] empty = ser.serialize(null);
+        byte[] empty = ser.serialize(null, null);
         assertEquals(6, empty.length);
         ByteBuffer buf = ByteBuffer.wrap(empty).order(ByteOrder.LITTLE_ENDIAN);
         assertEquals(0, buf.getShort());
@@ -83,7 +83,15 @@ class BinaryResponseSerializerTest {
         Map<AbsoluteDate, List<CelestialBodySnapshot>> data = new LinkedHashMap<>();
         data.put(date, List.of(earth, moon));
 
-        byte[] bytes = new BinaryResponseSerializer().serialize(data);
+        // Made-up µ values — the serializer just shuttles bytes; we only
+        // need to confirm they round-trip through the header in the right
+        // slot. Real values come from Orekit's CelestialBody.getGM() at
+        // runtime via CelestialBodyWrapper.
+        Map<String, Double> mu = new LinkedHashMap<>();
+        mu.put("Earth", 3.986004418e14);
+        mu.put("Moon", 4.9028000661e12);
+
+        byte[] bytes = new BinaryResponseSerializer().serialize(data, mu);
         ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
 
         // Header
@@ -94,12 +102,14 @@ class BinaryResponseSerializerTest {
         byte[] earthName = new byte[earthLen];
         buf.get(earthName);
         assertEquals("Earth", new String(earthName, StandardCharsets.UTF_8));
+        assertEquals(3.986004418e14, buf.getDouble(), "Earth µ");
 
         int moonLen = buf.getShort();
         assertEquals(4, moonLen);
         byte[] moonName = new byte[moonLen];
         buf.get(moonName);
         assertEquals("Moon", new String(moonName, StandardCharsets.UTF_8));
+        assertEquals(4.9028000661e12, buf.getDouble(), "Moon µ");
 
         assertEquals(1, buf.getInt(), "timestepCount");
 
@@ -117,6 +127,31 @@ class BinaryResponseSerializerTest {
     }
 
     @Test
+    void missingMuEntryFallsThroughToZero() {
+        // The serializer shouldn't crash if the µ map is missing a body.
+        // Frontend treats µ=0 as "unknown" and skips Keplerian rendering for
+        // that body — far better failure mode than NaN/inf cascades.
+        TimeScale utc = TimeScalesFactory.getUTC();
+        AbsoluteDate date = new AbsoluteDate(2024, 1, 1, 0, 0, 0.0, utc);
+
+        CelestialBodySnapshot body = new CelestialBodySnapshot(
+                "Earth", new Vector3D(1.0, 2.0, 3.0), new Vector3D(4.0, 5.0, 6.0)
+        );
+        Map<AbsoluteDate, List<CelestialBodySnapshot>> data =
+                Collections.singletonMap(date, List.of(body));
+
+        // Empty µ map — no entry for Earth.
+        byte[] bytes = new BinaryResponseSerializer()
+                .serialize(data, Collections.emptyMap());
+        ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
+
+        assertEquals(1, buf.getShort()); // bodyCount
+        int nameLen = buf.getShort();
+        buf.position(buf.position() + nameLen); // skip name bytes
+        assertEquals(0.0, buf.getDouble(), "missing µ falls through to 0.0");
+    }
+
+    @Test
     void multiByteUtf8NamesUseByteLengthNotCharLength() {
         // "Α" (Greek capital alpha) is 2 bytes in UTF-8 but 1 character.
         // The serializer must write nameLength=2, otherwise the frontend
@@ -130,7 +165,8 @@ class BinaryResponseSerializerTest {
         Map<AbsoluteDate, List<CelestialBodySnapshot>> data =
                 Collections.singletonMap(date, List.of(body));
 
-        byte[] bytes = new BinaryResponseSerializer().serialize(data);
+        Map<String, Double> mu = Collections.singletonMap("Α", 1.0);
+        byte[] bytes = new BinaryResponseSerializer().serialize(data, mu);
         ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
 
         assertEquals(1, buf.getShort()); // bodyCount

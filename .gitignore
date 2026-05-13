@@ -35,6 +35,8 @@ build/
 ### Local-only working files ###
 todo.md
 CLAUDE.md
+design.md
+frontend/design_handoff_spacesim_ui/
 
 ### macOS ###
 .DS_Store

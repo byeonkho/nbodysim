@@ -18,21 +18,29 @@ import java.util.Map;
  *
  * Layout (all little-endian):
  *   uint16  bodyCount
- *   per body: uint16 nameLength, UTF-8 name bytes
+ *   per body: uint16 nameLength, UTF-8 name bytes, float64 mu
  *   uint32  timestepCount
  *   per timestep:
  *     int64    timestamp (millis since UNIX epoch, UTC)
  *     per body (in header order):
  *       float64 × 6   (px, py, pz, vx, vy, vz)
  *
- * Body names are sent once in the header; per-timestep payloads use header-order
- * indexing. Assumes a stable body order across timesteps within a chunk, which
- * the integrator guarantees.
+ * Body names + µ (standard gravitational parameter, m³/s²) are sent once in
+ * the header; per-timestep payloads use header-order indexing. µ is needed
+ * client-side to derive Keplerian orbital elements from (r, v) state vectors;
+ * inlining it avoids a separate metadata fetch and is constant per session
+ * so resending per chunk costs only bodyCount × 8 bytes (~80 B for 10 bodies).
+ *
+ * Assumes a stable body order across timesteps within a chunk, which the
+ * integrator guarantees.
  */
 @Component
 public class BinaryResponseSerializer {
 
-    public byte[] serialize(Map<AbsoluteDate, List<CelestialBodySnapshot>> data) {
+    public byte[] serialize(
+            Map<AbsoluteDate, List<CelestialBodySnapshot>> data,
+            Map<String, Double> muByName
+    ) {
         if (data == null || data.isEmpty()) {
             ByteBuffer empty = ByteBuffer.allocate(2 + 4).order(ByteOrder.LITTLE_ENDIAN);
             empty.putShort((short) 0);
@@ -48,7 +56,8 @@ public class BinaryResponseSerializer {
         int headerSize = 2 + 4; // bodyCount + timestepCount
         for (int i = 0; i < bodyCount; i++) {
             nameBytes[i] = firstSnapshot.get(i).name().getBytes(StandardCharsets.UTF_8);
-            headerSize += 2 + nameBytes[i].length;
+            // 2 (nameLen) + name bytes + 8 (µ as float64)
+            headerSize += 2 + nameBytes[i].length + 8;
         }
 
         int timestepCount = data.size();
@@ -60,8 +69,14 @@ public class BinaryResponseSerializer {
         // Header
         buf.putShort((short) bodyCount);
         for (int i = 0; i < bodyCount; i++) {
+            String bodyName = firstSnapshot.get(i).name();
             buf.putShort((short) nameBytes[i].length);
             buf.put(nameBytes[i]);
+            // µ for this body. Missing entries fall through to 0.0 — frontend
+            // treats µ=0 as "unknown" and skips Keplerian-element rendering
+            // for that body rather than producing NaN/inf cascades.
+            Double mu = muByName != null ? muByName.get(bodyName) : null;
+            buf.putDouble(mu != null ? mu : 0.0);
         }
         buf.putInt(timestepCount);
 

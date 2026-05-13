@@ -18,6 +18,8 @@ import type { CelestialBody } from "./parseBinaryChunk";
 interface ChunkPayload {
   messageType: string;
   data: Record<string, CelestialBody[]>;
+  // Per-body µ (m³/s²) sent in the chunk header, constant per session.
+  mu: Record<string, number>;
 }
 
 // Decoder Worker — module singleton, kept alive for the page session.
@@ -93,7 +95,12 @@ export const requestRunSimulation = createAsyncThunk<
       const messageData = await decodeOffMainThread(buffer);
 
       dispatch(setRequestInProgress(false));
-      dispatch(updateDataReceived({ data: messageData.data }));
+      dispatch(
+        updateDataReceived({
+          data: messageData.data,
+          mu: messageData.mu,
+        }),
+      );
     } catch (err) {
       dispatch(setRequestInProgress(false));
       dispatch(setIsUpdating(false));

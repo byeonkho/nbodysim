@@ -1,118 +1,79 @@
-import React from "react";
-import { Box } from "@mui/material";
-import { useSelector } from "react-redux";
+"use client";
 
-// Import your components
+import React, { useEffect, useState } from "react";
+
 import Scene from "@/app/components/scene/Scene";
-import MiniDrawer from "@/app/components/interface/drawer/MiniDrawer";
 import UpdateModal from "@/app/components/interface/misc/UpdateModal";
-import BodySelector from "@/app/components/interface/misc/BodySelector";
-import CurrentTimeStep from "@/app/components/interface/misc/CurrentTimeStep";
-import ControlsContainer from "@/app/components/interface/controls/ControlsContainer";
-import FadeNotification from "@/app/components/interface/misc/FadeNotification";
-import {
-  selectShowAxes,
-  selectShowGrid,
-  selectShowPlanetInfoOverlay,
-  selectSimulationScale,
-} from "@/app/store/slices/SimulationSlice";
+import { BodySelector } from "@/app/components/chrome/BodySelector";
+import { FrameCompass } from "@/app/components/chrome/FrameCompass";
+import { LeftRail } from "@/app/components/chrome/LeftRail";
+import { RightColumn } from "@/app/components/chrome/RightColumn";
+import { SimParamsDialog } from "@/app/components/chrome/SimParamsDialog";
+import { Timeline } from "@/app/components/chrome/Timeline";
+import { TopStatusStrip } from "@/app/components/chrome/TopStatusStrip";
+import { DevPanel } from "@/app/components/dev/DevPanel";
 
 const Layout: React.FC = () => {
-  const simulationScale = useSelector(selectSimulationScale);
-  const showAxes = useSelector(selectShowAxes);
-  const showGrid = useSelector(selectShowGrid);
-  const showPlanetInfoOverlay = useSelector(selectShowPlanetInfoOverlay);
+  const [simParamsOpen, setSimParamsOpen] = useState(false);
+  const [devMode, setDevMode] = useState(false);
+
+  // Read ?dev=1 once on mount. The dev panel is gated rather than
+  // built into the user-facing chrome, so the gate doesn't need to
+  // re-evaluate mid-session.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    setDevMode(params.has("dev"));
+  }, []);
 
   return (
-    <Box
-      sx={{
-        display: "flex",
-        width: "100vw",
-        height: "100vh",
-        overflow: "hidden",
-      }}
-    >
-      <Box
-        sx={{
-          flexGrow: 1,
-          position: "relative",
-          overflow: "hidden",
-        }}
-      >
-        {/* 3D Scene */}
-        <Box
-          sx={{
-            position: "absolute",
-            zIndex: 0,
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            backgroundColor: "black",
+    <div className="flex w-screen h-screen overflow-hidden">
+      <div className="grow relative overflow-hidden">
+        {/* Background rendered in CSS — not via three.js scene.background.
+            The Canvas inside <Scene /> is transparent (gl.alpha=true), so
+            this gradient stack shows through. Lifted verbatim from the
+            design handoff's `.starfield` CSS (frontend/design_handoff_
+            spacesim_ui/index.html): inky `#050610` base with two soft
+            elliptical glows. Going via CSS rather than canvas-texture
+            sidesteps three.js's color pipeline entirely (no sRGB
+            double-encoding, no tone-mapping interactions), so the
+            rendered background is pixel-identical to the design mockup
+            since the browser renders both. */}
+        <div
+          className="absolute inset-0 z-0"
+          style={{
+            background: `
+              radial-gradient(ellipse at 60% 35%, rgba(40, 60, 90, 0.30) 0%, rgba(0, 0, 0, 0) 55%),
+              radial-gradient(ellipse at 20% 80%, rgba(60, 30, 80, 0.18) 0%, rgba(0, 0, 0, 0) 50%),
+              var(--color-space)
+            `,
           }}
         >
           <Scene />
-        </Box>
+        </div>
 
-        {/* UI Overlays */}
-        <Box
-          sx={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            zIndex: 1, // above the scene
-            width: "100%",
-            height: "100%",
-            pointerEvents: "none",
-          }}
-        >
-          <ControlsContainer />
+        {/* UI Overlays. Each chrome component opts itself into pointer
+            events; the wrapper is pointer-events:none so the scene
+            beneath stays grabbable wherever chrome doesn't sit. */}
+        <div className="absolute inset-0 z-10 pointer-events-none">
           <UpdateModal />
-          <Box
-            sx={{
-              pointerEvents: "auto",
-            }}
-          >
-            <BodySelector />
-          </Box>
 
-          <Box
-            sx={{
-              pointerEvents: "auto",
-            }}
-          >
-            <MiniDrawer />
-          </Box>
+          <TopStatusStrip />
+          <BodySelector />
+          <FrameCompass />
+          <LeftRail
+            onSettingsClick={() => setSimParamsOpen(true)}
+            settingsActive={simParamsOpen}
+          />
+          <RightColumn />
+          <Timeline />
 
-          <Box>
-            <FadeNotification
-              key={simulationScale.name}
-              message={`Scale: ${simulationScale.name}`}
-              trigger={simulationScale}
-            />
-            <FadeNotification
-              key={`axes-${showAxes}`}
-              message={`Axes: ${showAxes ? "On" : "Off"}`}
-              trigger={showAxes}
-            />
-            <FadeNotification
-              key={`grid-${showGrid}`}
-              message={`Grid: ${showGrid ? "On" : "Off"}`}
-              trigger={showGrid}
-            />
-            <FadeNotification
-              key={`overlay-${showPlanetInfoOverlay}`}
-              message={`Show all planets: ${showPlanetInfoOverlay ? "On" : "Off"}`}
-              trigger={showPlanetInfoOverlay}
-            />
-          </Box>
+          <SimParamsDialog open={simParamsOpen} onOpenChange={setSimParamsOpen} />
 
-          <Box sx={{ position: "absolute", top: 20, right: 50 }}>
-            <CurrentTimeStep />
-          </Box>
-        </Box>
-      </Box>
-    </Box>
+          {devMode && <DevPanel />}
+        </div>
+      </div>
+    </div>
   );
 };
 
