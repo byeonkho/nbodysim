@@ -5,7 +5,7 @@ import {
   PayloadAction,
 } from "@reduxjs/toolkit";
 import { AppDispatch, RootState } from "@/app/store/Store";
-import { requestRunSimulation } from "@/app/store/middleware/simulationRequestThunk";
+import { dispatchChunkRequest } from "@/app/store/middleware/simulationRequestThunk";
 import SimConstants, {
   BodyProperties,
   bodyProperties,
@@ -179,6 +179,25 @@ export const simulationSlice = createSlice({
   initialState,
   reducers: {
     loadSimulation: (state, action: PayloadAction<SimulationParameters>) => {
+      // Atomic new-session swap. Wiping the chunk buffer + timeState +
+      // activeBody alongside the new params prevents stale timesteps from
+      // the prior session from rendering with the new scales/textures
+      // (and prevents resumed playback at the old scrubber position).
+      // View prefs (showGrid, simulationScale, cameraPreset, displayFrame,
+      // lastRequest) are intentionally preserved — those are user
+      // preferences, not session state. See todo #55.
+      state.simulationData = null;
+      state.timeState = {
+        isPaused: true,
+        isUpdating: false,
+        speedMultiplier: 1,
+        currentTimeStepIndex: 0,
+      };
+      state.activeBodyState = {
+        isBodyActive: false,
+        activeBodyName: null,
+      };
+
       state.simulationParameters = {
         ...state.simulationParameters,
         ...action.payload,
@@ -501,7 +520,7 @@ export const simulationUpdateDataMiddleware: Middleware =
         }
 
         const requestData = { sessionID };
-        (store.dispatch as AppDispatch)(requestRunSimulation(requestData));
+        dispatchChunkRequest(store.dispatch as AppDispatch, requestData);
       }
     }
     return next(action);

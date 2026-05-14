@@ -6,7 +6,7 @@ import { useDispatch } from "react-redux";
 import { initializeCelestialBodies } from "@/app/utils/initializeCelestialBodies";
 import type { AppDispatch } from "@/app/store/Store";
 import { store } from "@/app/store/Store";
-import { requestRunSimulation } from "@/app/store/middleware/simulationRequestThunk";
+import { dispatchChunkRequest } from "@/app/store/middleware/simulationRequestThunk";
 import { setLastSimRequest } from "@/app/store/slices/SimulationSlice";
 import {
   BODY_DISPLAY,
@@ -80,7 +80,7 @@ export function SimParamsDialog({ open, onOpenChange }: SimParamsDialogProps) {
       // frame compass, BUFFER calc) can read them. Stays in slice across
       // chunk fetches; overwritten on the next Run.
       dispatch(setLastSimRequest(requestPayload));
-      dispatch(requestRunSimulation({ sessionID }));
+      dispatchChunkRequest(dispatch, { sessionID });
       onOpenChange(false);
     } catch (err) {
       console.error("Sim params submit error:", err);
@@ -103,6 +103,9 @@ export function SimParamsDialog({ open, onOpenChange }: SimParamsDialogProps) {
             <Dialog.Title className="text-hi text-[16px] font-semibold tracking-[-0.01em]">
               Sim Parameters
             </Dialog.Title>
+            <Dialog.Description className="sr-only">
+              Configure bodies, integrator, time range, and step size for a new simulation.
+            </Dialog.Description>
             <Dialog.Close asChild>
               <button
                 type="button"

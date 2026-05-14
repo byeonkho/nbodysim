@@ -11,7 +11,7 @@ import {
   setRequestInProgress,
 } from "@/app/store/slices/RequestSlice";
 import { REST_URL } from "@/app/utils/backendUrls";
-import type { RootState } from "@/app/store/Store";
+import type { AppDispatch, RootState } from "@/app/store/Store";
 import type { DecodeResponse } from "./zstdWorker";
 import type { CelestialBody } from "./parseBinaryChunk";
 
@@ -70,7 +70,7 @@ export const requestRunSimulation = createAsyncThunk<
   { state: RootState }
 >(
   "simulation/requestChunk",
-  async ({ sessionID }, { dispatch }) => {
+  async ({ sessionID }, { dispatch, getState, signal }) => {
     dispatch(setIsUpdating(true));
     dispatch(setRequestInProgress(true));
 
@@ -79,6 +79,7 @@ export const requestRunSimulation = createAsyncThunk<
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionID }),
+        signal,
       });
 
       if (response.status === 429) {
@@ -94,6 +95,18 @@ export const requestRunSimulation = createAsyncThunk<
       const buffer = await response.arrayBuffer();
       const messageData = await decodeOffMainThread(buffer);
 
+      // Stale-session guard: if the user resubmitted while this chunk was
+      // in flight (or being decoded), the slice's current sessionID has
+      // already moved on. Drop silently — merging would splatter old
+      // timesteps into the new buffer. See todo #55.
+      const currentSessionID =
+        getState().simulation.simulationParameters?.simulationMetaData?.sessionID;
+      if (currentSessionID !== sessionID) {
+        dispatch(setRequestInProgress(false));
+        dispatch(setIsUpdating(false));
+        return;
+      }
+
       dispatch(setRequestInProgress(false));
       dispatch(
         updateDataReceived({
@@ -104,9 +117,39 @@ export const requestRunSimulation = createAsyncThunk<
     } catch (err) {
       dispatch(setRequestInProgress(false));
       dispatch(setIsUpdating(false));
+      // Aborted by dispatchChunkRequest when a newer request supersedes
+      // this one — silent, not a user-facing error.
+      if (
+        signal.aborted ||
+        (err instanceof Error &&
+          (err.name === "AbortError" || err.name === "CanceledError"))
+      ) {
+        return;
+      }
       const message = err instanceof Error ? err.message : "Unknown error";
       dispatch(setErrorMessage(`Failed to load simulation chunk: ${message}`));
       throw err;
     }
   },
 );
+
+// Module-level handle on the most recent in-flight chunk dispatch. Used
+// by dispatchChunkRequest to abort a superseded request (e.g. user
+// resubmits while a chunk is still in flight). createAsyncThunk's
+// dispatch return-value carries .abort() which signals AbortSignal on
+// the thunk — the fetch above wires `signal` so the network round-trip
+// terminates immediately.
+let currentChunkDispatch:
+  | (Promise<unknown> & { abort: (reason?: string) => void })
+  | null = null;
+
+export function dispatchChunkRequest(
+  dispatch: AppDispatch,
+  args: RequestRunSimulationArgs,
+) {
+  if (currentChunkDispatch) {
+    currentChunkDispatch.abort("superseded");
+  }
+  currentChunkDispatch = dispatch(requestRunSimulation(args));
+  return currentChunkDispatch;
+}
