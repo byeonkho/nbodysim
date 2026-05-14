@@ -80,6 +80,22 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Sim setup CTA pulse dot — gentle scale + opacity loop. Per the
+   sim-setup handoff: "1.5s transform: scale() + opacity loop reads
+   well — but only show it until the user has run their first
+   simulation." Suppression is handled in SimSetupButton via the
+   showPulse prop (derived from SimulationSlice.lastRequest). */
+@keyframes spacesim-cta-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0.6;
+  }
+}
+
 /* Reset baseline. MUI's CssBaseline still applies via its ThemeProvider during
    the migration; once MUI is removed (Phase 1), this becomes the only baseline. */
 html,

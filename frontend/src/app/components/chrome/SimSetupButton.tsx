@@ -65,10 +65,12 @@ export function SimSetupButton({
         {showPulse && !active && (
           <span
             aria-hidden
-            className="absolute -top-[3px] -right-[3px] h-[9px] w-[9px] rounded-full bg-white"
+            className="absolute -top-[3px] -right-[3px] h-[9px] w-[9px] rounded-full bg-white motion-reduce:animate-none"
             style={{
               boxShadow:
                 "0 0 0 2px rgba(164,168,255,0.55), 0 0 8px rgba(255,255,255,0.8)",
+              animation: "spacesim-cta-pulse 1.5s ease-in-out infinite",
+              transformOrigin: "center",
             }}
           />
         )}
