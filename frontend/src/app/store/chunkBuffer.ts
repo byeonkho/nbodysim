@@ -23,6 +23,42 @@ export interface ChunkBuffer {
   bufferStartTimestep: number;
 }
 
+export const BUFFER_BYTE_BUDGETS = {
+  lowMem: 12 * 1024 * 1024, // 12 MB — mobile / low-RAM
+  default: 48 * 1024 * 1024, // 48 MB — desktop / tablet
+} as const;
+
+interface ByteBudgetEnv {
+  navigator: Navigator | undefined;
+  matchMedia: typeof window.matchMedia | undefined;
+}
+
+// `env` is injected so tests can drive the branches without globals.
+// Default reads window/navigator if present (handles SSR + node-test env).
+export function selectBufferByteBudget(env?: ByteBudgetEnv): number {
+  const e: ByteBudgetEnv = env ?? {
+    navigator: typeof navigator !== "undefined" ? navigator : undefined,
+    matchMedia: typeof window !== "undefined" ? window.matchMedia : undefined,
+  };
+  const dm =
+    e.navigator !== undefined && "deviceMemory" in e.navigator
+      ? ((e.navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? Infinity)
+      : Infinity;
+  const isLowMem = dm <= 4;
+  const isNarrow =
+    e.matchMedia !== undefined && e.matchMedia("(max-width: 767px)").matches;
+  return isLowMem || isNarrow
+    ? BUFFER_BYTE_BUDGETS.lowMem
+    : BUFFER_BYTE_BUDGETS.default;
+}
+
+export function computeBufferCapacity(
+  bodyCount: number,
+  byteBudget: number,
+): number {
+  return Math.floor(byteBudget / (bodyCount * BYTES_PER_TIMESTEP_PER_BODY));
+}
+
 export function createChunkBuffer(
   bodyNames: readonly string[],
   capacity: number,
