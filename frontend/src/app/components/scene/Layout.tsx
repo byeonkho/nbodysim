@@ -29,24 +29,26 @@ const Layout: React.FC = () => {
   return (
     <div className="flex w-screen h-screen overflow-hidden">
       <div className="grow relative overflow-hidden">
-        {/* Background rendered in CSS — not via three.js scene.background.
-            The Canvas inside <Scene /> is transparent (gl.alpha=true), so
-            this gradient stack shows through. Lifted verbatim from the
-            design handoff's `.starfield` CSS (frontend/design_handoff_
-            spacesim_ui/index.html): inky `#050610` base with two soft
-            elliptical glows. Going via CSS rather than canvas-texture
-            sidesteps three.js's color pipeline entirely (no sRGB
-            double-encoding, no tone-mapping interactions), so the
-            rendered background is pixel-identical to the design mockup
-            since the browser renders both. */}
+        {/* Load-time background fallback — visible only during the brief
+            gap before the skybox JPG loads (Skybox.tsx mounts the texture
+            on scene.background, which then covers this layer). The
+            Canvas inside <Scene /> is transparent (gl.alpha=true) so
+            this layer shows through until the skybox is in place.
+
+            LQIP: a 64×32 heavily-blurred crop of the full skybox JPG,
+            inlined as base64 (~1.3 KB) so it ships with the HTML and
+            renders at zero network cost. Stretched to cover via CSS
+            (background-size: cover). When the full equirect skybox
+            loads on top, the visible transition is "soft blur sharpens
+            into stars" rather than "blue gradient flips to starfield".
+            The CSS projection isn't an exact match for three.js's
+            spherical projection of the equirect, but at this blur level
+            only luminance + colour gradients matter — the dominant
+            darkness + faint Milky Way smear sells the continuity. */}
         <div
           className="absolute inset-0 z-0"
           style={{
-            background: `
-              radial-gradient(ellipse at 60% 35%, rgba(40, 60, 90, 0.30) 0%, rgba(0, 0, 0, 0) 55%),
-              radial-gradient(ellipse at 20% 80%, rgba(60, 30, 80, 0.18) 0%, rgba(0, 0, 0, 0) 50%),
-              var(--color-space)
-            `,
+            background: `url("data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAASABIAAD/4QDMRXhpZgAASUkqAFgAAABPcGVuSW1hZ2VJTyAzLjEuMTMuMSA6IDdGOTYwOTMxNkY4ODM2QkFBRDBEMTY1NjM2MEIyMDZGMzE3OUE3OTAASAAAAAEAAABIAAAAAQAAAAQAMQECAEAAAAAIAAAAGgEFAAEAAABIAAAAGwEFAAEAAABQAAAAaYcEAAEAAACOAAAAAAAAAAQAAJAHAAQAAAAwMjMwAZEHAAQAAAABAgMAAKAHAAQAAAAwMTAwAaADAAEAAAABAAAAAAAAAP/bAEMACgcHCAcGCggICAsKCgsOGBAODQ0OHRUWERgjHyUkIh8iISYrNy8mKTQpISIwQTE0OTs+Pj4lLkRJQzxINz0+O//bAEMBCgsLDg0OHBAQHDsoIig7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7O//AABEIACAAQAMBIgACEQEDEQH/xAAfAAABBQEBAQEBAQAAAAAAAAAAAQIDBAUGBwgJCgv/xAC1EAACAQMDAgQDBQUEBAAAAX0BAgMABBEFEiExQQYTUWEHInEUMoGRoQgjQrHBFVLR8CQzYnKCCQoWFxgZGiUmJygpKjQ1Njc4OTpDREVGR0hJSlNUVVZXWFlaY2RlZmdoaWpzdHV2d3h5eoOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4eLj5OXm5+jp6vHy8/T19vf4+fr/xAAfAQADAQEBAQEBAQEBAAAAAAAAAQIDBAUGBwgJCgv/xAC1EQACAQIEBAMEBwUEBAABAncAAQIDEQQFITEGEkFRB2FxEyIygQgUQpGhscEJIzNS8BVictEKFiQ04SXxFxgZGiYnKCkqNTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqCg4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2dri4+Tl5ufo6ery8/T19vf4+fr/2gAMAwEAAhEDEQA/APHM04DNNFTRp3oAQJTgg7mmu2DTN5pATeTkcGmNGVoSQg9assA8WaAKRpM05xg0ymBKsZJ6VOwCR4709p48cLVd33GgCJjzTaewHakxQACrloVY7W6GqYFSI+00gJ7m22sdvIqsYyO1XFuhtwwzQZYT1WgZ/9k=") center/cover, var(--color-space)`,
           }}
         >
           <Scene />
