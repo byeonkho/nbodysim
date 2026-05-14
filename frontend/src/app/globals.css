@@ -51,6 +51,12 @@
   --radius-strip: 12px;
   --radius-dock: 18px;
   --radius-chip: 10px;
+
+  /* Animations — Tailwind v4 generates an `animate-{name}` utility from each
+     --animate-* token. Routing through @theme (vs a raw top-level @keyframes
+     + inline animation style) makes Turbopack reliably pick up the keyframe
+     in dev as well as prod. */
+  --animate-cta-pulse: spacesim-cta-pulse 1.5s ease-in-out infinite;
 }
 
 /* Glass surface — every panel uses this recipe (per handoff README). */
