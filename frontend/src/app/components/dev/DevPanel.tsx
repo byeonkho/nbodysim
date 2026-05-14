@@ -128,7 +128,56 @@ function Tunables() {
         step={0.01}
         format={(v) => v.toFixed(2)}
       />
+      <DevSegmented
+        label="Skybox"
+        value={settings.skyboxVariant}
+        options={[
+          { value: "full", label: "Full" },
+          { value: "milkyway", label: "MW only" },
+          { value: "stars", label: "Stars" },
+        ]}
+        onChange={(v) => setDevSetting("skyboxVariant", v)}
+      />
     </section>
+  );
+}
+
+function DevSegmented<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline justify-between">
+        <span className="text-dim text-[11px]">{label}</span>
+      </div>
+      <div className="flex gap-1 rounded-md border border-white/[0.06] p-0.5">
+        {options.map((opt) => {
+          const active = opt.value === value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange(opt.value)}
+              className={`flex-1 rounded-sm px-2 py-1 text-[10px] font-medium tracking-[0.04em] uppercase transition-colors ${
+                active
+                  ? "bg-white/[0.08] text-hi"
+                  : "text-dim hover:text-hi hover:bg-white/[0.03]"
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

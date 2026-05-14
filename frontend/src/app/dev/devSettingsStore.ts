@@ -12,6 +12,8 @@ import { useSyncExternalStore } from "react";
  * useDevSettings(), event handlers read with getDevSettings().
  */
 
+export type SkyboxVariant = "full" | "milkyway" | "stars";
+
 export interface DevSettings {
   /**
    * Multiplier on wheel deltaY for tracking-zoom updates.
@@ -34,6 +36,12 @@ export interface DevSettings {
    * points get drawn, so dragging is allocation-free.
    */
   trailLength: number;
+  /**
+   * Active skybox texture. All three are pre-loaded by Skybox.tsx via
+   * useTexture's object form, so switching is instant — no Suspense
+   * flash during the swap.
+   */
+  skyboxVariant: SkyboxVariant;
 }
 
 const DEFAULTS: DevSettings = {
@@ -41,6 +49,7 @@ const DEFAULTS: DevSettings = {
   orbitDampingFactor: 0.01,
   cameraZoomLerpRate: 0.1,
   trailLength: 1000,
+  skyboxVariant: "full",
 };
 
 let state: DevSettings = { ...DEFAULTS };

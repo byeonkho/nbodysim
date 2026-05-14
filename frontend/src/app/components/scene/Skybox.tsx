@@ -7,6 +7,7 @@ import {
   SRGBColorSpace,
   Texture,
 } from "three";
+import { useDevSettings } from "@/app/dev/devSettingsStore";
 
 // Deep-space skybox — equirectangular star map mounted directly on
 // scene.background. Replaces drei <Stars/>: that produced visible
@@ -24,9 +25,13 @@ import {
 // linear → sRGB and downsampled to 4096×2048 JPG q85 (~4MB).
 //
 // Three variants live in public/textures/skybox/:
-//   - skybox-full.jpg     : default; full Milky Way + bright stars
-//   - skybox-milkyway.jpg : Milky Way background only (no point stars)
-//   - skybox-stars.jpg    : bright stars only (clean black + sparse)
+//   - full     : default; full Milky Way + bright stars
+//   - milkyway : Milky Way background only (no point stars)
+//   - stars    : bright stars only (clean black + sparse)
+//
+// All three are pre-loaded eagerly via useTexture's object form so
+// the dev panel can switch between them instantly with no Suspense
+// flash. ~12 MB upfront cost, paid once and cached.
 //
 // Mapped via EquirectangularReflectionMapping (three.js's plate-carrée
 // reader), tagged sRGB so the renderer linearises on sample then re-
@@ -39,20 +44,30 @@ const VARIANT_PATHS = {
   stars: "/textures/skybox/skybox-stars.jpg",
 } as const;
 
-interface SkyboxProps {
-  variant?: keyof typeof VARIANT_PATHS;
-}
+export function Skybox() {
+  const { skyboxVariant } = useDevSettings();
 
-export function Skybox({ variant = "full" }: SkyboxProps) {
   // onLoad fires once in a useLayoutEffect inside useTexture, before the
-  // returned texture is consumed by render — the canonical drei seam for
-  // setting non-default texture properties without violating React 19's
-  // immutability rule against mutating values returned by hooks.
-  const onLoad = useCallback((texture: Texture | Texture[]) => {
-    const t = Array.isArray(texture) ? texture[0] : texture;
-    t.mapping = EquirectangularReflectionMapping;
-    t.colorSpace = SRGBColorSpace;
-  }, []);
-  const texture = useTexture(VARIANT_PATHS[variant], onLoad);
-  return <primitive attach="background" object={texture} />;
+  // returned textures are consumed by render — the canonical drei seam
+  // for setting non-default texture properties without violating React
+  // 19's immutability rule. Object.values handles drei's runtime/type
+  // mismatch (TS declares the callback receives a record matching the
+  // input shape; runtime passes an array of those textures) — both
+  // shapes produce iterable Texture instances, and mutations apply to
+  // the same instances returned to the component.
+  const onLoad = useCallback(
+    (textures: Record<keyof typeof VARIANT_PATHS, Texture>) => {
+      for (const t of Object.values(textures) as Texture[]) {
+        t.mapping = EquirectangularReflectionMapping;
+        t.colorSpace = SRGBColorSpace;
+      }
+    },
+    [],
+  );
+
+  const textures = useTexture(VARIANT_PATHS, onLoad);
+
+  return (
+    <primitive attach="background" object={textures[skyboxVariant]} />
+  );
 }
