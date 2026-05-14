@@ -84,3 +84,67 @@ export function parseBinaryChunk(bytes: Uint8Array): ParsedChunk {
 
   return { data, mu };
 }
+
+export interface ParsedChunkTypedArrays {
+  bodyNames: string[];
+  bodyCount: number;
+  timestepCount: number;
+  // Length = timestepCount × bodyCount × 6.
+  // Layout: positions[t * bodyCount * 6 + b * 6 + c]
+  // components: 0=px 1=py 2=pz 3=vx 4=vy 5=vz
+  positions: Float64Array;
+  // Length = timestepCount. Millis since UNIX epoch.
+  timestamps: BigInt64Array;
+  // Per-body µ (m³/s²) keyed by body name.
+  mu: Record<string, number>;
+}
+
+export function parseBinaryChunkToTypedArrays(
+  bytes: Uint8Array,
+): ParsedChunkTypedArrays {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 0;
+
+  const bodyCount = view.getUint16(offset, true);
+  offset += 2;
+
+  const bodyNames: string[] = new Array(bodyCount);
+  const mu: Record<string, number> = {};
+  for (let i = 0; i < bodyCount; i++) {
+    const nameLen = view.getUint16(offset, true);
+    offset += 2;
+    const nameBytes = new Uint8Array(
+      bytes.buffer,
+      bytes.byteOffset + offset,
+      nameLen,
+    );
+    const name = utf8Decoder.decode(nameBytes);
+    bodyNames[i] = name;
+    offset += nameLen;
+    mu[name] = view.getFloat64(offset, true);
+    offset += 8;
+  }
+
+  const timestepCount = view.getUint32(offset, true);
+  offset += 4;
+
+  const positions = new Float64Array(timestepCount * bodyCount * 6);
+  const timestamps = new BigInt64Array(timestepCount);
+
+  for (let t = 0; t < timestepCount; t++) {
+    timestamps[t] = view.getBigInt64(offset, true);
+    offset += 8;
+    const tBase = t * bodyCount * 6;
+    for (let b = 0; b < bodyCount; b++) {
+      const slotBase = tBase + b * 6;
+      positions[slotBase + 0] = view.getFloat64(offset, true); offset += 8;
+      positions[slotBase + 1] = view.getFloat64(offset, true); offset += 8;
+      positions[slotBase + 2] = view.getFloat64(offset, true); offset += 8;
+      positions[slotBase + 3] = view.getFloat64(offset, true); offset += 8;
+      positions[slotBase + 4] = view.getFloat64(offset, true); offset += 8;
+      positions[slotBase + 5] = view.getFloat64(offset, true); offset += 8;
+    }
+  }
+
+  return { bodyNames, bodyCount, timestepCount, positions, timestamps, mu };
+}

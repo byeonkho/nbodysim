@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseBinaryChunk } from "./parseBinaryChunk";
+import { parseBinaryChunk, parseBinaryChunkToTypedArrays } from "./parseBinaryChunk";
 
 // Helper: build a chunk-format byte array matching the spec in
 // parseBinaryChunk.ts (and BinaryResponseSerializer.java). This duplicates the
@@ -154,5 +154,50 @@ describe("parseBinaryChunk", () => {
 
     const result = parseBinaryChunk(bytes);
     expect(result.mu.Earth).toBe(0);
+  });
+});
+
+describe("parseBinaryChunkToTypedArrays", () => {
+  it("decodes the same wire format into typed arrays in row-major layout", () => {
+    const bytes = buildChunkBytes(
+      [
+        { name: "Earth", mu: 3.986004418e14 },
+        { name: "Moon", mu: 4.9028000661e12 },
+      ],
+      [
+        {
+          millis: Date.UTC(2024, 5, 5),
+          bodies: [
+            { pos: [1, 2, 3], vel: [4, 5, 6] },
+            { pos: [7, 8, 9], vel: [10, 11, 12] },
+          ],
+        },
+        {
+          millis: Date.UTC(2024, 5, 6),
+          bodies: [
+            { pos: [13, 14, 15], vel: [16, 17, 18] },
+            { pos: [19, 20, 21], vel: [22, 23, 24] },
+          ],
+        },
+      ],
+    );
+
+    const result = parseBinaryChunkToTypedArrays(bytes);
+    expect(result.bodyNames).toEqual(["Earth", "Moon"]);
+    expect(result.bodyCount).toBe(2);
+    expect(result.timestepCount).toBe(2);
+    expect(result.mu).toEqual({
+      Earth: 3.986004418e14,
+      Moon: 4.9028000661e12,
+    });
+    expect(result.timestamps.length).toBe(2);
+    expect(result.timestamps[0]).toBe(BigInt(Date.UTC(2024, 5, 5)));
+    expect(result.timestamps[1]).toBe(BigInt(Date.UTC(2024, 5, 6)));
+
+    // Layout: positions[t * bodyCount * 6 + b * 6 + c]
+    expect(Array.from(result.positions.slice(0, 6))).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(Array.from(result.positions.slice(6, 12))).toEqual([7, 8, 9, 10, 11, 12]);
+    expect(Array.from(result.positions.slice(12, 18))).toEqual([13, 14, 15, 16, 17, 18]);
+    expect(Array.from(result.positions.slice(18, 24))).toEqual([19, 20, 21, 22, 23, 24]);
   });
 });
