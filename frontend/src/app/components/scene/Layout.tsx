@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState, useSyncExternalStore } from "react";
 
 import Scene from "@/app/components/scene/Scene";
 import UpdateModal from "@/app/components/interface/misc/UpdateModal";
@@ -15,16 +15,16 @@ import { DevPanel } from "@/app/components/dev/DevPanel";
 
 const Layout: React.FC = () => {
   const [simParamsOpen, setSimParamsOpen] = useState(false);
-  const [devMode, setDevMode] = useState(false);
 
-  // Read ?dev=1 once on mount. The dev panel is gated rather than
-  // built into the user-facing chrome, so the gate doesn't need to
-  // re-evaluate mid-session.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    setDevMode(params.has("dev"));
-  }, []);
+  // Read ?dev=… once on mount. useSyncExternalStore is the React-canonical
+  // pattern for "read an external value once" — SSR snapshot returns false
+  // (server has no window), client snapshot reads the URL on hydration.
+  // No re-subscription since the URL doesn't change mid-session.
+  const devMode = useSyncExternalStore(
+    () => () => {},
+    () => new URLSearchParams(window.location.search).has("dev"),
+    () => false,
+  );
 
   return (
     <div className="flex w-screen h-screen overflow-hidden">
