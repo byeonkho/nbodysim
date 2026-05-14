@@ -29,16 +29,13 @@ const Layout: React.FC = () => {
   return (
     <div className="flex w-screen h-screen overflow-hidden">
       <div className="grow relative overflow-hidden">
-        {/* Background rendered in CSS — not via three.js scene.background.
-            The Canvas inside <Scene /> is transparent (gl.alpha=true), so
-            this gradient stack shows through. Lifted verbatim from the
-            design handoff's `.starfield` CSS (frontend/design_handoff_
-            spacesim_ui/index.html): inky `#050610` base with two soft
-            elliptical glows. Going via CSS rather than canvas-texture
-            sidesteps three.js's color pipeline entirely (no sRGB
-            double-encoding, no tone-mapping interactions), so the
-            rendered background is pixel-identical to the design mockup
-            since the browser renders both. */}
+        {/* Load-time background fallback — visible during the brief gap
+            before the skybox JPG loads (Skybox.tsx mounts the texture
+            on scene.background, which then covers this layer). The
+            Canvas inside <Scene /> is transparent (gl.alpha=true) so
+            this gradient shows through until the skybox is in place.
+            Lifted from the design handoff's `.starfield` CSS: inky
+            `#050610` base with two soft elliptical glows. */}
         <div
           className="absolute inset-0 z-0"
           style={{

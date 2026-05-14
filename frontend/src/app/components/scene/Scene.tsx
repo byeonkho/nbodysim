@@ -1,12 +1,13 @@
 "use client";
 
 import { Canvas } from "@react-three/fiber";
-import { Grid, Stars } from "@react-three/drei";
+import { Grid } from "@react-three/drei";
 import { DoubleSide } from "three";
 import Camera from "@/app/components/scene/Camera";
 import Sphere from "@/app/components/scene/Sphere";
 import Trail from "@/app/components/scene/Trail";
 import AnimationController from "@/app/components/scene/AnimationController";
+import { Skybox } from "@/app/components/scene/Skybox";
 import React, { useMemo } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import SimConstants, { bodyProperties } from "@/app/constants/SimConstants";
@@ -84,25 +85,10 @@ const Scene = () => {
       }}
       style={{ width: "100%", height: "100%" }}
     >
-      {/* Procedural starfield. drei's <Stars /> is a spherical Points
-          cloud at finite radius — to read as "infinity" against any
-          plausible camera zoom, the sphere needs to be much larger than
-          the user can ever zoom out (otherwise it visibly clumps into
-          a discrete ball, which is what happens at small radii). The
-          radius is the same constant Camera.tsx caps maxDistance against
-          (× 0.9), so the camera can never dolly past the visible stars.
-          Saturation 0 = pure white. fade enabled so stars near the
-          inside edge of the depth shell taper out instead of cutting
-          off sharply. */}
-      <Stars
-        radius={SimConstants.STARS_RADIUS}
-        depth={50000}
-        count={8000}
-        factor={6}
-        saturation={0}
-        fade
-        speed={0}
-      />
+      {/* NASA SVS Deep Star Maps 2020 mounted on scene.background — see
+          Skybox.tsx for the why (drei <Stars/> twinkled on rotation due
+          to point-primitive aliasing at our scene scale). */}
+      <Skybox />
 
       <AnimationController />
       <Camera />
