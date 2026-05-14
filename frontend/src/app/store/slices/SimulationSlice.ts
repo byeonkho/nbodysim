@@ -6,15 +6,23 @@ import {
 } from "@reduxjs/toolkit";
 import { AppDispatch, RootState } from "@/app/store/Store";
 import { dispatchChunkRequest } from "@/app/store/middleware/simulationRequestThunk";
+import {
+  appendChunk,
+  ChunkBuffer,
+  computeBufferCapacity,
+  createChunkBuffer,
+  getTimestampAsIsoString,
+  selectBufferByteBudget,
+} from "@/app/store/chunkBuffer";
 import SimConstants, {
   BodyProperties,
   bodyProperties,
 } from "@/app/constants/SimConstants";
 import { StaticImageData } from "next/image";
+import { selectFetchLatencyEmaMs } from "@/app/store/slices/RequestSlice";
 
 interface TimeState {
   isPaused: boolean;
-  isUpdating: boolean;
   speedMultiplier: number;
   currentTimeStepIndex: number;
 }
@@ -23,12 +31,6 @@ export interface Vector3Simple {
   x: number;
   y: number;
   z: number;
-}
-
-export interface CelestialBody {
-  name: string;
-  position: Vector3Simple;
-  velocity: Vector3Simple;
 }
 
 export interface CelestialBodyProperties {
@@ -66,10 +68,6 @@ interface ActiveBodyState {
   activeBodyName: string | null;
 }
 
-export interface SimulationData {
-  [date: string]: CelestialBody[];
-}
-
 export interface SimulationScale {
   // set in SimConstants
   name: string;
@@ -88,12 +86,6 @@ export type CameraPreset = "top-down" | "free";
 // (Simulation.snapshotFromState shifts by the Sun's state regardless of
 // session frame), so switching display frames is just a per-frame pivot
 // subtraction on the client — no buffer flush, no resubmit. See todo #42.
-//
-// Barycentric is intentionally not shipped in Phase 4: a correct bary
-// pivot is a mass-weighted average of all bodies, and computing it per
-// trail history point per frame is hot-path-expensive. Adding it
-// correctly needs a shared per-timestep pivot cache; deferred to keep
-// Phase 4 scope tight. Mars retrograde works fine with helio + geo.
 export type DisplayFrame = "helio" | "geo";
 
 export interface SimulationParameters {
@@ -135,11 +127,11 @@ export function readStoredDisplayFrame(): DisplayFrame | null {
 interface SimulationState {
   activeBodyState: ActiveBodyState;
   simulationParameters: SimulationParameters;
-  simulationData: SimulationData | null;
+  chunkBuffer: ChunkBuffer | null;
+  hasReceivedFirstChunk: boolean;
   timeState: TimeState;
 }
 
-// this is mandatory; passed to createSlice
 const initialState: SimulationState = {
   activeBodyState: {
     isBodyActive: false,
@@ -149,28 +141,32 @@ const initialState: SimulationState = {
     celestialBodyPropertiesList: [],
     simulationMetaData: null,
     lastRequest: null,
-    // Grid, trail, label defaults match the design's first-paint look —
-    // user can toggle off via the bottom-right view chips. Axes stays
-    // off (it's a debug overlay; on by default would clutter the demo).
     showGrid: true,
     showAxes: false,
     showPlanetInfoOverlay: true,
     showTrails: true,
     showOrbitPaths: true,
-    simulationScale: SimConstants.SCALE.SEMI_REALISTIC, // default scale
-    // Hard-coded SSR-safe defaults. localStorage rehydration happens
-    // post-mount in PrefsHydrator → setCameraPreset / setDisplayFrame.
+    simulationScale: SimConstants.SCALE.SEMI_REALISTIC,
     cameraPreset: "top-down",
     displayFrame: "helio",
   },
-  simulationData: null,
+  chunkBuffer: null,
+  hasReceivedFirstChunk: false,
   timeState: {
     isPaused: true,
-    isUpdating: false,
     speedMultiplier: 1,
     currentTimeStepIndex: 0,
   },
 };
+
+interface AppendChunkPayload {
+  bodyNames: string[];
+  bodyCount: number;
+  timestepCount: number;
+  positions: Float64Array;
+  timestamps: BigInt64Array;
+  mu: Record<string, number>;
+}
 
 export const simulationSlice = createSlice({
   name: "simulation",
@@ -184,10 +180,10 @@ export const simulationSlice = createSlice({
       // View prefs (showGrid, simulationScale, cameraPreset, displayFrame,
       // lastRequest) are intentionally preserved — those are user
       // preferences, not session state. See todo #55.
-      state.simulationData = null;
+      state.chunkBuffer = null;
+      state.hasReceivedFirstChunk = false;
       state.timeState = {
         isPaused: true,
-        isUpdating: false,
         speedMultiplier: 1,
         currentTimeStepIndex: 0,
       };
@@ -201,10 +197,7 @@ export const simulationSlice = createSlice({
         ...action.payload,
       };
 
-      if (
-        state.simulationParameters &&
-        state.simulationParameters.celestialBodyPropertiesList
-      ) {
+      if (state.simulationParameters?.celestialBodyPropertiesList) {
         const exceptionMap =
           state.simulationParameters.simulationScale
             ?.EXCEPTION_BODIES_POSITION_SCALE || {};
@@ -214,14 +207,11 @@ export const simulationSlice = createSlice({
             (body: CelestialBodyProperties): CelestialBodyProperties => {
               if (body.name) {
                 const upperName = body.name.trim().toUpperCase();
-                // Determine the new positionScale: if there's an exception, use it; otherwise, default to 1.
                 const newPositionScale =
                   exceptionMap[upperName] !== undefined
                     ? exceptionMap[upperName]
                     : 1;
-                // look up default constants (e.g textures)
                 const defaults: BodyProperties = bodyProperties[upperName];
-                // Merge defaults into the body properties.
                 return {
                   ...body,
                   ...defaults,
@@ -232,29 +222,37 @@ export const simulationSlice = createSlice({
             },
           );
       }
-      console.log(
-        "load sim: ",
-        state.simulationParameters.celestialBodyPropertiesList,
-        "scale:",
-        state.simulationParameters.simulationScale,
-      );
     },
 
-    updateDataReceived: (
-      state,
-      action: PayloadAction<{
-        data: SimulationData;
-        mu?: Record<string, number>;
-      }>,
-    ) => {
-      if (!state.simulationData) {
-        state.simulationData = action.payload.data;
-      } else {
-        state.simulationData = {
-          ...state.simulationData,
-          ...action.payload.data,
-        };
-        console.log("Simulation data updated:", state.simulationData);
+    appendChunkToBuffer: (state, action: PayloadAction<AppendChunkPayload>) => {
+      const payload = action.payload;
+
+      // First chunk creates the buffer at the session-start capacity.
+      if (state.chunkBuffer === null) {
+        const byteBudget = selectBufferByteBudget();
+        const capacity = computeBufferCapacity(payload.bodyCount, byteBudget);
+        state.chunkBuffer = createChunkBuffer(payload.bodyNames, capacity);
+        console.info(
+          `[buffer] budget=${(byteBudget / 1024 / 1024) | 0}MB ` +
+            `capacity=${capacity} timesteps (${payload.bodyCount} bodies)`,
+        );
+      }
+
+      const shifted = appendChunk(
+        state.chunkBuffer,
+        payload.positions,
+        payload.timestamps,
+        payload.timestepCount,
+      );
+
+      // If eviction occurred, slide the playback head left by the same amount
+      // so the user keeps watching the same simulation moment, not a moment
+      // that just got dropped from the buffer.
+      if (shifted > 0) {
+        state.timeState.currentTimeStepIndex = Math.max(
+          0,
+          state.timeState.currentTimeStepIndex - shifted,
+        );
       }
 
       // Merge µ from the chunk header into the body properties list. µ is
@@ -263,16 +261,13 @@ export const simulationSlice = createSlice({
       // fine and idempotent. µ=0 means "unknown" (backend missing-entry
       // fallback) and is left undefined on the props so downstream code
       // can detect "no µ" rather than computing nonsense from zero.
-      const muMap = action.payload.mu;
-      if (muMap && state.simulationParameters.celestialBodyPropertiesList) {
+      if (state.simulationParameters.celestialBodyPropertiesList) {
+        const muMap = payload.mu;
         state.simulationParameters.celestialBodyPropertiesList =
           state.simulationParameters.celestialBodyPropertiesList.map(
             (body: CelestialBodyProperties): CelestialBodyProperties => {
               if (!body.name) return body;
               const upperName = body.name.trim().toUpperCase();
-              // Match case-insensitively; backend names come from Orekit
-              // and frontend list comes from the SimParams form, so
-              // capitalisation can drift.
               let mu: number | undefined;
               for (const key of Object.keys(muMap)) {
                 if (key.trim().toUpperCase() === upperName) {
@@ -286,39 +281,12 @@ export const simulationSlice = createSlice({
           );
       }
 
-      // unlock rendering loop
-      state.timeState.isUpdating = false;
-      state.timeState.isPaused = false;
+      state.hasReceivedFirstChunk = true;
     },
-    deleteExcessData: (
-      state,
-      action: PayloadAction<{ excessCount: number; timeStepKeys: string[] }>,
-    ) => {
-      const { simulationData } = state;
-      if (!simulationData) return;
 
-      const { excessCount, timeStepKeys } = action.payload;
-
-      // Remove the earliest indices
-      const keysToRemove = timeStepKeys.slice(0, excessCount);
-      keysToRemove.forEach((key) => {
-        delete simulationData[key];
-      });
-
-      // Adjust currentTimeStepIndex
-      state.timeState.currentTimeStepIndex = Math.max(
-        0,
-        state.timeState.currentTimeStepIndex - excessCount,
-      );
-    },
     togglePause: (state) => {
       state.timeState.isPaused = !state.timeState.isPaused;
     },
-    // View toggles are unconditional — the sim-data guard that used to wrap
-    // each of these silently dropped clicks before the user had loaded a
-    // sim, leaving the chip stuck on whatever its initial-state value was.
-    // The scene's render branches already gate on isPaused / data presence
-    // separately; the slice flag is just a UI preference.
     toggleShowGrid: (state) => {
       state.simulationParameters.showGrid = !state.simulationParameters.showGrid;
     },
@@ -338,9 +306,6 @@ export const simulationSlice = createSlice({
         !state.simulationParameters.showOrbitPaths;
     },
 
-    setIsUpdating: (state, action: PayloadAction<boolean>) => {
-      state.timeState.isUpdating = action.payload;
-    },
     setIsPaused: (state, action: PayloadAction<boolean>) => {
       state.timeState.isPaused = action.payload;
     },
@@ -396,10 +361,6 @@ export const simulationSlice = createSlice({
         window.localStorage.setItem(CAMERA_PRESET_STORAGE_KEY, next);
       }
     },
-    // Direct setter (vs. toggleCameraPreset). Used by PrefsHydrator on
-    // mount to reconcile the SSR-safe initial state with the value
-    // persisted in localStorage. Writes through to storage so it stays
-    // a no-op if the user calls it with the already-stored value.
     setCameraPreset: (
       state: SimulationState,
       action: PayloadAction<CameraPreset>,
@@ -410,7 +371,6 @@ export const simulationSlice = createSlice({
       }
     },
     cycleDisplayFrame: (state: SimulationState) => {
-      // helio → geo → helio. Bary deferred — see DisplayFrame type comment.
       const next: DisplayFrame =
         state.simulationParameters.displayFrame === "helio" ? "geo" : "helio";
       state.simulationParameters.displayFrame = next;
@@ -418,7 +378,6 @@ export const simulationSlice = createSlice({
         window.localStorage.setItem(DISPLAY_FRAME_STORAGE_KEY, next);
       }
     },
-    // Direct setter — see setCameraPreset's comment for rationale.
     setDisplayFrame: (
       state: SimulationState,
       action: PayloadAction<DisplayFrame>,
@@ -432,17 +391,12 @@ export const simulationSlice = createSlice({
       state: SimulationState,
       action: PayloadAction<boolean>,
     ) => {
-      console.log("payload: ", action.payload);
       state.activeBodyState.isBodyActive = action.payload;
     },
     cycleSimulationScale: (state) => {
-      // Same reasoning as the view toggles above — the simulationData
-      // guard dropped pre-sim clicks. The body-list re-mapping further
-      // down has its own guard so it's still safe before bodies exist.
       if (state.simulationParameters.simulationScale) {
         const currentScale = state.simulationParameters.simulationScale;
-        const scaleOptions: string[] = Object.keys(SimConstants.SCALE); //ES6 objects have defined insertion order
-        // for string keys
+        const scaleOptions: string[] = Object.keys(SimConstants.SCALE);
 
         const currentIndex = scaleOptions.findIndex((key) => {
           const preset =
@@ -465,9 +419,6 @@ export const simulationSlice = createSlice({
           state.simulationParameters.simulationScale
             .EXCEPTION_BODIES_POSITION_SCALE;
 
-        // for exceptions (e.g Moon), map the custom position scale from SimConstants. we need to tweak the position
-        // scale here because otherwise we end up with cases like the moon being rendered in the earth, since the
-        // radius-position ratio is not aligned
         if (
           exceptions &&
           state.simulationParameters.celestialBodyPropertiesList
@@ -497,61 +448,61 @@ export const simulationSlice = createSlice({
 
 type IndexAction = { type: string; payload: number };
 
-// intercepts the rendering loop as 1st step; runs logic to get new data batch if < n iterations left
+const PREFETCH_MIN_THRESHOLD = 1000;
+const PREFETCH_SAFETY_FACTOR = 1.5;
+
+// Speed-aware prefetch trigger. Threshold scales with playback rate so that
+// at high speedMultipliers, the next fetch is in flight well before the
+// buffer empties. EMA of recent fetch latencies feeds the formula so the
+// threshold adapts to actual network + compute conditions.
 export const simulationUpdateDataMiddleware: Middleware =
   (store) => (next) => (action) => {
     const a = action as IndexAction;
     if (a.type === "simulation/setCurrentTimeStepIndex") {
       const state = store.getState() as RootState;
+      const buffer = state.simulation.chunkBuffer;
+      if (!buffer) return next(action);
 
-      const simulationData = state.simulation.simulationData;
-      if (!simulationData) {
-        console.warn("simulationData is not available yet.");
-        return next(action);
-      }
-
-      const totalTimeSteps = selectTotalTimeSteps(state);
       const currentTimeStepIndex = a.payload;
-      const remainingIndexes = totalTimeSteps - currentTimeStepIndex;
+      const remaining = buffer.totalTimesteps - currentTimeStepIndex;
+      const speedMultiplier = Math.abs(state.simulation.timeState.speedMultiplier);
+      const fps = SimConstants.FPS;
+      const fetchLatencyMs = selectFetchLatencyEmaMs(state);
 
-      if (remainingIndexes <= 9000 && !state.request.isRequestInProgress) {
+      const stepsConsumedDuringFetch =
+        speedMultiplier * fps * (fetchLatencyMs / 1000);
+      const threshold = Math.max(
+        PREFETCH_MIN_THRESHOLD,
+        Math.ceil(stepsConsumedDuringFetch * PREFETCH_SAFETY_FACTOR),
+      );
+
+      if (remaining <= threshold && !state.request.isRequestInProgress) {
         const sessionID = selectSessionID(state);
-        if (!sessionID) {
-          console.warn("Session ID is not defined. Cannot send request.");
-          return next(action);
+        if (sessionID) {
+          dispatchChunkRequest(store.dispatch as AppDispatch, { sessionID });
         }
-
-        const requestData = { sessionID };
-        dispatchChunkRequest(store.dispatch as AppDispatch, requestData);
       }
     }
     return next(action);
   };
 
 ///////////////////////////////////////////// SELECTORS /////////////////////////////////////////////
-export const selectTimeStepKeys = createSelector(
-  (state: RootState) => state.simulation.simulationData,
-  (simulationData: SimulationData | null) => {
-    if (!simulationData) {
-      return [];
-    }
-    return Object.keys(simulationData);
-  },
-);
 
-export const selectSimulationDataSize = createSelector(
-  (state: RootState) => state.simulation.simulationData,
-  (simulationData: SimulationData | null): number => {
-    if (!simulationData) return 0;
-    const jsonString = JSON.stringify(simulationData);
-    return new Blob([jsonString]).size; // Size in bytes
-  },
-);
+export const selectChunkBuffer = (state: RootState): ChunkBuffer | null =>
+  state.simulation.chunkBuffer;
 
-export const selectTotalTimeSteps = createSelector(
-  (state: RootState) => state.simulation.simulationData,
-  (simulationData: SimulationData | null): number =>
-    simulationData ? Object.keys(simulationData).length : 0,
+export const selectTotalTimeSteps = (state: RootState): number =>
+  state.simulation.chunkBuffer?.totalTimesteps ?? 0;
+
+export const selectCurrentTimeStepIsoString = createSelector(
+  [
+    (state: RootState) => state.simulation.chunkBuffer,
+    (state: RootState) => state.simulation.timeState.currentTimeStepIndex,
+  ],
+  (buffer: ChunkBuffer | null, idx: number): string => {
+    if (!buffer) return "";
+    return getTimestampAsIsoString(buffer, idx);
+  },
 );
 
 export const selectBodyRadiusFromName = createSelector(
@@ -609,21 +560,6 @@ export const selectIsPaused = (state: RootState) =>
 export const selectSpeedMultiplier = (state: RootState) =>
   state.simulation.timeState.speedMultiplier;
 
-export const selectCurrentTimeStepKey = createSelector(
-  [
-    (state: RootState) => state.simulation.simulationData,
-    (state: RootState) => state.simulation.timeState.currentTimeStepIndex,
-  ],
-  (simulationData: SimulationData | null, idx: number): string => {
-    if (!simulationData) return "";
-    const keys = Object.keys(simulationData);
-    return keys[idx] ?? "";
-  },
-);
-
-export const selectIsUpdating = (state: RootState) =>
-  state.simulation.timeState.isUpdating;
-
 export const selectSessionID = (state: RootState) =>
   state.simulation.simulationParameters?.simulationMetaData?.sessionID;
 
@@ -636,17 +572,18 @@ export const selectCameraPreset = (state: RootState) =>
 export const selectDisplayFrame = (state: RootState): DisplayFrame =>
   state.simulation.simulationParameters?.displayFrame ?? "helio";
 
+export const selectHasReceivedFirstChunk = (state: RootState): boolean =>
+  state.simulation.hasReceivedFirstChunk;
+
 export const {
   loadSimulation,
-  updateDataReceived,
+  appendChunkToBuffer,
   togglePause,
   toggleShowGrid,
   toggleShowAxes,
   toggleShowPlanetInfoOverlay,
   toggleShowTrails,
   toggleShowOrbitPaths,
-  deleteExcessData,
-  setIsUpdating,
   setIsPaused,
   cycleSimulationScale,
   setSpeedMultiplier,
