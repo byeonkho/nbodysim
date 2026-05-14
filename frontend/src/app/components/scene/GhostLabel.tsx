@@ -6,23 +6,22 @@ import { useFrame } from "@react-three/fiber";
 import { useSelector, useStore } from "react-redux";
 import * as THREE from "three";
 import {
-  type CelestialBody,
   type CelestialBodyProperties,
   selectCelestialBodyPropertiesList,
-  selectCurrentTimeStepKey,
   selectSimulationScale,
   type Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
+import { readBodyPositionInto } from "@/app/store/chunkBuffer";
 import type { RootState } from "@/app/store/Store";
 import { setBodyWorldPosition } from "@/app/utils/coordinates";
-import { findEarthIndex, writePivotInto } from "@/app/utils/framePivot";
+import { writePivotInto } from "@/app/utils/framePivot";
 import { calculateDistance, scaleDistanceInto } from "@/app/utils/helpers";
 import { BODY_DISPLAY, toBodyKey } from "@/app/constants/BodyVisuals";
 
 // Two-line ghost label above each non-active body: NAME (uppercase, wide
 // tracking) + AU sub. Position updates per frame; AU text updates every
 // ~0.5s at 60fps to avoid pointless DOM thrashing on slow-moving outer
-// planets. Replaces PlanetInfoOverlayAll.
+// planets.
 
 const TEXT_THROTTLE_FRAMES = 30;
 
@@ -33,10 +32,12 @@ export function GhostLabel({ bodyName }: { bodyName: string }) {
 
   const groupRef = useRef<THREE.Group>(null!);
   const auRef = useRef<HTMLDivElement>(null);
-  const posScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const bodyPosVec = useRef(new THREE.Vector3());
+  const orbitingPosVec = useRef(new THREE.Vector3());
+  const posSimple = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const orbitingSimple = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const shiftedScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const pivotScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
-  const earthIdxRef = useRef<number>(-1);
   const frameCounter = useRef(0);
   const lastAu = useRef<string>("");
 
@@ -51,54 +52,46 @@ export function GhostLabel({ bodyName }: { bodyName: string }) {
     if (!groupRef.current || !properties) return;
 
     const state = store.getState();
-    const data = state.simulation.simulationData;
-    const key = selectCurrentTimeStepKey(state);
-    if (!data || !key) return;
-    const snapshot = data[key];
-    if (!snapshot) return;
+    const buffer = state.simulation.chunkBuffer;
+    const idx = state.simulation.timeState.currentTimeStepIndex;
+    if (!buffer || idx >= buffer.totalTimesteps) return;
 
-    const body = snapshot.find(
-      (b: CelestialBody) => b.name.trim().toUpperCase() === upperName,
-    );
-    if (!body) return;
+    let bodyIdx = -1;
+    let orbitingIdx = -1;
+    for (const [bn, i] of buffer.bodyNameToIndex.entries()) {
+      const bnUpper = bn.toUpperCase();
+      if (bnUpper === upperName) bodyIdx = i;
+      if (orbitingNameUpper && bnUpper === orbitingNameUpper) orbitingIdx = i;
+      if (bodyIdx >= 0 && (orbitingIdx >= 0 || !orbitingNameUpper)) break;
+    }
+    if (bodyIdx < 0) return;
 
-    let pos: Vector3Simple = body.position;
+    readBodyPositionInto(bodyPosVec.current, buffer, idx, bodyIdx);
+    posSimple.current.x = bodyPosVec.current.x;
+    posSimple.current.y = bodyPosVec.current.y;
+    posSimple.current.z = bodyPosVec.current.z;
+    let pos: Vector3Simple = posSimple.current;
+
     if (
       properties.positionScale !== undefined &&
       properties.positionScale !== 1 &&
-      orbitingNameUpper
+      orbitingIdx >= 0
     ) {
-      const orbiting = snapshot.find(
-        (b: CelestialBody) =>
-          b.name.trim().toUpperCase() === orbitingNameUpper,
+      readBodyPositionInto(orbitingPosVec.current, buffer, idx, orbitingIdx);
+      orbitingSimple.current.x = orbitingPosVec.current.x;
+      orbitingSimple.current.y = orbitingPosVec.current.y;
+      orbitingSimple.current.z = orbitingPosVec.current.z;
+      scaleDistanceInto(
+        posSimple.current,
+        posSimple.current,
+        orbitingSimple.current,
+        properties.positionScale,
       );
-      if (orbiting) {
-        scaleDistanceInto(
-          posScratch.current,
-          body.position,
-          orbiting.position,
-          properties.positionScale,
-        );
-        pos = posScratch.current;
-      }
+      pos = posSimple.current;
     }
 
-    // Apply display-frame pivot, same shape as Sphere.tsx / Trail.tsx /
-    // Reticle.tsx. Without this the label sits at the body's heliocentric
-    // world coordinate while the rendered body sits at its geocentric one
-    // — labels jumble on top of each other near the Sun's heliocentric
-    // origin in geo mode.
-    const displayFrame =
-      state.simulation.simulationParameters.displayFrame;
-    if (displayFrame !== "helio" && earthIdxRef.current === -1) {
-      earthIdxRef.current = findEarthIndex(snapshot);
-    }
-    writePivotInto(
-      pivotScratch.current,
-      snapshot,
-      displayFrame,
-      earthIdxRef.current,
-    );
+    const displayFrame = state.simulation.simulationParameters.displayFrame;
+    writePivotInto(pivotScratch.current, buffer, idx, displayFrame);
     shiftedScratch.current.x = pos.x - pivotScratch.current.x;
     shiftedScratch.current.y = pos.y - pivotScratch.current.y;
     shiftedScratch.current.z = pos.z - pivotScratch.current.z;
@@ -113,14 +106,19 @@ export function GhostLabel({ bodyName }: { bodyName: string }) {
     frameCounter.current++;
     if (frameCounter.current >= TEXT_THROTTLE_FRAMES) {
       frameCounter.current = 0;
-      const orbiting = orbitingNameUpper
-        ? snapshot.find(
-            (b: CelestialBody) =>
-              b.name.trim().toUpperCase() === orbitingNameUpper,
-          )
-        : undefined;
-      if (orbiting) {
-        const au = calculateDistance(body.position, orbiting.position, "AU");
+      if (orbitingIdx >= 0) {
+        readBodyPositionInto(orbitingPosVec.current, buffer, idx, orbitingIdx);
+        const bodySimple = {
+          x: bodyPosVec.current.x,
+          y: bodyPosVec.current.y,
+          z: bodyPosVec.current.z,
+        };
+        const orbSimple = {
+          x: orbitingPosVec.current.x,
+          y: orbitingPosVec.current.y,
+          z: orbitingPosVec.current.z,
+        };
+        const au = calculateDistance(bodySimple, orbSimple, "AU");
         if (au !== lastAu.current && auRef.current) {
           auRef.current.textContent = au;
           lastAu.current = au;

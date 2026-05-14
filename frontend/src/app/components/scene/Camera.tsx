@@ -5,111 +5,71 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { useSelector, useStore } from "react-redux";
 import {
   type CameraPreset,
-  CelestialBody,
   CelestialBodyProperties,
   selectActiveBodyName,
   selectCameraPreset,
-  selectCurrentTimeStepKey,
   selectIsBodyActive,
   selectSimulationScale,
   SimulationScale,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
+import { readBodyPositionInto } from "@/app/store/chunkBuffer";
 import * as THREE from "three";
 import { RootState } from "@/app/store/Store";
 import { useDevSettings } from "@/app/dev/devSettingsStore";
 import { setBodyWorldPosition } from "@/app/utils/coordinates";
-import { findEarthIndex, writePivotInto } from "@/app/utils/framePivot";
+import { writePivotInto } from "@/app/utils/framePivot";
 import SimConstants from "@/app/constants/SimConstants";
 
 // ─────────────────────────────────────────────────────────────────────────
-// Snap-to-anchor camera model.
-//
-// On body select:
-//   - controls.target SNAPS to the body's exact rendered position.
-//   - The camera's offset from the OLD target is captured and applied as
-//     the offset from the NEW target — so the user's relative orbital
-//     pose (angle, zoom) is preserved across the switch.
-//   - Camera position eases (cubic out) over TWEEN_DURATION_MS from its
-//     pre-snap position to (newTarget + capturedOffset). Maya/Blender
-//     "frame selected" feel.
-//
-// In steady state (after the tween, or on every frame while a body is
-// already selected and moving):
-//   - Each frame, target is set to the body's current rendered position.
-//   - Camera is delta-shifted by (newTarget - prevTarget), so its offset
-//     from the target is preserved as the body moves (or as display
-//     frame / scale changes shift the body's rendered position).
-//   - OrbitControls.update() runs after our writes — its rotate/zoom
-//     paths read camera-target offset, apply user-input deltas, and
-//     write back. So user input acts on top of body-tracking naturally.
-//
-// minDistance (camera-to-body floor):
-//   - Wired directly to OrbitControls' built-in `minDistance` prop, computed
-//     as renderedRadius × CAMERA_MIN_DISTANCE_MULTIPLIER for the active body.
-//   - OrbitControls clamps its dolly path against minDistance, so zoom-in
-//     can't drive the camera into the mesh. No custom wheel handler needed.
-//
-// This replaces the prior architecture where (a) a slow-lerped target
-// trailed the body's true position and (b) a manual zoom-radius lerp
-// fought OrbitControls' built-in dolly. The lerp-based model produced a
-// class of clipping bugs (#65 in todo, now obsoleted) because camera-to-
-// lerped-target distance ≠ camera-to-body distance during transitions.
-// In the snap model, target IS the body, so those distances are equal
-// by construction.
+// Snap-to-anchor camera model. See pre-buffer version of this file for the
+// full rationale comment; the behavior is unchanged after the migration —
+// only the body-position read swaps from snapshot-find to chunkBuffer index.
 // ─────────────────────────────────────────────────────────────────────────
 
 const TWEEN_DURATION_MS = 250;
 const EPSILON = 1e-6;
 
-// Ease-out cubic: snappy start, soft settle. Good fit for body-switch
-// transitions because the user wants immediate feedback that something is
-// happening, then a calm landing on the new view.
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
 
 interface TweenState {
   startMs: number;
   startCameraPos: THREE.Vector3;
-  // Camera's offset from the OLD target at tween start; preserved as the
-  // offset from the NEW target so the user's view angle is consistent
-  // across body switches. Recomputed-against each frame so the tween
-  // lands at the body's current position even if the body keeps moving
-  // during the 250ms transition (sim playing while user clicks a new body).
   capturedOffset: THREE.Vector3;
 }
 
-// Compute the active body's current rendered position in scene world
-// coords. Mutating: writes into `out` and returns it (or null when the
-// snapshot isn't ready or the body isn't in it). Mirrors the pivot/scale
-// pipeline applied by Sphere.tsx so target and mesh share coordinates.
+// Module-level scratch for reading the body's position from the buffer.
+const bodyReadScratch = new THREE.Vector3();
+
 function writeBodyRenderedPositionInto(
   out: THREE.Vector3,
   activeBodyName: string,
   state: RootState,
   pivotScratch: Vector3Simple,
   shiftedScratch: Vector3Simple,
-  earthIdxRef: { current: number },
 ): boolean {
-  const simulationData = state.simulation.simulationData;
-  const currentTimeStepKey = selectCurrentTimeStepKey(state);
+  const buffer = state.simulation.chunkBuffer;
+  const idx = state.simulation.timeState.currentTimeStepIndex;
   const scale = state.simulation.simulationParameters.simulationScale;
-  if (!simulationData || !currentTimeStepKey) return false;
+  if (!buffer || idx >= buffer.totalTimesteps) return false;
 
-  const snapshot = simulationData[currentTimeStepKey];
   const upperActiveName = activeBodyName.toUpperCase();
-  const body = snapshot?.find(
-    (b: CelestialBody) => b.name.toUpperCase() === upperActiveName,
-  );
-  if (!body) return false;
+  let bodyIdx = -1;
+  for (const [bn, i] of buffer.bodyNameToIndex.entries()) {
+    if (bn.toUpperCase() === upperActiveName) {
+      bodyIdx = i;
+      break;
+    }
+  }
+  if (bodyIdx < 0) return false;
+
+  readBodyPositionInto(bodyReadScratch, buffer, idx, bodyIdx);
 
   const displayFrame = state.simulation.simulationParameters.displayFrame;
-  if (displayFrame !== "helio" && earthIdxRef.current === -1) {
-    earthIdxRef.current = findEarthIndex(snapshot);
-  }
-  writePivotInto(pivotScratch, snapshot, displayFrame, earthIdxRef.current);
-  shiftedScratch.x = body.position.x - pivotScratch.x;
-  shiftedScratch.y = body.position.y - pivotScratch.y;
-  shiftedScratch.z = body.position.z - pivotScratch.z;
+  writePivotInto(pivotScratch, buffer, idx, displayFrame);
+  shiftedScratch.x = bodyReadScratch.x - pivotScratch.x;
+  shiftedScratch.y = bodyReadScratch.y - pivotScratch.y;
+  shiftedScratch.z = bodyReadScratch.z - pivotScratch.z;
 
   setBodyWorldPosition(out, shiftedScratch, scale.positionScale);
   return true;
@@ -125,61 +85,24 @@ const Camera: React.FC = () => {
   const { orbitDampingFactor } = useDevSettings();
   const store = useStore<RootState>();
 
-  // Min distance from camera to active body. Held in a ref (not React
-  // state) so it's always current without a render cycle of lag — the
-  // body-select effect writes the new value AND assigns it directly to
-  // OrbitControls' instance, both synchronously. If we used React state,
-  // the useEffect would call setState, then useFrame could fire one or
-  // more times with the closure's stale state value before React commits
-  // the new render — during that gap the camera-clip safety check below
-  // would skip (since minDistance reads as 0) and OrbitControls' prop
-  // would also still be 0/undefined → camera could dolly inside the
-  // body for that brief window. Using a ref + direct OrbitControls
-  // mutation makes both consumers see the new value immediately.
   const minDistanceRef = useRef<number>(0);
-
-  // Tween state. Non-null while a body-switch animation is in progress.
   const tweenRef = useRef<TweenState | null>(null);
 
-  // Reused across frames — allocation-free pattern.
   const pivotScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const shiftedScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
-  const earthIdxRef = useRef<number>(-1);
   const bodyPosScratch = useRef(new THREE.Vector3());
   const targetDeltaScratch = useRef(new THREE.Vector3());
   const desiredCameraScratch = useRef(new THREE.Vector3());
-  // Holds camera-to-body offset for the post-update min-distance safety.
   const safetyDirScratch = useRef(new THREE.Vector3());
 
   /* eslint-disable react-hooks/immutability */
   useEffect(() => {
-    // near=0.001 (was 0.1) so the near plane sits well inside the
-    // smallest body's safety margin. With minDistance ≈ bodyRadius × 2.5
-    // and the smallest tracked body being the Moon (rendered radius
-    // ~0.017 wu, so min ~0.043 wu, surface-to-min clearance ~0.026 wu),
-    // a near plane of 0.1 was *larger* than the clearance — when you
-    // dolly toward smaller bodies the safety pushes the camera back to
-    // min, but the near plane still eats the body's near hemisphere
-    // and the body renders as a torus around the reticle (looks like
-    // clipping but is actually near-plane culling). 0.001 leaves
-    // plenty of margin for every body. Far plane stays at 1e12 (we're
-    // dealing with AU-scale distances). Z-buffer precision is fine
-    // because three.js uses a logarithmic-style depth distribution by
-    // default for perspective cameras.
     camera.near = 0.001;
     camera.far = 1e12;
     camera.updateProjectionMatrix();
   }, [camera]);
   /* eslint-enable react-hooks/immutability */
 
-  // Camera preset (top-down vs free) — sets the initial pose. Same
-  // behavior as before; runs once per scale/preset change.
-  //
-  // Also sets maxDistance: capped at min(AXES × N, STARS_RADIUS × 0.9)
-  // so the user can step back to see the whole system but never dolly
-  // past the starfield sphere into pure void. Independent of body-active
-  // state (unlike minDistance, which depends on the active body's radius),
-  // so the cap lives here rather than in the body-select effect.
   useEffect(() => {
     if (!controlsRef.current) return;
     const D = simulationScale.AXES.SIZE;
@@ -196,15 +119,11 @@ const Camera: React.FC = () => {
     controlsRef.current.update();
   }, [camera, simulationScale, cameraPreset]);
 
-  // Body-select effect: snap target, capture offset, start tween.
-  // Deps intentionally exclude simulationScale and displayFrame —
-  // those produce body-position discontinuities that the per-frame
-  // tracking branch handles via delta-shift, no tween needed.
   useEffect(() => {
     if (!isBodyActive || !activeBodyName || !controlsRef.current) {
       tweenRef.current = null;
       minDistanceRef.current = 0;
-      controlsRef.current && (controlsRef.current.minDistance = 0);
+      if (controlsRef.current) controlsRef.current.minDistance = 0;
       return;
     }
 
@@ -215,16 +134,9 @@ const Camera: React.FC = () => {
       state,
       pivotScratch.current,
       shiftedScratch.current,
-      earthIdxRef,
     );
-    if (!ok) {
-      // Snapshot not ready yet — defer. The first per-frame tracking
-      // tick after data arrives will operate against camera position
-      // = preset position, no body-tracking active until then.
-      return;
-    }
+    if (!ok) return;
 
-    // Compute body's min distance for OrbitControls' floor.
     const propsList =
       state.simulation.simulationParameters.celestialBodyPropertiesList;
     const bodyProps = propsList?.find(
@@ -237,34 +149,20 @@ const Camera: React.FC = () => {
         ? (bodyRadius / simulationScale.radiusScale) *
           SimConstants.CAMERA_MIN_DISTANCE_MULTIPLIER
         : 0;
-    // Set both the ref (consumed by useFrame's safety) and OrbitControls'
-    // instance property (consumed by its dolly clamp) in the same tick.
-    // No React state, no commit gap — the next useFrame sees both
-    // updated values.
     minDistanceRef.current = min;
     controlsRef.current.minDistance = min;
 
-    // Capture camera's current offset from the OLD target. This becomes
-    // the offset from the NEW target — preserves spherical pose.
     const capturedOffset = new THREE.Vector3()
       .copy(camera.position)
       .sub(controlsRef.current.target);
 
-    // Bump up if the captured length is below the new body's floor
-    // (e.g. user was 0.16 wu from Earth, switching to Sun whose min is
-    // ~17 wu). Direction preserved; only length is clamped.
     const offsetLen = capturedOffset.length();
     if (offsetLen < EPSILON) {
-      // Degenerate: camera was at target (rare — would require user to
-      // pan exactly onto target). Pick an arbitrary up-direction so the
-      // tween has a destination.
       capturedOffset.set(0, 1, 0).multiplyScalar(Math.max(min, 1));
     } else if (offsetLen < min) {
       capturedOffset.normalize().multiplyScalar(min);
     }
 
-    // Snap target to the new body. Camera will tween to (target + offset)
-    // over TWEEN_DURATION_MS via the per-frame tween branch.
     controlsRef.current.target.copy(bodyPosScratch.current);
 
     tweenRef.current = {
@@ -272,8 +170,6 @@ const Camera: React.FC = () => {
       startCameraPos: camera.position.clone(),
       capturedOffset,
     };
-    // bodyName intentionally NOT included — we don't restart the tween
-    // when activeBodyName re-fires with the same value.
   }, [activeBodyName, isBodyActive, simulationScale, store, camera]);
 
   useFrame(() => {
@@ -291,7 +187,6 @@ const Camera: React.FC = () => {
       store.getState(),
       pivotScratch.current,
       shiftedScratch.current,
-      earthIdxRef,
     );
     if (!ok) {
       controls.update();
@@ -306,9 +201,6 @@ const Camera: React.FC = () => {
       );
       const easedT = easeOutCubic(t);
 
-      // Recompute desired position each frame — body may be moving
-      // during the tween (sim is playing). Lerp from start toward the
-      // moving destination.
       desiredCameraScratch.current
         .copy(bodyPosScratch.current)
         .add(tween.capturedOffset);
@@ -320,36 +212,19 @@ const Camera: React.FC = () => {
       controls.target.copy(bodyPosScratch.current);
 
       if (t >= 1) {
-        // Tween complete — snap to final and clear. Tracking branch
-        // takes over next frame.
         camera.position.copy(desiredCameraScratch.current);
         tweenRef.current = null;
       }
     } else {
-      // Tracking mode: target follows body, camera delta-shifts by
-      // the same amount so its offset is preserved. OrbitControls'
-      // update() (called below) reads camera-target offset, applies
-      // user-input rotate/zoom deltas, and writes camera position
-      // back — so user input acts on top of tracking smoothly.
-      targetDeltaScratch.current.copy(bodyPosScratch.current).sub(controls.target);
+      targetDeltaScratch.current
+        .copy(bodyPosScratch.current)
+        .sub(controls.target);
       camera.position.add(targetDeltaScratch.current);
       controls.target.copy(bodyPosScratch.current);
     }
 
     controls.update();
 
-    // Hard safety: enforce camera-to-body min distance against the body's
-    // ACTUAL rendered position. OrbitControls' built-in `minDistance` prop
-    // SHOULD enforce this through its dolly path, but in practice has
-    // empirically been seen to leak — possibly due to React state lag on
-    // setMinDistance during body switches, possibly OrbitControls' damping
-    // applying user input across multiple frames before the next clamp,
-    // possibly a drei/three.js version quirk we haven't isolated. This
-    // block is the last word: distance from camera to body strictly
-    // >= minDistance, no exceptions. If we're inside, push the camera
-    // radially outward to the floor along its current direction (or pick
-    // an arbitrary up-direction in the degenerate camera-at-body-center
-    // case).
     const minDist = minDistanceRef.current;
     if (minDist > 0) {
       safetyDirScratch.current
@@ -375,15 +250,7 @@ const Camera: React.FC = () => {
       enableDamping
       dampingFactor={orbitDampingFactor}
       enableZoom
-      // Pan disabled while tracking — panning would shift target away
-      // from the body, but our per-frame tracking branch immediately
-      // snaps target back, so the pan would feel like nothing happened.
       enablePan={!isBodyActive}
-      // minDistance is set imperatively on the controls instance from
-      // the body-select effect (controlsRef.current.minDistance = ...)
-      // so it tracks minDistanceRef without a React state cycle's lag.
-      // maxDistance is set imperatively from the camera-preset effect
-      // (depends only on simulationScale, not on active body).
     />
   );
 };
