@@ -14,8 +14,8 @@ export const BYTES_PER_TIMESTEP_PER_BODY = 6 * 8; // 6 doubles
 export interface ChunkBuffer {
   positions: Float64Array;
   timestamps: BigInt64Array;
-  bodyNames: readonly string[];
-  bodyNameToIndex: ReadonlyMap<string, number>;
+  bodyNames: string[];
+  bodyNameToIndex: Map<string, number>;
   bodyCount: number;
   capacity: number;
   // Number of valid timesteps currently in the buffer. Write cursor.
@@ -62,7 +62,7 @@ export function computeBufferCapacity(
 }
 
 export function createChunkBuffer(
-  bodyNames: readonly string[],
+  bodyNames: string[],
   capacity: number,
 ): ChunkBuffer {
   const bodyCount = bodyNames.length;

@@ -3,7 +3,7 @@
 import React, { useState, useSyncExternalStore } from "react";
 
 import Scene from "@/app/components/scene/Scene";
-import UpdateModal from "@/app/components/interface/misc/UpdateModal";
+import FirstLoadSpinner from "@/app/components/interface/misc/FirstLoadSpinner";
 import { BodySelector } from "@/app/components/chrome/BodySelector";
 import { FrameCompass } from "@/app/components/chrome/FrameCompass";
 import { LeftRail } from "@/app/components/chrome/LeftRail";
@@ -58,7 +58,7 @@ const Layout: React.FC = () => {
             events; the wrapper is pointer-events:none so the scene
             beneath stays grabbable wherever chrome doesn't sit. */}
         <div className="absolute inset-0 z-10 pointer-events-none">
-          <UpdateModal />
+          <FirstLoadSpinner />
 
           <TopStatusStrip
             onSimSetupClick={() => setSimSetupOpen(true)}
