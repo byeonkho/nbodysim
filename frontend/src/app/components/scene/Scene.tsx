@@ -1,14 +1,15 @@
 "use client";
 
 import { Canvas } from "@react-three/fiber";
-import { Stars } from "@react-three/drei";
+import { Grid, Stars } from "@react-three/drei";
+import { DoubleSide } from "three";
 import Camera from "@/app/components/scene/Camera";
 import Sphere from "@/app/components/scene/Sphere";
 import Trail from "@/app/components/scene/Trail";
 import AnimationController from "@/app/components/scene/AnimationController";
 import React, { useMemo } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { bodyProperties } from "@/app/constants/SimConstants";
+import SimConstants, { bodyProperties } from "@/app/constants/SimConstants";
 import {
   CelestialBodyProperties,
   selectActiveBodyName,
@@ -87,15 +88,14 @@ const Scene = () => {
           cloud at finite radius — to read as "infinity" against any
           plausible camera zoom, the sphere needs to be much larger than
           the user can ever zoom out (otherwise it visibly clumps into
-          a discrete ball, which is what happens at small radii). 100k
-          gives plenty of headroom past even the realistic-preset
-          AXES.SIZE (80k); when #66 ships a max-zoom-out clamp tied to
-          scale, the upper bound stays well inside this sphere.
+          a discrete ball, which is what happens at small radii). The
+          radius is the same constant Camera.tsx caps maxDistance against
+          (× 0.9), so the camera can never dolly past the visible stars.
           Saturation 0 = pure white. fade enabled so stars near the
           inside edge of the depth shell taper out instead of cutting
           off sharply. */}
       <Stars
-        radius={100000}
+        radius={SimConstants.STARS_RADIUS}
         depth={50000}
         count={8000}
         factor={6}
@@ -116,11 +116,40 @@ const Scene = () => {
           Visible mostly as subtle silhouette detail on the dark side. */}
       <hemisphereLight args={[0xb0c4ff, 0x2a2118, 0.08]} />
       {showAxes && <axesHelper args={[simulationScale.AXES.SIZE]} />}
-      {showGrid && (
-        <gridHelper
-          args={[simulationScale.GRID.SIZE, simulationScale.GRID.SEGMENTS]}
-        />
-      )}
+      {showGrid && (() => {
+        // 1 cell = 1 AU, by construction. Major lines every 10 AU
+        // (Jupiter sits ~5.2 AU; Neptune ~30 AU — so a 10 AU section
+        // gives the user a meaningful "outer-system" landmark).
+        // fadeDistance matches the camera's max-zoom-out cap so the
+        // grid's visual horizon and the dolly wall line up.
+        // args is intentionally [1, 1] (drei default): with infiniteGrid
+        // the vertex shader scales the plane internally by (1 + fadeDistance),
+        // so passing larger args double-applies the scaling — at our
+        // zoom-out fadeDistance (~90k wu) that pushes vertex worldPosition
+        // to ~8 billion wu, where float32 has ~0 decimal digits of
+        // precision and per-fragment derivatives become nondeterministic
+        // noise (visible as the grid shaking on any camera motion).
+        const auInWu = SimConstants.AU_M / simulationScale.positionScale;
+        const fadeDistance = Math.min(
+          simulationScale.AXES.SIZE * SimConstants.CAMERA_MAX_DISTANCE_MULTIPLIER,
+          SimConstants.STARS_RADIUS * 0.9,
+        );
+        return (
+          <Grid
+            args={[1, 1]}
+            cellSize={auInWu}
+            cellThickness={0.6}
+            cellColor="#3a3f4d"
+            sectionSize={auInWu * 10}
+            sectionThickness={1}
+            sectionColor="#5a607a"
+            fadeDistance={fadeDistance}
+            fadeStrength={1.2}
+            infiniteGrid
+            side={DoubleSide}
+          />
+        );
+      })()}
       {celestialBodyPropertiesList?.map((props: CelestialBodyProperties) => {
         if (!props.name) return null;
         const name = props.name;
