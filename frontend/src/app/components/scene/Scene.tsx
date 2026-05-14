@@ -1,7 +1,7 @@
 "use client";
 
 import { Canvas } from "@react-three/fiber";
-import { Stars } from "@react-three/drei";
+import { Grid, Stars } from "@react-three/drei";
 import Camera from "@/app/components/scene/Camera";
 import Sphere from "@/app/components/scene/Sphere";
 import Trail from "@/app/components/scene/Trail";
@@ -115,11 +115,33 @@ const Scene = () => {
           Visible mostly as subtle silhouette detail on the dark side. */}
       <hemisphereLight args={[0xb0c4ff, 0x2a2118, 0.08]} />
       {showAxes && <axesHelper args={[simulationScale.AXES.SIZE]} />}
-      {showGrid && (
-        <gridHelper
-          args={[simulationScale.GRID.SIZE, simulationScale.GRID.SEGMENTS]}
-        />
-      )}
+      {showGrid && (() => {
+        // 1 cell = 1 AU, by construction. Major lines every 10 AU
+        // (Jupiter sits ~5.2 AU; Neptune ~30 AU — so a 10 AU section
+        // gives the user a meaningful "outer-system" landmark).
+        // fadeDistance matches the camera's max-zoom-out cap so the
+        // grid's visual horizon and the dolly wall line up.
+        const auInWu = SimConstants.AU_M / simulationScale.positionScale;
+        const fadeDistance = Math.min(
+          simulationScale.AXES.SIZE * SimConstants.CAMERA_MAX_DISTANCE_MULTIPLIER,
+          SimConstants.STARS_RADIUS * 0.9,
+        );
+        return (
+          <Grid
+            args={[fadeDistance * 2, fadeDistance * 2]}
+            cellSize={auInWu}
+            cellThickness={0.6}
+            cellColor="#3a3f4d"
+            sectionSize={auInWu * 10}
+            sectionThickness={1}
+            sectionColor="#5a607a"
+            fadeDistance={fadeDistance}
+            fadeStrength={1.2}
+            infiniteGrid
+            followCamera={false}
+          />
+        );
+      })()}
       {celestialBodyPropertiesList?.map((props: CelestialBodyProperties) => {
         if (!props.name) return null;
         const name = props.name;

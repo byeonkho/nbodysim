@@ -12,6 +12,10 @@ import MoonTexture from "../../../public/textures/moon_texture.jpg";
 import SunTexture from "../../../public/textures/sun_texture.jpg";
 
 const SimConstants = {
+  // 1 astronomical unit in metres (IAU 2012 definition). Scene grid cell
+  // size is derived as AU_M / positionScale so each cell is exactly 1 AU
+  // in world units, regardless of the active scale preset.
+  AU_M: 149_597_870_700,
   SCALE: {
     SEMI_REALISTIC: {
       name: "Semi-Realistic",
@@ -19,10 +23,6 @@ const SimConstants = {
       radiusScale: 100_000_000, // larger values scale radius down
       EXCEPTION_BODIES_POSITION_SCALE: {
         MOON: 15,
-      },
-      GRID: {
-        SIZE: 3_650,
-        SEGMENTS: 100,
       },
       AXES: {
         SIZE: 2_000,
@@ -34,10 +34,6 @@ const SimConstants = {
       radiusScale: 100_000_000, // larger values scale radius down,
       EXCEPTION_BODIES_POSITION_SCALE: {
         MOON: 1,
-      },
-      GRID: {
-        SIZE: 148_250,
-        SEGMENTS: 100,
       },
       AXES: {
         SIZE: 80_000,

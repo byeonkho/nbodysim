@@ -76,10 +76,6 @@ export interface SimulationScale {
   positionScale: number;
   radiusScale: number;
   EXCEPTION_BODIES_POSITION_SCALE: { [bodyName: string]: number };
-  GRID: {
-    SIZE: number;
-    SEGMENTS: number;
-  };
   AXES: {
     SIZE: number;
   };
