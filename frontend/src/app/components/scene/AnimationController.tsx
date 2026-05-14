@@ -2,29 +2,26 @@
 
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useRef } from "react";
-import { useDispatch, useSelector } from "react-redux";
+import { useDispatch, useSelector, useStore } from "react-redux";
 import {
-  deleteExcessData,
   selectCurrentTimeStepIndex,
   selectIsPaused,
   selectSpeedMultiplier,
-  selectTimeStepKeys,
   setCurrentTimeStepIndex,
 } from "@/app/store/slices/SimulationSlice";
 import SimConstants from "@/app/constants/SimConstants";
-import { AppDispatch } from "@/app/store/Store";
+import { AppDispatch, RootState } from "@/app/store/Store";
 
 const FRAME_INTERVAL = 1 / SimConstants.FPS;
 
 const AnimationController = () => {
   const dispatch = useDispatch<AppDispatch>();
+  const store = useStore<RootState>();
   const isPaused = useSelector(selectIsPaused);
   const speedMultiplier = useSelector(selectSpeedMultiplier);
-  const timeStepKeys = useSelector(selectTimeStepKeys);
   const currentTimeStepIndex = useSelector(selectCurrentTimeStepIndex);
 
   const currentIndexRef = useRef(currentTimeStepIndex);
-  const timeStepKeysRef = useRef(timeStepKeys);
   const isPausedRef = useRef(isPaused);
   const speedMultiplierRef = useRef(speedMultiplier);
   const accRef = useRef(0);
@@ -33,9 +30,6 @@ const AnimationController = () => {
     currentIndexRef.current = currentTimeStepIndex;
   }, [currentTimeStepIndex]);
   useEffect(() => {
-    timeStepKeysRef.current = timeStepKeys;
-  }, [timeStepKeys]);
-  useEffect(() => {
     isPausedRef.current = isPaused;
   }, [isPaused]);
   useEffect(() => {
@@ -43,32 +37,28 @@ const AnimationController = () => {
   }, [speedMultiplier]);
 
   useFrame((_, delta) => {
-    if (timeStepKeysRef.current.length > SimConstants.MAX_TIMESTEPS) {
-      dispatch(
-        deleteExcessData({
-          excessCount: SimConstants.TIMESTEP_CHUNK_SIZE,
-          timeStepKeys: timeStepKeysRef.current,
-        }),
-      );
-      currentIndexRef.current = Math.max(
-        0,
-        currentIndexRef.current - SimConstants.TIMESTEP_CHUNK_SIZE,
-      );
-    }
-
     accRef.current += delta;
-    if (accRef.current >= FRAME_INTERVAL) {
-      accRef.current = 0;
-      if (!isPausedRef.current && timeStepKeysRef.current.length > 0) {
-        const stepsToMove = Math.abs(speedMultiplierRef.current);
-        const direction = speedMultiplierRef.current > 0 ? 1 : -1;
-        const nextIndex = Math.max(
-          0,
-          currentIndexRef.current + direction * stepsToMove,
-        );
-        currentIndexRef.current = nextIndex;
-        dispatch(setCurrentTimeStepIndex(nextIndex));
-      }
+    if (accRef.current < FRAME_INTERVAL) return;
+    accRef.current = 0;
+    if (isPausedRef.current) return;
+
+    const buffer = store.getState().simulation.chunkBuffer;
+    if (!buffer || buffer.totalTimesteps === 0) return;
+
+    const stepsToMove = Math.abs(speedMultiplierRef.current);
+    const direction = speedMultiplierRef.current > 0 ? 1 : -1;
+    const proposed = currentIndexRef.current + direction * stepsToMove;
+    // Clamp to [0, totalTimesteps - 1] so the playback head never outruns
+    // the buffer. Speed-aware prefetch keeps the buffer ahead so this clamp
+    // is rarely the limiting factor in practice — but it's the safety net.
+    const nextIndex = Math.max(
+      0,
+      Math.min(buffer.totalTimesteps - 1, proposed),
+    );
+
+    if (nextIndex !== currentIndexRef.current) {
+      currentIndexRef.current = nextIndex;
+      dispatch(setCurrentTimeStepIndex(nextIndex));
     }
   });
 
