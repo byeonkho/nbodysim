@@ -58,6 +58,17 @@ const SimConstants = {
   // simulationScale.radiusScale, so the actual minimum distance moves
   // with the scale preset (Camera.tsx recomputes on scale change).
   CAMERA_MIN_DISTANCE_MULTIPLIER: 2.5,
+  // Starfield sphere radius (drei <Stars/> in Scene.tsx). Hard ceiling
+  // for camera zoom-out — past this, the user is outside the visible
+  // universe and looking back at a tiny solar system in pure void.
+  STARS_RADIUS: 100_000,
+  // Maximum camera-to-target distance, expressed as a multiplier of the
+  // active scale preset's AXES.SIZE (the visible-system half-extent).
+  // 5× gives generous headroom to step back and see the whole system,
+  // but Camera.tsx caps the result at STARS_RADIUS × 0.9 so the realistic
+  // preset (AXES.SIZE = 80k → 5× = 400k) doesn't dolly past the stars.
+  // Semi-Realistic (AXES.SIZE = 2k → 5× = 10k) sits well under the cap.
+  CAMERA_MAX_DISTANCE_MULTIPLIER: 5,
 };
 
 export interface BodyProperties {

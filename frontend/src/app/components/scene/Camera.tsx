@@ -174,6 +174,12 @@ const Camera: React.FC = () => {
 
   // Camera preset (top-down vs free) — sets the initial pose. Same
   // behavior as before; runs once per scale/preset change.
+  //
+  // Also sets maxDistance: capped at min(AXES × N, STARS_RADIUS × 0.9)
+  // so the user can step back to see the whole system but never dolly
+  // past the starfield sphere into pure void. Independent of body-active
+  // state (unlike minDistance, which depends on the active body's radius),
+  // so the cap lives here rather than in the body-select effect.
   useEffect(() => {
     if (!controlsRef.current) return;
     const D = simulationScale.AXES.SIZE;
@@ -183,6 +189,10 @@ const Camera: React.FC = () => {
       camera.position.set(0, D * 0.15, D * 0.3);
     }
     controlsRef.current.target.set(0, 0, 0);
+    controlsRef.current.maxDistance = Math.min(
+      D * SimConstants.CAMERA_MAX_DISTANCE_MULTIPLIER,
+      SimConstants.STARS_RADIUS * 0.9,
+    );
     controlsRef.current.update();
   }, [camera, simulationScale, cameraPreset]);
 
@@ -372,6 +382,8 @@ const Camera: React.FC = () => {
       // minDistance is set imperatively on the controls instance from
       // the body-select effect (controlsRef.current.minDistance = ...)
       // so it tracks minDistanceRef without a React state cycle's lag.
+      // maxDistance is set imperatively from the camera-preset effect
+      // (depends only on simulationScale, not on active body).
     />
   );
 };

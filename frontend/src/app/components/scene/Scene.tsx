@@ -8,7 +8,7 @@ import Trail from "@/app/components/scene/Trail";
 import AnimationController from "@/app/components/scene/AnimationController";
 import React, { useMemo } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { bodyProperties } from "@/app/constants/SimConstants";
+import SimConstants, { bodyProperties } from "@/app/constants/SimConstants";
 import {
   CelestialBodyProperties,
   selectActiveBodyName,
@@ -87,15 +87,14 @@ const Scene = () => {
           cloud at finite radius — to read as "infinity" against any
           plausible camera zoom, the sphere needs to be much larger than
           the user can ever zoom out (otherwise it visibly clumps into
-          a discrete ball, which is what happens at small radii). 100k
-          gives plenty of headroom past even the realistic-preset
-          AXES.SIZE (80k); when #66 ships a max-zoom-out clamp tied to
-          scale, the upper bound stays well inside this sphere.
+          a discrete ball, which is what happens at small radii). The
+          radius is the same constant Camera.tsx caps maxDistance against
+          (× 0.9), so the camera can never dolly past the visible stars.
           Saturation 0 = pure white. fade enabled so stars near the
           inside edge of the depth shell taper out instead of cutting
           off sharply. */}
       <Stars
-        radius={100000}
+        radius={SimConstants.STARS_RADIUS}
         depth={50000}
         count={8000}
         factor={6}
