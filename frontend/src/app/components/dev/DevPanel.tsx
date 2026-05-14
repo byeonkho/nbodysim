@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { useSelector } from "react-redux";
 import {
+  selectChunkBuffer,
   selectCurrentTimeStepIndex,
-  selectSimulationDataSize,
   selectTotalTimeSteps,
 } from "@/app/store/slices/SimulationSlice";
+import { BYTES_PER_TIMESTEP_PER_BODY } from "@/app/store/chunkBuffer";
 import {
   setDevSetting,
   useDevSettings,
@@ -73,7 +74,14 @@ function DevMetrics() {
   const total = useSelector(selectTotalTimeSteps);
   const idx = useSelector(selectCurrentTimeStepIndex);
   const remaining = Math.max(0, total - idx);
-  const bytes = useSelector(selectSimulationDataSize);
+  const buffer = useSelector(selectChunkBuffer);
+  // Cheap O(1) calc — no JSON.stringify or Blob construction. Includes the
+  // positions Float64Array (totalTimesteps × bodyCount × 48 bytes) and the
+  // timestamps BigInt64Array (capacity × 8 bytes).
+  const bytes = buffer
+    ? buffer.totalTimesteps * buffer.bodyCount * BYTES_PER_TIMESTEP_PER_BODY +
+      buffer.capacity * 8
+    : 0;
 
   return (
     <section className="flex flex-col gap-1.5 border-t border-dashed border-white/[0.06] pt-2.5">
@@ -82,6 +90,12 @@ function DevMetrics() {
       <Row k="Current step" v={idx.toLocaleString("en-US")} />
       <Row k="Remaining" v={remaining.toLocaleString("en-US")} />
       <Row k="Payload size" v={formatBytes(bytes)} />
+      {buffer && (
+        <Row
+          k="Capacity"
+          v={`${buffer.capacity.toLocaleString("en-US")} steps`}
+        />
+      )}
     </section>
   );
 }

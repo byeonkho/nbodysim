@@ -5,7 +5,7 @@ import { useDispatch, useSelector } from "react-redux";
 import {
   cycleSimulationScale,
   selectCurrentTimeStepIndex,
-  selectCurrentTimeStepKey,
+  selectCurrentTimeStepIsoString,
   selectIsPaused,
   selectShowAxes,
   selectShowGrid,
@@ -168,7 +168,7 @@ function Scrubber() {
   const dispatch = useDispatch();
   const total = useSelector(selectTotalTimeSteps);
   const idx = useSelector(selectCurrentTimeStepIndex);
-  const utcKey = useSelector(selectCurrentTimeStepKey);
+  const utcKey = useSelector(selectCurrentTimeStepIsoString);
   const trackRef = useRef<HTMLDivElement>(null);
 
   const progress = total > 1 ? idx / (total - 1) : 0;

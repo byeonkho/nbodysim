@@ -1,8 +1,10 @@
+import type { ChunkBuffer } from "@/app/store/chunkBuffer";
 import type {
-  CelestialBody,
   DisplayFrame,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
+import { readBodyPositionInto } from "@/app/store/chunkBuffer";
+import * as THREE from "three";
 
 // Render-time frame transform. Backend always emits Sun-relative snapshots
 // (Simulation.snapshotFromState shifts by the Sun's state), so the
@@ -18,46 +20,57 @@ import type {
 // in SimulationSlice for the deferral rationale.
 //
 // All operations write into a caller-provided Vector3Simple to avoid
-// allocations on the trail-rendering hot path (called per history point
-// per trail per frame).
+// allocations on the trail-rendering hot path.
 
-const EARTH_NAME = "EARTH";
+const EARTH_NAME_UPPER = "EARTH";
 
 /**
- * Resolve the index of Earth in a snapshot. Used once per Trail / Sphere
- * to cache the index ref; subsequent frames look up snapshot[earthIdx]
- * directly. Returns -1 if Earth isn't in the body list — callers should
- * fall back to helio-equivalent (zero pivot) in that case.
+ * Resolve Earth's body index from the buffer's name map. Case-insensitive
+ * match since backend may emit "Earth" or "earth". Returns -1 if Earth isn't
+ * in the body list — callers should fall back to helio (zero pivot).
  */
-export function findEarthIndex(snapshot: CelestialBody[]): number {
-  for (let i = 0; i < snapshot.length; i++) {
-    if (snapshot[i].name.trim().toUpperCase() === EARTH_NAME) {
-      return i;
-    }
+export function findEarthBodyIndex(buffer: ChunkBuffer): number {
+  for (const [name, idx] of buffer.bodyNameToIndex.entries()) {
+    if (name.trim().toUpperCase() === EARTH_NAME_UPPER) return idx;
   }
   return -1;
 }
 
+// Module-level scratch reused inside writePivotInto so callers don't pass
+// one. Safe because the render loop is single-threaded.
+const pivotVec = new THREE.Vector3();
+
 /**
- * Write the pivot vector for a given frame into `out`. `earthIdx` is the
- * pre-resolved Earth index for geo mode; ignored for helio. Caller must
- * pass a valid index for non-helio frames or accept the helio fallback.
+ * Write the pivot vector for the given (timestep, frame) into `out`.
+ * Helio → zero pivot. Geo → Earth's position at this timestep. Out-of-range
+ * or missing-Earth → zero pivot fallback.
  */
 export function writePivotInto(
   out: Vector3Simple,
-  snapshot: CelestialBody[],
+  buffer: ChunkBuffer | null,
+  timestepIdx: number,
   frame: DisplayFrame,
-  earthIdx: number,
 ): void {
-  if (frame === "geo" && earthIdx >= 0 && earthIdx < snapshot.length) {
-    const earth = snapshot[earthIdx];
-    out.x = earth.position.x;
-    out.y = earth.position.y;
-    out.z = earth.position.z;
+  if (
+    frame === "helio" ||
+    !buffer ||
+    timestepIdx < 0 ||
+    timestepIdx >= buffer.totalTimesteps
+  ) {
+    out.x = 0;
+    out.y = 0;
+    out.z = 0;
     return;
   }
-  // Heliocentric or fallback: zero pivot (no shift).
-  out.x = 0;
-  out.y = 0;
-  out.z = 0;
+  const earthIdx = findEarthBodyIndex(buffer);
+  if (earthIdx < 0) {
+    out.x = 0;
+    out.y = 0;
+    out.z = 0;
+    return;
+  }
+  readBodyPositionInto(pivotVec, buffer, timestepIdx, earthIdx);
+  out.x = pivotVec.x;
+  out.y = pivotVec.y;
+  out.z = pivotVec.z;
 }

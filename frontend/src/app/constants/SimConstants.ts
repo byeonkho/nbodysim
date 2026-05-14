@@ -41,8 +41,6 @@ const SimConstants = {
     },
   },
   FPS: 60,
-  MAX_TIMESTEPS: 30_000,
-  TIMESTEP_CHUNK_SIZE: 10_000,
   MAX_SPEED_MULTIPLIER: 128, // exponent of 2
   // Minimum camera-to-active-body distance, expressed as a multiplier of
   // the body's currently rendered radius. 1.0 = touching the surface;

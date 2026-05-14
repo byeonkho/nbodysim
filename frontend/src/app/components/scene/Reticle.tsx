@@ -6,18 +6,20 @@ import { useFrame } from "@react-three/fiber";
 import { useSelector, useStore } from "react-redux";
 import * as THREE from "three";
 import {
-  type CelestialBody,
   type CelestialBodyProperties,
   selectActiveBodyName,
   selectCelestialBodyPropertiesList,
-  selectCurrentTimeStepKey,
   selectIsBodyActive,
   selectSimulationScale,
   type Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
+import {
+  readBodyPositionInto,
+  readBodyStateInto,
+} from "@/app/store/chunkBuffer";
 import type { RootState } from "@/app/store/Store";
 import { setBodyWorldPosition } from "@/app/utils/coordinates";
-import { findEarthIndex, writePivotInto } from "@/app/utils/framePivot";
+import { writePivotInto } from "@/app/utils/framePivot";
 import {
   calculateDistance,
   calculateMagnitude,
@@ -31,9 +33,16 @@ import { BODY_DISPLAY, toBodyKey } from "@/app/constants/BodyVisuals";
 // N/E/S/W tick marks, leader line, and a label cluster offset to the
 // upper-left. Position updates via group ref per frame; numerics update
 // via DOM refs (gated by lastValue refs to skip identical writes).
-//
-// Replaces PlanetInfoOverlayActive. Same projection / positioning logic;
-// the visual tree is what changed.
+
+function findBodyIndexCaseInsensitive(
+  buffer: { bodyNameToIndex: ReadonlyMap<string, number> },
+  nameUpper: string,
+): number {
+  for (const [bn, i] of buffer.bodyNameToIndex.entries()) {
+    if (bn.toUpperCase() === nameUpper) return i;
+  }
+  return -1;
+}
 
 export function Reticle() {
   const activeBodyName = useSelector(selectActiveBodyName);
@@ -45,11 +54,16 @@ export function Reticle() {
   const groupRef = useRef<THREE.Group>(null!);
   const rangeRef = useRef<HTMLSpanElement>(null);
   const velRef = useRef<HTMLSpanElement>(null);
-  const posScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  // Scratch (allocated once).
+  const bodyPosVec = useRef(new THREE.Vector3());
+  const bodyVelVec = useRef(new THREE.Vector3());
+  const orbitingPosVec = useRef(new THREE.Vector3());
+  const stateRefPosVec = useRef(new THREE.Vector3());
+  const stateRefVelVec = useRef(new THREE.Vector3());
+  const posSimple = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const shiftedScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const pivotScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const velScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
-  const earthIdxRef = useRef<number>(-1);
   const lastRange = useRef<string>("");
   const lastVel = useRef<string>("");
 
@@ -68,32 +82,23 @@ export function Reticle() {
       return;
 
     const state = store.getState();
-    const data = state.simulation.simulationData;
-    const key = selectCurrentTimeStepKey(state);
-    if (!data || !key) return;
-    const snapshot = data[key];
-    if (!snapshot) return;
+    const buffer = state.simulation.chunkBuffer;
+    const idx = state.simulation.timeState.currentTimeStepIndex;
+    if (!buffer || idx >= buffer.totalTimesteps) return;
 
-    const body = snapshot.find(
-      (b: CelestialBody) => b.name.trim().toUpperCase() === upperName,
-    );
-    if (!body) return;
+    const bodyIdx = findBodyIndexCaseInsensitive(buffer, upperName);
+    if (bodyIdx < 0) return;
 
-    const displayFrame =
-      state.simulation.simulationParameters.displayFrame;
+    const displayFrame = state.simulation.simulationParameters.displayFrame;
+
+    readBodyStateInto(bodyPosVec.current, bodyVelVec.current, buffer, idx, bodyIdx);
 
     // Orbital reference (orbitingNameUpper) is used for the positionScale
     // visual fudge below. Frame-aware state-vector reference (computed
-    // here) is used for the range/velocity readouts. Mirrors BodyCard's
-    // Option A: Moon → Earth always, geo → Earth, helio → orbiting body.
-    // Edge case: active body == reference (Sun in helio, Earth in geo)
-    // → undefined, range/velocity render dashes.
-    const orbiting = orbitingNameUpper
-      ? snapshot.find(
-          (b: CelestialBody) =>
-            b.name.trim().toUpperCase() === orbitingNameUpper,
-        )
-      : undefined;
+    // here) is used for the range/velocity readouts.
+    const orbitingIdx = orbitingNameUpper
+      ? findBodyIndexCaseInsensitive(buffer, orbitingNameUpper)
+      : -1;
 
     const stateRefNameUpper =
       upperName === "MOON"
@@ -101,24 +106,29 @@ export function Reticle() {
         : displayFrame === "geo"
           ? "EARTH"
           : orbitingNameUpper;
-    const stateRef =
+    const stateRefIdx =
       stateRefNameUpper && stateRefNameUpper !== upperName
-        ? snapshot.find(
-            (b: CelestialBody) =>
-              b.name.trim().toUpperCase() === stateRefNameUpper,
-          )
-        : undefined;
+        ? findBodyIndexCaseInsensitive(buffer, stateRefNameUpper)
+        : -1;
 
     const positionScale = activeProps.positionScale ?? 1;
-    let pos: Vector3Simple = body.position;
-    if (positionScale !== 1 && orbiting) {
+    posSimple.current.x = bodyPosVec.current.x;
+    posSimple.current.y = bodyPosVec.current.y;
+    posSimple.current.z = bodyPosVec.current.z;
+    let pos: Vector3Simple = posSimple.current;
+    if (positionScale !== 1 && orbitingIdx >= 0) {
+      readBodyPositionInto(orbitingPosVec.current, buffer, idx, orbitingIdx);
       scaleDistanceInto(
-        posScratch.current,
-        body.position,
-        orbiting.position,
+        posSimple.current,
+        posSimple.current,
+        {
+          x: orbitingPosVec.current.x,
+          y: orbitingPosVec.current.y,
+          z: orbitingPosVec.current.z,
+        },
         positionScale,
       );
-      pos = posScratch.current;
+      pos = posSimple.current;
     }
 
     // Apply display-frame pivot. Reticle marks the body in scene world
@@ -126,15 +136,7 @@ export function Reticle() {
     // applies — otherwise in geo mode the reticle floats at the body's
     // heliocentric coordinate while the rendered body sits at its
     // geocentric one (1 AU mismatch).
-    if (displayFrame !== "helio" && earthIdxRef.current === -1) {
-      earthIdxRef.current = findEarthIndex(snapshot);
-    }
-    writePivotInto(
-      pivotScratch.current,
-      snapshot,
-      displayFrame,
-      earthIdxRef.current,
-    );
+    writePivotInto(pivotScratch.current, buffer, idx, displayFrame);
     shiftedScratch.current.x = pos.x - pivotScratch.current.x;
     shiftedScratch.current.y = pos.y - pivotScratch.current.y;
     shiftedScratch.current.z = pos.z - pivotScratch.current.z;
@@ -146,10 +148,8 @@ export function Reticle() {
       simulationScale.positionScale,
     );
 
-    if (!stateRef) {
-      // No frame-aware state reference (Sun in helio, or active body
-      // IS the reference in geo). Show dashes — no meaningful
-      // self-relative range/velocity.
+    if (stateRefIdx < 0) {
+      // No frame-aware state reference. Show dashes.
       if (rangeRef.current && lastRange.current !== "—") {
         rangeRef.current.textContent = "—";
         lastRange.current = "—";
@@ -161,12 +161,42 @@ export function Reticle() {
       return;
     }
 
-    const range = calculateDistance(body.position, stateRef.position, "AU");
+    readBodyStateInto(
+      stateRefPosVec.current,
+      stateRefVelVec.current,
+      buffer,
+      idx,
+      stateRefIdx,
+    );
+
+    const bodyPosSimple = {
+      x: bodyPosVec.current.x,
+      y: bodyPosVec.current.y,
+      z: bodyPosVec.current.z,
+    };
+    const stateRefPosSimple = {
+      x: stateRefPosVec.current.x,
+      y: stateRefPosVec.current.y,
+      z: stateRefPosVec.current.z,
+    };
+    const range = calculateDistance(bodyPosSimple, stateRefPosSimple, "AU");
     if (range !== lastRange.current && rangeRef.current) {
       rangeRef.current.textContent = range;
       lastRange.current = range;
     }
-    subtractInto(velScratch.current, body.velocity, stateRef.velocity);
+    subtractInto(
+      velScratch.current,
+      {
+        x: bodyVelVec.current.x,
+        y: bodyVelVec.current.y,
+        z: bodyVelVec.current.z,
+      },
+      {
+        x: stateRefVelVec.current.x,
+        y: stateRefVelVec.current.y,
+        z: stateRefVelVec.current.z,
+      },
+    );
     const vel = formatToKM(calculateMagnitude(velScratch.current));
     if (vel !== lastVel.current && velRef.current) {
       velRef.current.textContent = vel;
@@ -175,9 +205,7 @@ export function Reticle() {
   });
 
   // Reset cached values on body switch so first frame after switch writes
-  // through unconditionally. earthIdxRef is invariant across body switches
-  // (Earth's snapshot index is the same regardless of which body is
-  // active) so it doesn't need resetting here.
+  // through unconditionally.
   useEffect(() => {
     lastRange.current = "";
     lastVel.current = "";
@@ -230,8 +258,6 @@ export function Reticle() {
             ))}
           </svg>
 
-          {/* Leader line drawn in its own SVG so it can extend beyond the
-              160x160 reticle box without clipping. */}
           <svg
             width="320"
             height="120"

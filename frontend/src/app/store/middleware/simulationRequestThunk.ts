@@ -2,23 +2,23 @@
 // via the zstd worker, and dispatches the parsed payload into Redux.
 
 import { createAsyncThunk } from "@reduxjs/toolkit";
+import { appendChunkToBuffer } from "@/app/store/slices/SimulationSlice";
 import {
-  setIsUpdating,
-  updateDataReceived,
-} from "@/app/store/slices/SimulationSlice";
-import {
+  recordFetchLatency,
   setErrorMessage,
   setRequestInProgress,
 } from "@/app/store/slices/RequestSlice";
 import { REST_URL } from "@/app/utils/backendUrls";
 import type { AppDispatch, RootState } from "@/app/store/Store";
 import type { DecodeResponse } from "./zstdWorker";
-import type { CelestialBody } from "./parseBinaryChunk";
 
 interface ChunkPayload {
   messageType: string;
-  data: Record<string, CelestialBody[]>;
-  // Per-body µ (m³/s²) sent in the chunk header, constant per session.
+  bodyNames: string[];
+  bodyCount: number;
+  timestepCount: number;
+  positions: Float64Array;
+  timestamps: BigInt64Array;
   mu: Record<string, number>;
 }
 
@@ -71,8 +71,8 @@ export const requestRunSimulation = createAsyncThunk<
 >(
   "simulation/requestChunk",
   async ({ sessionID }, { dispatch, getState, signal }) => {
-    dispatch(setIsUpdating(true));
     dispatch(setRequestInProgress(true));
+    const tStart = performance.now();
 
     try {
       const response = await fetch(`${REST_URL}/chunk`, {
@@ -103,20 +103,24 @@ export const requestRunSimulation = createAsyncThunk<
         getState().simulation.simulationParameters?.simulationMetaData?.sessionID;
       if (currentSessionID !== sessionID) {
         dispatch(setRequestInProgress(false));
-        dispatch(setIsUpdating(false));
         return;
       }
 
+      const elapsedMs = performance.now() - tStart;
+      dispatch(recordFetchLatency(elapsedMs));
       dispatch(setRequestInProgress(false));
       dispatch(
-        updateDataReceived({
-          data: messageData.data,
+        appendChunkToBuffer({
+          bodyNames: messageData.bodyNames,
+          bodyCount: messageData.bodyCount,
+          timestepCount: messageData.timestepCount,
+          positions: messageData.positions,
+          timestamps: messageData.timestamps,
           mu: messageData.mu,
         }),
       );
     } catch (err) {
       dispatch(setRequestInProgress(false));
-      dispatch(setIsUpdating(false));
       // Aborted by dispatchChunkRequest when a newer request supersedes
       // this one — silent, not a user-facing error.
       if (

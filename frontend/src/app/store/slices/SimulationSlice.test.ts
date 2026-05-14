@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import simulationReducer, {
+  appendChunkToBuffer,
   loadSimulation,
   setActiveBody,
   setCurrentTimeStepIndex,
   setIsPaused,
   setSpeedMultiplier,
   toggleShowGrid,
-  updateDataReceived,
   type SimulationParameters,
 } from "./SimulationSlice";
 import SimConstants from "@/app/constants/SimConstants";
@@ -34,22 +34,40 @@ const newParams = (sessionID: string): SimulationParameters => ({
   displayFrame: "helio",
 });
 
+function dummyChunkPayload(timestepCount = 5) {
+  const bodyCount = 1;
+  return {
+    bodyNames: ["Mars"],
+    bodyCount,
+    timestepCount,
+    positions: new Float64Array(timestepCount * bodyCount * 6),
+    timestamps: new BigInt64Array(timestepCount),
+    mu: { Mars: 4.2828e13 },
+  };
+}
+
+describe("SimulationSlice — initial state", () => {
+  it("starts with null chunkBuffer and hasReceivedFirstChunk=false", () => {
+    const state = init();
+    expect(state.chunkBuffer).toBeNull();
+    expect(state.hasReceivedFirstChunk).toBe(false);
+    expect(state.timeState.isPaused).toBe(true);
+    expect(state.timeState.currentTimeStepIndex).toBe(0);
+  });
+});
+
 describe("SimulationSlice — loadSimulation atomic reset", () => {
-  it("clears simulationData when a new session loads", () => {
+  it("clears chunkBuffer when a new session loads", () => {
     let state = init();
     // Seed an old session with a buffer.
     state = simulationReducer(state, loadSimulation(newParams("OLD")));
-    state = simulationReducer(
-      state,
-      updateDataReceived({
-        data: { "2024-01-01": [] },
-        mu: {},
-      }),
-    );
-    expect(state.simulationData).not.toBeNull();
+    state = simulationReducer(state, appendChunkToBuffer(dummyChunkPayload()));
+    expect(state.chunkBuffer).not.toBeNull();
+    expect(state.hasReceivedFirstChunk).toBe(true);
 
     state = simulationReducer(state, loadSimulation(newParams("NEW")));
-    expect(state.simulationData).toBeNull();
+    expect(state.chunkBuffer).toBeNull();
+    expect(state.hasReceivedFirstChunk).toBe(false);
   });
 
   it("resets timeState (currentTimeStepIndex / speedMultiplier / isPaused) on resubmit", () => {
@@ -66,7 +84,6 @@ describe("SimulationSlice — loadSimulation atomic reset", () => {
     expect(state.timeState.currentTimeStepIndex).toBe(0);
     expect(state.timeState.speedMultiplier).toBe(1);
     expect(state.timeState.isPaused).toBe(true);
-    expect(state.timeState.isUpdating).toBe(false);
   });
 
   it("resets activeBodyState so a stale selection (body absent in new sim) doesn't leak through", () => {
@@ -83,20 +100,13 @@ describe("SimulationSlice — loadSimulation atomic reset", () => {
 
   it("preserves user view preferences across the reset (showGrid, simulationScale, cameraPreset, displayFrame)", () => {
     let state = init();
-    // Mutate prefs to non-defaults.
     state = simulationReducer(state, toggleShowGrid()); // true -> false
     const customScalePrefs = {
       cameraPreset: state.simulationParameters.cameraPreset,
       displayFrame: state.simulationParameters.displayFrame,
-      showGrid: state.simulationParameters.showGrid,
     };
 
-    // Submit a new sim — load payload doesn't override these.
     const params = newParams("S1");
-    // Mimic backend payload: includes its own defaults for prefs the
-    // user can flip. The spread inside the reducer means payload values
-    // win when present, which is fine — what matters is that the reset
-    // itself doesn't blow them away.
     state = simulationReducer(state, loadSimulation(params));
     expect(state.simulationParameters.showGrid).toBe(params.showGrid);
     expect(state.simulationParameters.cameraPreset).toBe(
@@ -105,5 +115,30 @@ describe("SimulationSlice — loadSimulation atomic reset", () => {
     expect(state.simulationParameters.displayFrame).toBe(
       customScalePrefs.displayFrame,
     );
+  });
+});
+
+describe("SimulationSlice — appendChunkToBuffer", () => {
+  it("creates the buffer on first chunk and sets hasReceivedFirstChunk=true", () => {
+    let state = init();
+    state = simulationReducer(state, loadSimulation(newParams("S1")));
+    expect(state.chunkBuffer).toBeNull();
+
+    state = simulationReducer(state, appendChunkToBuffer(dummyChunkPayload(10)));
+    expect(state.chunkBuffer).not.toBeNull();
+    expect(state.chunkBuffer?.bodyCount).toBe(1);
+    expect(state.chunkBuffer?.totalTimesteps).toBe(10);
+    expect(state.hasReceivedFirstChunk).toBe(true);
+  });
+
+  it("does not auto-unpause when a chunk arrives (user controls pause state)", () => {
+    let state = init();
+    state = simulationReducer(state, loadSimulation(newParams("S1")));
+    // isPaused starts true after loadSimulation.
+    expect(state.timeState.isPaused).toBe(true);
+
+    state = simulationReducer(state, appendChunkToBuffer(dummyChunkPayload(10)));
+    // Chunk arrival must NOT flip isPaused.
+    expect(state.timeState.isPaused).toBe(true);
   });
 });
