@@ -12,13 +12,19 @@ import personal.spacesim.simulation.Simulation;
 import personal.spacesim.simulation.SimulationFactory;
 import personal.spacesim.simulation.body.CelestialBodySnapshot;
 import personal.spacesim.simulation.body.CelestialBodyWrapper;
+import personal.spacesim.utils.compressor.ZstdCompressor;
+import personal.spacesim.utils.serializers.BinaryResponseSerializer;
 
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Component
 public class SimulationSessionService {
@@ -31,12 +37,35 @@ public class SimulationSessionService {
     private final ConcurrentHashMap<String, Simulation> simulationMap;
     private final ConcurrentHashMap<String, Long> lastAccessedAt;
     private final SimulationFactory simulationFactory;
+    private final BinaryResponseSerializer binaryResponseSerializer;
+    private final ZstdCompressor zstdCompressor;
+
+    // Per-session next-chunk precompute. The future may be in-flight or done.
+    // Missing entry = no precompute kicked off yet (first request, or after eviction).
+    private final ConcurrentHashMap<String, CompletableFuture<byte[]>> nextChunkCache;
+
+    // Bounded executor for precompute work. Threads are daemon so they don't
+    // prevent JVM shutdown if a request is in flight at exit.
+    private final ExecutorService precomputeExecutor = Executors.newFixedThreadPool(
+            Math.max(2, Runtime.getRuntime().availableProcessors() / 2),
+            r -> {
+                Thread t = new Thread(r, "spacesim-precompute");
+                t.setDaemon(true);
+                return t;
+            });
 
     @Autowired
-    public SimulationSessionService(SimulationFactory simulationFactory) {
+    public SimulationSessionService(
+            SimulationFactory simulationFactory,
+            BinaryResponseSerializer binaryResponseSerializer,
+            ZstdCompressor zstdCompressor
+    ) {
         this.simulationFactory = simulationFactory;
+        this.binaryResponseSerializer = binaryResponseSerializer;
+        this.zstdCompressor = zstdCompressor;
         this.simulationMap = new ConcurrentHashMap<>();
         this.lastAccessedAt = new ConcurrentHashMap<>();
+        this.nextChunkCache = new ConcurrentHashMap<>();
     }
 
     public String createSimulation(
