@@ -64,6 +64,9 @@ Decisions made during the Tailwind + Radix + shadcn migration that shape what's 
 9. **Dev surfaces.** DevMetrics + dev-camera tweaker keep their slot, mounted only under `?dev=1`.
 10. **Mobile.** Responsive web only (no React Native / SwiftUI). Mobile flow at <1280px viewport using Radix Sheet for the iOS-style sheets.
 11. **Body graphics — toggleable.** UI chrome bodies use flat radial-gradient circles per the design's body color tokens. Scene 3D bodies ship realistic textures by default; a live-toggleable "stylized" variant renders flat-shaded matte spheres matching the chrome palette.
+12. **Sim setup as primary entrypoint.** Promoted from a left-rail gear icon (modal) to a labeled CTA in the top bar paired with a clickable Configuration chip — both open the same drawer. Pulse-dot on the CTA hints "do this first" until the user has run their first sim (suppressed once `lastRequest` is set).
+13. **No keyboard shortcut for opening the SimSetup drawer.** Spacebar is reserved for play/pause (universal media-app reflex). Drawer keeps Esc-to-close (Radix default). If a shortcut is added later, use `S` — not space, not ⌘K.
+14. **`Buffer` cell kept in the top status strip** despite not being in the sim-setup handoff. Load-bearing demo telemetry — buffered-vs-played delta visualizes the chunk fetcher racing ahead of playback.
 
 ## Status
 
