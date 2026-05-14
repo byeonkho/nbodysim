@@ -6,12 +6,14 @@ import {
   toggleCameraPreset,
 } from "@/app/store/slices/SimulationSlice";
 
-// Left rail — six icon buttons. Settings opens the SimParams dialog
-// (state owned by Layout); Camera toggles the binary top-down/free
-// preset (slice). Other handlers remain stubbed:
+// Left rail — four icon buttons. Camera toggles the binary
+// top-down/free preset (slice). Other handlers remain stubbed:
 //   - layers icon: Phase 1B (#38) stylized-vs-realistic toggle popover
 //   - drift icon: Phase 7 (#39) reality-drift overlay toggle
 //   - target / scope icons: TBD
+//
+// Settings/gear was removed in the sim-setup redesign — sim params now
+// live behind the labeled CTA + Configuration chip in the top bar.
 
 interface RailIcon {
   d: string;
@@ -35,23 +37,13 @@ const ICONS: RailIcon[] = [
     d: "M5 7h3l1-2h4l1 2h3v9H5V7zm6 2a3 3 0 100 6 3 3 0 000-6z",
     label: "Camera",
   },
-  {
-    d: "M11 8a3 3 0 110 6 3 3 0 010-6zM11 3v2M11 17v2M3 11h2M17 11h2",
-    label: "Settings",
-  },
 ];
 
 interface LeftRailProps {
   activeIndex?: number;
-  onSettingsClick?: () => void;
-  settingsActive?: boolean;
 }
 
-export function LeftRail({
-  activeIndex,
-  onSettingsClick,
-  settingsActive,
-}: LeftRailProps) {
+export function LeftRail({ activeIndex }: LeftRailProps) {
   const dispatch = useDispatch();
   const cameraPreset = useSelector(selectCameraPreset);
   const cameraActive = cameraPreset === "top-down";
@@ -64,10 +56,7 @@ export function LeftRail({
       {ICONS.map((icon, i) => {
         let onClick: (() => void) | undefined;
         let active: boolean;
-        if (icon.label === "Settings") {
-          onClick = onSettingsClick;
-          active = Boolean(settingsActive);
-        } else if (icon.label === "Camera") {
+        if (icon.label === "Camera") {
           onClick = () => dispatch(toggleCameraPreset());
           active = cameraActive;
         } else {

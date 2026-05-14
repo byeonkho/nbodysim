@@ -15,10 +15,14 @@ import {
 } from "@/app/constants/BodyVisuals";
 import { BodySphere } from "@/app/components/chrome/BodySphere";
 
-// Sim Params modal — Radix Dialog wrapping the form previously hosted
-// inside MiniDrawer. Same submit semantics: POST /initialize, then kick
-// off the chunk request thunk. Layout owns the open state and provides
-// onOpenChange so the LeftRail Settings icon can toggle it.
+// Sim Setup drawer — left-anchored glass panel that owns the
+// configure-and-Run flow. Replaces the centered Radix modal that was
+// the entrypoint pre-redesign. Substrate is still Radix Dialog (gives
+// us focus trap, Esc-to-close, click-outside-to-close, scroll lock,
+// portal a11y for free) but with custom positioning + animation:
+// anchored top-left under the top bar, slides in from the left over
+// 200ms. Layout owns the open state. See spacesim-ui/
+// design_handoff_sim_setup/.
 
 const TIME_UNITS = ["Seconds", "Hours", "Days", "Weeks"] as const;
 const INTEGRATORS = [
@@ -29,12 +33,12 @@ const INTEGRATORS = [
 
 const ALL_BODIES = [...BODY_ORDER];
 
-interface SimParamsDialogProps {
+interface SimSetupDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-export function SimParamsDialog({ open, onOpenChange }: SimParamsDialogProps) {
+export function SimSetupDrawer({ open, onOpenChange }: SimSetupDrawerProps) {
   const dispatch = useDispatch<AppDispatch>();
 
   const [selectedBodies, setSelectedBodies] = useState<Set<BodyKey>>(
@@ -91,21 +95,44 @@ export function SimParamsDialog({ open, onOpenChange }: SimParamsDialogProps) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
+        {/* Canvas scrim — subtle dim + 2px blur behind the drawer per
+            handoff. Fades over the same 200ms as the drawer slide. */}
         <Dialog.Overlay
-          className="fixed inset-0 z-50"
-          style={{ background: "rgba(5,6,12,0.55)", backdropFilter: "blur(2px)" }}
+          className="fixed inset-0 z-40 transition-opacity duration-200 ease-out data-[state=closed]:opacity-0 data-[state=open]:opacity-100"
+          style={{ background: "rgba(5,6,12,0.35)", backdropFilter: "blur(2px)" }}
         />
         <Dialog.Content
-          className="glass fixed top-1/2 left-1/2 z-50 flex max-h-[85vh] w-[480px] -translate-x-1/2 -translate-y-1/2 flex-col"
-          style={{ borderRadius: 14 }}
+          className="fixed top-[80px] bottom-[114px] left-6 z-50 flex w-[440px] flex-col overflow-hidden transition-[transform,opacity] duration-200 ease-out data-[state=closed]:-translate-x-2 data-[state=closed]:opacity-0 data-[state=open]:translate-x-0 data-[state=open]:opacity-100"
+          style={{
+            background: "rgba(20,22,30,0.62)",
+            backdropFilter: "blur(22px) saturate(150%)",
+            WebkitBackdropFilter: "blur(22px) saturate(150%)",
+            border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: 14,
+            boxShadow:
+              "inset 0 1px 0 rgba(255,255,255,0.05), 0 30px 80px rgba(0,0,0,0.65), 0 0 0 1px rgba(164,168,255,0.10)",
+          }}
         >
-          <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3.5">
-            <Dialog.Title className="text-hi text-[16px] font-semibold tracking-[-0.01em]">
-              Sim Parameters
-            </Dialog.Title>
-            <Dialog.Description className="sr-only">
-              Configure bodies, integrator, time range, and step size for a new simulation.
-            </Dialog.Description>
+          {/* Header — subtle indigo gradient wash, eyebrow + title + subtitle */}
+          <div
+            className="flex items-start justify-between border-b border-white/[0.06] px-5 pt-4 pb-3.5"
+            style={{
+              background:
+                "linear-gradient(180deg, rgba(164,168,255,0.06) 0%, transparent 100%)",
+            }}
+          >
+            <div className="flex flex-col gap-1">
+              <p className="eyebrow text-accent" style={{ letterSpacing: "0.22em" }}>
+                Simulation parameters
+              </p>
+              <Dialog.Title className="text-hi text-[18px] font-semibold tracking-[-0.015em]">
+                Configure simulation
+              </Dialog.Title>
+              <Dialog.Description className="text-dim text-[11.5px] leading-[1.45]">
+                Changes apply on Run. Epoch, frame and integrator define how the
+                system evolves.
+              </Dialog.Description>
+            </div>
             <Dialog.Close asChild>
               <button
                 type="button"
@@ -212,26 +239,36 @@ export function SimParamsDialog({ open, onOpenChange }: SimParamsDialogProps) {
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-3 border-t border-white/[0.06] px-5 py-3.5">
-            <Dialog.Close asChild>
-              <button
-                type="button"
-                className="text-dim hover:text-hi rounded-[10px] px-4 py-2 text-[14px] font-medium hover:bg-white/[0.04]"
-              >
-                Cancel
-              </button>
-            </Dialog.Close>
+          {/* Footer — primary Run is full-width per handoff (Save preset
+              is out of scope this phase). Cancel removed; Esc / × / scrim
+              click already cover the close path. */}
+          <div
+            className="flex items-center gap-3 border-t border-white/[0.06] px-5 py-3.5"
+            style={{ background: "rgba(255,255,255,0.02)" }}
+          >
             <button
               type="button"
               onClick={handleSubmit}
-              className="text-bg rounded-[10px] px-5 py-2 text-[14px] font-semibold"
+              className="flex flex-1 items-center justify-center gap-2 rounded-[10px] px-5 py-2.5 text-[14px] font-semibold text-[#16182a]"
               style={{
                 background:
-                  "linear-gradient(135deg, var(--color-accent), var(--color-accent-grad-end))",
-                boxShadow: "0 6px 16px rgba(164,168,255,0.35)",
+                  "linear-gradient(180deg, #c4c8ff 0%, #9298ee 100%)",
+                border: "1px solid rgba(196,200,255,0.85)",
+                boxShadow:
+                  "0 0 0 3px rgba(164,168,255,0.18), 0 6px 20px rgba(146,152,238,0.50), inset 0 1px 0 rgba(255,255,255,0.55)",
+                letterSpacing: "-0.005em",
               }}
             >
-              Run
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 13 13"
+                fill="currentColor"
+                aria-hidden
+              >
+                <path d="M3 2l8 4.5L3 11V2z" />
+              </svg>
+              <span>Run simulation</span>
             </button>
           </div>
         </Dialog.Content>

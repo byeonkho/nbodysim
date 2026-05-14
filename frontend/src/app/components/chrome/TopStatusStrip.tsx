@@ -15,6 +15,7 @@ import {
   julianDate,
 } from "@/app/utils/dateMath";
 import { FpsValue } from "@/app/components/chrome/FpsValue";
+import { SimSetupButton } from "@/app/components/chrome/SimSetupButton";
 
 // Top glass strip telemetry. Frame / Integrator / Δt come from the
 // most-recent SimParams submission (selectLastSimRequest); UTC + JD
@@ -66,7 +67,15 @@ function formatUtc(iso: string): string {
   return `${date} ${time}`.trim();
 }
 
-export function TopStatusStrip() {
+interface TopStatusStripProps {
+  onSimSetupClick: () => void;
+  simSetupActive: boolean;
+}
+
+export function TopStatusStrip({
+  onSimSetupClick,
+  simSetupActive,
+}: TopStatusStripProps) {
   const utcKey = useSelector(selectCurrentTimeStepKey);
   const bodies = useSelector(selectCelestialBodyPropertiesList);
   const lastReq = useSelector(selectLastSimRequest);
@@ -83,24 +92,21 @@ export function TopStatusStrip() {
   const buffered = Math.max(0, total - idx);
   const bufferedStr = buffered.toLocaleString("en-US");
 
+  // Pulse the Sim setup CTA only until the user has run their first sim.
+  // lastRequest is the canonical "have they configured + Run yet?" signal —
+  // set on submit, persisted across chunk fetches, never re-cleared.
+  const showPulse = lastReq === null;
+
   return (
     <div
-      className="glass pointer-events-auto absolute top-[18px] right-6 left-6 flex h-[42px] items-stretch overflow-hidden p-0"
+      className="glass pointer-events-auto absolute top-[18px] right-6 left-6 flex h-[46px] items-stretch overflow-hidden p-0"
       style={{ borderRadius: 12 }}
     >
-      <div className="flex items-center gap-2.5 border-r border-white/[0.06] px-4">
-        <span
-          className="block h-[22px] w-[22px] rounded-md"
-          style={{
-            background:
-              "linear-gradient(135deg, var(--color-accent), var(--color-accent-grad-end))",
-            boxShadow: "0 4px 14px rgba(164,168,255,0.4)",
-          }}
-        />
-        <span className="text-hi text-[13px] font-semibold tracking-[-0.01em]">
-          spacesim
-        </span>
-      </div>
+      <SimSetupButton
+        active={simSetupActive}
+        showPulse={showPulse}
+        onClick={onSimSetupClick}
+      />
 
       <StatusCell label="UTC" value={formatUtc(utcKey)} />
       <StatusCell label="JD" value={jdStr} />

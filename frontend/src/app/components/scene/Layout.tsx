@@ -8,13 +8,13 @@ import { BodySelector } from "@/app/components/chrome/BodySelector";
 import { FrameCompass } from "@/app/components/chrome/FrameCompass";
 import { LeftRail } from "@/app/components/chrome/LeftRail";
 import { RightColumn } from "@/app/components/chrome/RightColumn";
-import { SimParamsDialog } from "@/app/components/chrome/SimParamsDialog";
+import { SimSetupDrawer } from "@/app/components/chrome/SimSetupDrawer";
 import { Timeline } from "@/app/components/chrome/Timeline";
 import { TopStatusStrip } from "@/app/components/chrome/TopStatusStrip";
 import { DevPanel } from "@/app/components/dev/DevPanel";
 
 const Layout: React.FC = () => {
-  const [simParamsOpen, setSimParamsOpen] = useState(false);
+  const [simSetupOpen, setSimSetupOpen] = useState(false);
 
   // Read ?dev=… once on mount. useSyncExternalStore is the React-canonical
   // pattern for "read an external value once" — SSR snapshot returns false
@@ -58,17 +58,17 @@ const Layout: React.FC = () => {
         <div className="absolute inset-0 z-10 pointer-events-none">
           <UpdateModal />
 
-          <TopStatusStrip />
+          <TopStatusStrip
+            onSimSetupClick={() => setSimSetupOpen(true)}
+            simSetupActive={simSetupOpen}
+          />
           <BodySelector />
           <FrameCompass />
-          <LeftRail
-            onSettingsClick={() => setSimParamsOpen(true)}
-            settingsActive={simParamsOpen}
-          />
+          <LeftRail />
           <RightColumn />
           <Timeline />
 
-          <SimParamsDialog open={simParamsOpen} onOpenChange={setSimParamsOpen} />
+          <SimSetupDrawer open={simSetupOpen} onOpenChange={setSimSetupOpen} />
 
           {devMode && <DevPanel />}
         </div>
