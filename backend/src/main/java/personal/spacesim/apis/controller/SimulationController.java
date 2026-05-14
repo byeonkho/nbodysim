@@ -12,14 +12,8 @@ import personal.spacesim.dtos.SimulationChunkRequest;
 import personal.spacesim.dtos.SimulationRequestDTO;
 import personal.spacesim.dtos.SimulationResponseDTO;
 import personal.spacesim.services.SimulationSessionService;
-import personal.spacesim.simulation.body.CelestialBodySnapshot;
-import personal.spacesim.simulation.body.CelestialBodyWrapper;
-import personal.spacesim.utils.compressor.ZstdCompressor;
-import personal.spacesim.utils.serializers.BinaryResponseSerializer;
 
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/simulation")
@@ -28,19 +22,10 @@ public class SimulationController {
     private final Logger logger = LoggerFactory.getLogger(SimulationController.class);
 
     private final SimulationSessionService simulationSessionService;
-    private final ZstdCompressor zstdCompressor;
-    private final BinaryResponseSerializer binaryResponseSerializer;
-
 
     @Autowired
-    public SimulationController(
-            SimulationSessionService simulationSessionService,
-            ZstdCompressor zstdCompressor,
-            BinaryResponseSerializer binaryResponseSerializer
-    ) {
+    public SimulationController(SimulationSessionService simulationSessionService) {
         this.simulationSessionService = simulationSessionService;
-        this.zstdCompressor = zstdCompressor;
-        this.binaryResponseSerializer = binaryResponseSerializer;
     }
 
     /**
@@ -84,8 +69,9 @@ public class SimulationController {
     /**
      * Returns the next computed chunk for the given session as a zstd-compressed
      * binary payload. Each call advances the session's internal time cursor —
-     * not idempotent. URL-keyed caching can be added later when chunks become
-     * uniquely addressable by (sessionID, chunkIndex).
+     * not idempotent. Serialization + compression live inside the service, which
+     * also speculatively precomputes the chunk after the next-after-this request
+     * so subsequent calls hit cache.
      */
     @PostMapping(value = "/chunk", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     public ResponseEntity<byte[]> getNextChunk(@RequestBody SimulationChunkRequest request) {
@@ -97,40 +83,14 @@ public class SimulationController {
         long t0 = System.nanoTime();
         logger.info("[{}] Chunk request received", sessionID);
 
-        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunkData =
-                simulationSessionService.runSimulation(sessionID);
-        long tSim = System.nanoTime();
-        logger.info("[{}] Simulation computed in {}ms", sessionID, (tSim - t0) / 1_000_000);
+        byte[] compressedData = simulationSessionService.getNextChunkBytes(sessionID);
 
-        // Build the µ map from the session's body wrappers. µ is constant per
-        // body for the session's lifetime; resending per chunk is only
-        // bodyCount × 8 bytes and avoids needing a separate metadata channel
-        // / coordination with the chunk fetch on the client. Insertion-ordered
-        // map preserves body order matching the snapshot lists.
-        List<CelestialBodyWrapper> bodyWrappers =
-                simulationSessionService.getSimulationResults(sessionID);
-        Map<String, Double> muByName = new LinkedHashMap<>();
-        for (CelestialBodyWrapper w : bodyWrappers) {
-            muByName.put(w.getName(), w.getMu());
-        }
-
-        byte[] binaryPayload = binaryResponseSerializer.serialize(chunkData, muByName);
-        long tBin = System.nanoTime();
+        long tTotal = (System.nanoTime() - t0) / 1_000_000;
         logger.info(
-                "[{}] Binary serialized in {}ms ({} KB)",
+                "[{}] Chunk served in {}ms ({} KB)",
                 sessionID,
-                (tBin - tSim) / 1_000_000,
-                binaryPayload.length / 1024
-        );
-
-        byte[] compressedData = zstdCompressor.compress(binaryPayload);
-        long tComp = System.nanoTime();
-        logger.info(
-                "[{}] Compressed in {}ms ({} KB) (total {}ms)",
-                sessionID,
-                (tComp - tBin) / 1_000_000,
-                compressedData.length / 1024,
-                (tComp - t0) / 1_000_000
+                tTotal,
+                compressedData.length / 1024
         );
 
         return ResponseEntity.ok()
