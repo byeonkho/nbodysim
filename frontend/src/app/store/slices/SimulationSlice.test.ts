@@ -28,6 +28,7 @@ const newParams = (sessionID: string): SimulationParameters => ({
   showAxes: false,
   showPlanetInfoOverlay: true,
   showTrails: true,
+  showOrbitPaths: true,
   simulationScale: SimConstants.SCALE.SEMI_REALISTIC,
   cameraPreset: "top-down",
   displayFrame: "helio",

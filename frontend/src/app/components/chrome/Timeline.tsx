@@ -9,6 +9,7 @@ import {
   selectIsPaused,
   selectShowAxes,
   selectShowGrid,
+  selectShowOrbitPaths,
   selectShowPlanetInfoOverlay,
   selectShowTrails,
   selectSimulationScale,
@@ -19,6 +20,7 @@ import {
   togglePause,
   toggleShowAxes,
   toggleShowGrid,
+  toggleShowOrbitPaths,
   toggleShowPlanetInfoOverlay,
   toggleShowTrails,
 } from "@/app/store/slices/SimulationSlice";
@@ -269,6 +271,7 @@ function ViewToggles() {
   const dispatch = useDispatch();
   const grid = useSelector(selectShowGrid);
   const trails = useSelector(selectShowTrails);
+  const orbits = useSelector(selectShowOrbitPaths);
   const labels = useSelector(selectShowPlanetInfoOverlay);
   const axes = useSelector(selectShowAxes);
   const scale = useSelector(selectSimulationScale);
@@ -286,6 +289,11 @@ function ViewToggles() {
     <div className="grid grid-cols-3 gap-[5px]">
       <ToggleChip label="Grid" on={grid} onClick={() => dispatch(toggleShowGrid())} />
       <ToggleChip label="Trails" on={trails} onClick={() => dispatch(toggleShowTrails())} />
+      <ToggleChip
+        label="Orbits"
+        on={orbits}
+        onClick={() => dispatch(toggleShowOrbitPaths())}
+      />
       <ToggleChip
         label="Labels"
         on={labels}

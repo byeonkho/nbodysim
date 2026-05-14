@@ -108,6 +108,7 @@ export interface SimulationParameters {
   showAxes: boolean;
   showPlanetInfoOverlay: boolean;
   showTrails: boolean;
+  showOrbitPaths: boolean;
   simulationScale: SimulationScale;
   cameraPreset: CameraPreset;
   displayFrame: DisplayFrame;
@@ -159,6 +160,7 @@ const initialState: SimulationState = {
     showAxes: false,
     showPlanetInfoOverlay: true,
     showTrails: true,
+    showOrbitPaths: true,
     simulationScale: SimConstants.SCALE.SEMI_REALISTIC, // default scale
     // Hard-coded SSR-safe defaults. localStorage rehydration happens
     // post-mount in PrefsHydrator → setCameraPreset / setDisplayFrame.
@@ -334,6 +336,10 @@ export const simulationSlice = createSlice({
     toggleShowTrails: (state) => {
       state.simulationParameters.showTrails =
         !state.simulationParameters.showTrails;
+    },
+    toggleShowOrbitPaths: (state) => {
+      state.simulationParameters.showOrbitPaths =
+        !state.simulationParameters.showOrbitPaths;
     },
 
     setIsUpdating: (state, action: PayloadAction<boolean>) => {
@@ -583,6 +589,9 @@ export const selectShowPlanetInfoOverlay = (state: RootState) =>
 export const selectShowTrails = (state: RootState) =>
   state.simulation.simulationParameters.showTrails;
 
+export const selectShowOrbitPaths = (state: RootState) =>
+  state.simulation.simulationParameters.showOrbitPaths;
+
 export const selectSimulationScale = (state: RootState) =>
   state.simulation.simulationParameters.simulationScale;
 
@@ -639,6 +648,7 @@ export const {
   toggleShowAxes,
   toggleShowPlanetInfoOverlay,
   toggleShowTrails,
+  toggleShowOrbitPaths,
   deleteExcessData,
   setIsUpdating,
   setIsPaused,
