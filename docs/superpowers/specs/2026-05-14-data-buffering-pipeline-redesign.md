@@ -12,7 +12,7 @@ Three concrete user-visible outcomes:
 
 1. The forced auto-unpause + center-screen modal at every chunk arrival is gone.
 2. Playback at `speedMultiplier = 128` does not stall waiting for the next chunk.
-3. The buffer can comfortably hold ~100k timesteps (~28 min of 1× playback, or ~13 s of 128× playback) without per-frame cost scaling with size.
+3. The buffer can comfortably hold ~100k timesteps on desktop (9-body sim → ~28 min of 1× playback, ~13 s of 128×) or ~28k on mobile, without per-frame cost scaling with size. Capacity is derived from a byte budget per device class, not a fixed timestep count — see Component 5.
 
 Non-goal: support scrubbing backwards beyond the current resident buffer. That needs re-fetch-by-index, which the backend doesn't support today; flagged in [Future work](#future-work).
 
@@ -72,11 +72,11 @@ Replace `simulationData: { [iso: string]: CelestialBody[] } | null` with:
 
 ```ts
 interface ChunkBuffer {
-  // Preallocated to BUFFER_CAPACITY × bodyCount × 6.
+  // Preallocated to bufferCapacity × bodyCount × 6.
   // Layout: positions[idx*bodyCount*6 + body*6 + component]
   // components: [px, py, pz, vx, vy, vz]
   positions: Float64Array;
-  // Preallocated to BUFFER_CAPACITY.
+  // Preallocated to bufferCapacity.
   timestamps: BigInt64Array;
   // Constant per session.
   bodyNames: readonly string[];
@@ -97,7 +97,7 @@ interface ChunkBuffer {
 **Why this layout:**
 - O(1) timestep lookup by index. Kills the per-frame `Object.keys()` cost permanently.
 - Mirrors the backend's `currentStateBuffer` layout — the wire format already ships positions in this exact order, so the decode worker can `memcpy` directly into the typed array slot, skipping per-body JS object allocation entirely.
-- Memory: 100k × 9 × 6 × 8 = 43 MB for positions + 800 KB for timestamps. Acceptable on desktop; mobile is out of scope for this round.
+- Memory: bounded by the byte budget chosen at session start (see Component 5) — 48 MB on desktop, 12 MB on mobile, plus a small `BigInt64Array` for timestamps (capacity × 8 bytes; ~0.8 MB at 100k).
 - `bodyNameToIndex` map removes the `snapshot.find(b => b.name === bodyName)` linear scan that every consumer does today.
 
 **Helper accessors** (lifted out of consumer components into a small `bufferAccess.ts` module):
@@ -195,21 +195,74 @@ The future completes off-request-thread; no need to hold the HTTP thread. The si
 
 ### 5. Buffer capacity + eviction
 
+Capacity is **derived from a byte budget**, not a fixed timestep count. The
+budget is picked at session start based on device class (mobile vs desktop);
+capacity falls out from `floor(budget / (bodyCount × 6 × 8))`. This composes
+naturally with the SimParams form's variable body count (3–12 bodies) — a
+12-body sim gets fewer timesteps in the buffer than a 3-body sim under the
+same byte budget.
+
 ```ts
-const BUFFER_CAPACITY = 100_000;  // up from MAX_TIMESTEPS = 30_000
-const CHUNK_SIZE = 10_000;        // unchanged
+const CHUNK_SIZE = 10_000;  // unchanged
+const BYTES_PER_TIMESTEP_PER_BODY = 6 * 8;  // 6 doubles = px, py, pz, vx, vy, vz
+
+const BUFFER_BYTE_BUDGETS = {
+  lowMem: 12 * 1024 * 1024,   // 12 MB — mobile / low-RAM devices
+  default: 48 * 1024 * 1024,  // 48 MB — desktop / tablet
+} as const;
+
+function selectBufferByteBudget(): number {
+  const isLowMem = typeof navigator !== "undefined"
+    && "deviceMemory" in navigator
+    && (navigator.deviceMemory as number) <= 4;
+  const isNarrow = typeof window !== "undefined"
+    && window.matchMedia("(max-width: 767px)").matches;
+  return (isLowMem || isNarrow)
+    ? BUFFER_BYTE_BUDGETS.lowMem
+    : BUFFER_BYTE_BUDGETS.default;
+}
+
+// Decided once at session start (loadSimulation), stored in the slice.
+// Does NOT react to viewport resize mid-session — that would force
+// reallocation + shift; not worth the complexity for an edge case.
+function computeBufferCapacity(bodyCount: number): number {
+  const budget = selectBufferByteBudget();
+  return Math.floor(budget / (bodyCount * BYTES_PER_TIMESTEP_PER_BODY));
+}
 ```
 
-When `totalTimesteps + CHUNK_SIZE > BUFFER_CAPACITY` on chunk arrival:
+**Capacity table** at the chosen budgets:
 
-- Shift the typed arrays left by `CHUNK_SIZE` slots (typed-array `copyWithin` is fast).
+| Class | Detection | Budget | Capacity @ 3 bodies | @ 9 bodies | @ 12 bodies |
+|---|---|---|---|---|---|
+| Low-mem / mobile | `viewport < 768` or `deviceMemory ≤ 4` | 12 MB | ~87k | ~27k | ~21k |
+| Default / desktop | everything else | 48 MB | ~349k | ~111k | ~87k |
+
+The byte-budget ceilings are **heuristics, not measurements** — picked from
+the rule-of-thumb mobile/desktop ratio (4×) plus a sanity check against the
+non-buffer memory the app already carries (Three.js scene, decoded JPEG
+textures in GPU memory, drei components, Redux state). Validation path is
+flagged in Future work. To make refinement painless: log the chosen budget
+and final capacity at session start (`logger.info` / dev console) so any
+mobile session can be sanity-checked from the inspector.
+
+**Eviction** triggers when `totalTimesteps + CHUNK_SIZE > bufferCapacity`:
+
+- Shift the typed arrays left by `CHUNK_SIZE` slots (`copyWithin` is fast —
+  ~3–6 ms on mobile at 27k capacity, ~15–30 ms on desktop at 111k. One-shot
+  on chunk arrival; bounded by capacity, not session length).
 - Advance `bufferStartTimestep` by `CHUNK_SIZE`.
-- Adjust `currentTimeStepIndex` by `-CHUNK_SIZE` (matches today's `deleteExcessData` behavior).
+- Adjust `currentTimeStepIndex` by `-CHUNK_SIZE` (matches today's
+  `deleteExcessData` behavior).
 - `totalTimesteps -= CHUNK_SIZE`, then append the new chunk.
 
-`copyWithin` on a 540k-element `Float64Array` (100k × 9 × 6) is ~5 ms uncached; ~1–2 ms hot. One-time cost on chunk arrival, post-eviction-threshold. Acceptable.
+**Detection note:** Safari does not expose `navigator.deviceMemory`, so iOS
+always lands on the viewport branch. The `deviceMemory` check is
+functionally a Chrome-on-Android signal.
 
-Alternative considered: ring buffer with a moving `writeStart` index. Saves the shift but every consumer has to do modular arithmetic on reads. Not worth the complexity here; revisit if eviction cost shows up in profiles.
+**Alternative considered:** ring buffer with a moving `writeStart` index.
+Saves the shift but every consumer has to do modular arithmetic on reads.
+Not worth the complexity here; revisit if eviction cost shows up in profiles.
 
 ### 6. Removed behaviors
 
@@ -246,7 +299,7 @@ Implementation plan will be drafted via the writing-plans skill. High-level phas
 2. **Typed-array buffer + zero-alloc decode worker** — biggest change. Touches the slice, the worker, and every render-loop consumer. Wire-format tests still pass; new accessor tests added.
 3. **Speed-aware prefetch + EMA** — small slice + middleware change. Test by playing at 128× and confirming no stalls.
 4. **Remove UpdateModal + auto-unpause + dev logs + redundant flags** — pure deletion + a first-load spinner.
-5. **Bump BUFFER_CAPACITY to 100k** — one constant change, but verify memory + that eviction shift works.
+5. **Wire up byte-budget capacity selection** — drop the legacy `MAX_TIMESTEPS = 30_000` constant; replace with `selectBufferByteBudget` + `computeBufferCapacity` at session start. Verify eviction shift works at both mobile and desktop capacities.
 
 Phases 2 and 4 together are the headline UX win. Phase 1 is the throughput win. Phase 3 is the high-speed correctness win. Phase 5 unlocks future scrubbing range.
 
@@ -269,5 +322,5 @@ Per project rules:
 ## Future work
 
 - **Re-fetch dropped chunks** for true unbounded backwards scrubbing. Needs backend support for `(sessionID, startTimestep, count)` chunk requests, which means the integrator's `currentStateBuffer` either needs to be replayable from snapshots or the backend needs to keep per-chunk start-states. Heavier change; flag separately if scrubbing-back-past-buffer becomes a real ask.
-- **Mobile / memory-constrained**: 43 MB resident is fine on desktop; mobile might want a smaller cap. Tie to redesign Phase 8 (todo #35).
+- **Validate the mobile byte budget.** The 12 MB / 48 MB ceilings are heuristics. Real validation paths: (a) profile baseline app heap on a mid-tier iPhone / Android via Safari Web Inspector or Chrome remote devtools — find out what the non-buffer portion of memory looks like; (b) stress-test by gradually increasing the buffer until iOS Safari reloads the tab; (c) add `performance.memory.usedJSHeapSize` telemetry (Chromium-only) for post-launch refinement. Tie to redesign Phase 8 (todo #35) when mobile UX work actually lands.
 - **Multi-chunk look-ahead** on the server (cache N>1) — only if profiling shows precompute still bottlenecks.
