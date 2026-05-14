@@ -19,11 +19,11 @@ End-to-end hosted simulation. A user picks bodies, frame, integrator, and time s
    Vercel (planned)                                      Fly.io (planned)
 ```
 
-**Backend** — Spring Boot 3 + Orekit 12. `POST /api/simulation/initialize` builds a session with bodies, frame, integrator, and start date; subsequent `POST /api/simulation/chunk` calls run simulation chunks of N steps and return results as zstd-compressed binary. Sessions are tracked by sessionID and evicted by a periodic idle-timeout sweeper.
+**Backend** — Spring Boot 3 + Orekit 12. `POST /api/simulation/initialize` builds a session with bodies, frame, integrator, and start date; subsequent `POST /api/simulation/chunk` calls return zstd-compressed binary trajectories. After each chunk is served, the next 10k-step block is speculatively pre-computed on a daemon executor so subsequent requests hit cache. Sessions are tracked by sessionID and evicted by a periodic idle-timeout sweeper.
 
-**Frontend** — Next.js + React Three Fiber. Redux Toolkit holds the buffered timestep map; an async thunk fetches the next chunk when the buffer dips below threshold and discards old chunks at a configured cap. The render loop tape-plays the buffer at a target frame rate via R3F's `useFrame`; the scene supports two scale presets (semi-realistic, realistic) and per-body exception scaling for tightly-coupled pairs (e.g., Earth–Moon).
+**Frontend** — Next.js + React Three Fiber. Redux Toolkit holds a typed-array-backed chunk buffer (`Float64Array` positions + `BigInt64Array` timestamps) laid out in the same row-major shape as the wire format — O(1) lookup by timestep index, zero-copy hand-off from the decode worker. An async thunk fetches the next chunk when the buffer dips below a speed-aware threshold (`max(1000, speedMultiplier × FPS × rolling-fetch-latency × 1.5)`), and `copyWithin`-shifts the oldest entries left when capacity is reached. Capacity is byte-budget-derived at session start (12 MB mobile / 48 MB desktop) so it scales inversely with body count. The render loop tape-plays the buffer at a target frame rate via R3F's `useFrame`; the scene supports two scale presets (semi-realistic, realistic) and per-body exception scaling for tightly-coupled pairs (e.g., Earth–Moon).
 
-**Wire format** — custom little-endian binary layout: body names + µ in a one-time header, then per-timestep `int64` timestamp + 6 `float64` per body (position + velocity). Zstd-compressed with a 4-byte little-endian uncompressed-size prefix. Decoded client-side in a Web Worker so the main thread stays unblocked during chunk arrivals.
+**Wire format** — custom little-endian binary layout: body names + µ in a one-time header, then per-timestep `int64` timestamp + 6 `float64` per body (position + velocity). Zstd-compressed with a 4-byte little-endian uncompressed-size prefix. The Web Worker decodes directly into the `Float64Array` + `BigInt64Array` shape the buffer expects and transfers both underlying buffers back to the main thread — no intermediate JS-object hops, no copy at the worker boundary.
 
 ## Architecture decisions
 
@@ -43,11 +43,23 @@ Backend snapshots are always emitted Sun-relative — `Simulation.snapshotFromSt
 
 ### Imperative scene graph, no per-tick React rerenders
 
-The 3D scene's R3F components (`Sphere`, `Trail`, `Reticle`, `GhostLabel`, `Camera`) update positions imperatively inside `useFrame` by reading the live snapshot from Redux via `useStore.getState()` — they never subscribe to per-frame state. Per-frame Redux subscriptions would force React to reconcile the entire scene on every animation tick, which dominated the cost in earlier profiles. Pattern documented in `engineering_patterns_spacesim.md`. Active body identity carries as a string (`activeBodyName`), not the full snapshot, so identity changes don't cascade.
+The 3D scene's R3F components (`Sphere`, `Trail`, `Reticle`, `GhostLabel`, `Camera`) update positions imperatively inside `useFrame` by reading from the chunk buffer at the current timestep via `useStore.getState()` — they never subscribe to per-frame state. Per-frame Redux subscriptions would force React to reconcile the entire scene on every animation tick, which dominated the cost in earlier profiles. Pattern documented in `engineering_patterns_spacesim.md`. Active body identity carries as a string (`activeBodyName`), not a buffer reference, so identity changes don't cascade.
 
 ### Hot-path mutating-output pattern
 
 Anything in the frontend render loop or backend integrator step uses pre-allocated buffers and mutating-output APIs (`scaleDistanceInto`, `subtractInto`, `derivativesInto`, `stepInto`, etc.) to avoid per-frame allocation. Documented in `engineering_patterns_spacesim.md`. The Trail.tsx perf bug — closures + per-frame `Array.find()` summing to ~45 000 closure allocations per frame at trail length 5000 — was the motivating incident.
+
+### Typed-array buffer mirrors the wire format end-to-end
+
+The chunk buffer is a flat `Float64Array` of position+velocity (`idx × bodyCount × 6` doubles per timestep, components `[px, py, pz, vx, vy, vz]`) paired with a `BigInt64Array` of millis-since-epoch timestamps. Identical layout on the wire, in the decode worker, and in Redux state. Consumers (`Sphere`, `Trail`, `Reticle`, etc.) resolve `bodyName → index` once per session via a `Map` and read state at `(timestep, body)` via mutating accessors (`readBodyPositionInto`, `readBodyStateInto`) into pre-allocated scratch `THREE.Vector3` refs. The previous architecture was a date-keyed `Record<string, CelestialBody[]>` — every per-frame lookup paid `Object.keys()` (O(N) in buffer size) and every body access paid `.find()` (O(N) in body count), so buffer-size and consumer-count both fed the per-frame cost. The typed-array layout decouples them; per-frame cost is now O(1) regardless of buffer depth. **Trade-offs:** Immer doesn't draft typed arrays (so the slice keeps the same wrapper object reference across appends — `appendChunk` mutates in place); selectors that need to fire on chunk-arrival depend on `totalTimesteps` rather than buffer-reference identity. Chunk transitions are silent — no auto-unpause on arrival, no "Fetching data" modal flash between chunks.
+
+### Speculative precompute + speed-aware prefetch
+
+Backend kicks off the next 10k-step compute the moment it ships a chunk, holding the result in a per-session `CompletableFuture<byte[]>` cache. Client-side, the prefetch trigger scales with `speedMultiplier × FPS × rolling-fetch-latency × safety_factor` — so at `speedMultiplier=128` the threshold becomes ~11 520 steps and a fetch is essentially always in flight. The two pieces work together: the server-side cache cuts perceived chunk-fetch latency to near-network-only, and the speed-aware threshold ensures the client requests early enough that the cache hit lands before the buffer empties. Buffer eviction is `Float64Array.copyWithin` (single memmove), one-shot on overflow.
+
+### Buffer capacity is byte-budgeted, not step-counted
+
+Two device-class tiers picked at session start: 12 MB (mobile / `deviceMemory ≤ 4` / viewport `< 768px`) and 48 MB (everything else). Capacity falls out as `floor(byteBudget / (bodyCount × 48))`, so a 3-body sim gets a much deeper buffer than a 12-body sim under the same budget. Decoupling the cap from a fixed timestep count means user-driven body-count changes don't accidentally exceed the memory budget; decoupling from device class means mobile won't try to allocate ~43 MB on a phone. Heuristic ceilings, not measured — validation path is in the redesign spec.
 
 ## Resolved design decisions (UI redesign)
 
