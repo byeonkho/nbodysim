@@ -2,15 +2,15 @@
 
 import { useEffect, useRef } from "react";
 import { useSelector, useStore } from "react-redux";
+import * as THREE from "three";
 import {
-  type CelestialBody,
   type CelestialBodyProperties,
   selectActiveBodyName,
   selectCelestialBodyPropertiesList,
-  selectCurrentTimeStepKey,
   selectDisplayFrame,
   type Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
+import { readBodyStateInto } from "@/app/store/chunkBuffer";
 import type { RootState } from "@/app/store/Store";
 import {
   calculateDistance,
@@ -118,39 +118,68 @@ export function BodyCard() {
       if (periodRef.current) periodRef.current.textContent = "—";
     };
 
+    // Scratch THREE.Vector3s reused across tick() calls. BodyCard runs at 5Hz,
+    // so per-tick allocation cost is small, but reuse keeps the code shape
+    // consistent with the render-loop consumers.
+    const bodyPos = new THREE.Vector3();
+    const bodyVel = new THREE.Vector3();
+    const stateRefPos = new THREE.Vector3();
+    const stateRefVel = new THREE.Vector3();
+    const orbitingPos = new THREE.Vector3();
+    const orbitingVel = new THREE.Vector3();
+
+    const findIdx = (
+      buffer: { bodyNameToIndex: ReadonlyMap<string, number> },
+      nameUpper: string,
+    ): number => {
+      for (const [bn, i] of buffer.bodyNameToIndex.entries()) {
+        if (bn.toUpperCase() === nameUpper) return i;
+      }
+      return -1;
+    };
+
     const tick = () => {
       const state = store.getState();
-      const data = state.simulation.simulationData;
-      const key = selectCurrentTimeStepKey(state);
-      if (!data || !key) return;
-      const snapshot = data[key];
-      if (!snapshot) return;
+      const buffer = state.simulation.chunkBuffer;
+      const idx = state.simulation.timeState.currentTimeStepIndex;
+      if (!buffer || idx >= buffer.totalTimesteps) return;
 
-      const body = snapshot.find(
-        (b: CelestialBody) => b.name.trim().toUpperCase() === upperName,
-      );
-      if (!body) return;
+      const bodyIdx = findIdx(buffer, upperName);
+      if (bodyIdx < 0) return;
+      readBodyStateInto(bodyPos, bodyVel, buffer, idx, bodyIdx);
 
       // State vector reference: skipped if the active body IS the
       // reference (no self-relative measurement makes sense), or if the
       // reference name resolves empty (Sun in helio: no orbitingBody).
-      const stateRef =
+      const stateRefIdx =
         stateVectorRefNameUpper && stateVectorRefNameUpper !== upperName
-          ? snapshot.find(
-              (b: CelestialBody) =>
-                b.name.trim().toUpperCase() === stateVectorRefNameUpper,
-            )
-          : undefined;
+          ? findIdx(buffer, stateVectorRefNameUpper)
+          : -1;
 
-      if (stateRef) {
+      if (stateRefIdx >= 0) {
+        readBodyStateInto(stateRefPos, stateRefVel, buffer, idx, stateRefIdx);
+        const bodyPosSimple: Vector3Simple = {
+          x: bodyPos.x,
+          y: bodyPos.y,
+          z: bodyPos.z,
+        };
+        const stateRefPosSimple: Vector3Simple = {
+          x: stateRefPos.x,
+          y: stateRefPos.y,
+          z: stateRefPos.z,
+        };
         if (rangeRef.current) {
           rangeRef.current.textContent = calculateDistance(
-            body.position,
-            stateRef.position,
+            bodyPosSimple,
+            stateRefPosSimple,
             "AU",
           );
         }
-        subtractInto(velocityScratch.current, body.velocity, stateRef.velocity);
+        subtractInto(
+          velocityScratch.current,
+          { x: bodyVel.x, y: bodyVel.y, z: bodyVel.z },
+          { x: stateRefVel.x, y: stateRefVel.y, z: stateRefVel.z },
+        );
         const speedStr = formatToKM(
           calculateMagnitude(velocityScratch.current),
         );
@@ -158,11 +187,11 @@ export function BodyCard() {
         if (vmagRef.current) vmagRef.current.textContent = speedStr;
         if (rxRef.current)
           rxRef.current.textContent = formatScientificKm(
-            body.position.x - stateRef.position.x,
+            bodyPos.x - stateRefPos.x,
           );
         if (ryRef.current)
           ryRef.current.textContent = formatScientificKm(
-            body.position.y - stateRef.position.y,
+            bodyPos.y - stateRefPos.y,
           );
       } else {
         writeStateVectorDashes();
@@ -172,19 +201,17 @@ export function BodyCard() {
       // unconditionally. Frame-independent: orbit shape doesn't change because
       // you decided to look from somewhere else. µ comes from the orbiting body's
       // CelestialBodyProperties; if missing (no chunks yet) we render dashes.
-      const orbiting = orbitingNameUpper
-        ? snapshot.find(
-            (b: CelestialBody) =>
-              b.name.trim().toUpperCase() === orbitingNameUpper,
-          )
-        : undefined;
+      const orbitingIdx = orbitingNameUpper
+        ? findIdx(buffer, orbitingNameUpper)
+        : -1;
 
-      if (orbiting && orbitingMu && orbitingMu > 0) {
+      if (orbitingIdx >= 0 && orbitingMu && orbitingMu > 0) {
+        readBodyStateInto(orbitingPos, orbitingVel, buffer, idx, orbitingIdx);
         const elements = computeOrbitalElements(
-          body.position,
-          body.velocity,
-          orbiting.position,
-          orbiting.velocity,
+          { x: bodyPos.x, y: bodyPos.y, z: bodyPos.z },
+          { x: bodyVel.x, y: bodyVel.y, z: bodyVel.z },
+          { x: orbitingPos.x, y: orbitingPos.y, z: orbitingPos.z },
+          { x: orbitingVel.x, y: orbitingVel.y, z: orbitingVel.z },
           orbitingMu,
         );
         if (elements) {

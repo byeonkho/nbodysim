@@ -3,7 +3,7 @@
 import { useSelector } from "react-redux";
 import {
   selectCurrentTimeStepIndex,
-  selectCurrentTimeStepKey,
+  selectCurrentTimeStepIsoString,
   selectLastSimRequest,
   selectTotalTimeSteps,
 } from "@/app/store/slices/SimulationSlice";
@@ -75,7 +75,7 @@ export function TopStatusStrip({
   onSimSetupClick,
   simSetupActive,
 }: TopStatusStripProps) {
-  const utcKey = useSelector(selectCurrentTimeStepKey);
+  const utcKey = useSelector(selectCurrentTimeStepIsoString);
   const lastReq = useSelector(selectLastSimRequest);
   const total = useSelector(selectTotalTimeSteps);
   const idx = useSelector(selectCurrentTimeStepIndex);
