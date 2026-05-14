@@ -7,7 +7,7 @@
 // parseBinaryChunk.ts so it's testable without dragging in the WASM module.
 
 import { ZSTDDecoder } from "zstddec";
-import { parseBinaryChunk } from "./parseBinaryChunk";
+import { parseBinaryChunkToTypedArrays } from "./parseBinaryChunk";
 
 interface DecodeRequest {
   id: number;
@@ -45,7 +45,7 @@ self.onmessage = async (event: MessageEvent<DecodeRequest>) => {
     const t0 = performance.now();
     const decompressed = decoder.decode(compressed, uncompressedSize);
     const t1 = performance.now();
-    const parsed = parseBinaryChunk(decompressed);
+    const parsed = parseBinaryChunkToTypedArrays(decompressed);
     const t2 = performance.now();
     console.log(
       `[zstd worker] zstd=${(t1 - t0) | 0}ms binary=${(t2 - t1) | 0}ms total=${(t2 - t0) | 0}ms (${(uncompressedSize / 1024) | 0}KB)`,
@@ -53,11 +53,19 @@ self.onmessage = async (event: MessageEvent<DecodeRequest>) => {
 
     const payload = {
       messageType: "SIM_DATA",
-      data: parsed.data,
+      bodyNames: parsed.bodyNames,
+      bodyCount: parsed.bodyCount,
+      timestepCount: parsed.timestepCount,
+      positions: parsed.positions,
+      timestamps: parsed.timestamps,
       mu: parsed.mu,
     };
     const response: DecodeSuccess = { id, payload };
-    self.postMessage(response);
+    // Transfer the typed-array buffers — zero-copy back to main thread.
+    self.postMessage(response, [
+      parsed.positions.buffer,
+      parsed.timestamps.buffer,
+    ]);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const response: DecodeError = { id, error: message };
