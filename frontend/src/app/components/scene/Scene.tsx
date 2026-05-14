@@ -6,6 +6,7 @@ import { DoubleSide } from "three";
 import Camera from "@/app/components/scene/Camera";
 import Sphere from "@/app/components/scene/Sphere";
 import Trail from "@/app/components/scene/Trail";
+import OrbitPath from "@/app/components/scene/OrbitPath";
 import AnimationController from "@/app/components/scene/AnimationController";
 import { Skybox } from "@/app/components/scene/Skybox";
 import React, { useMemo } from "react";
@@ -17,6 +18,7 @@ import {
   selectCelestialBodyPropertiesList,
   selectShowAxes,
   selectShowGrid,
+  selectShowOrbitPaths,
   selectShowPlanetInfoOverlay,
   selectShowTrails,
   selectSimulationScale,
@@ -51,6 +53,7 @@ const Scene = () => {
   const showGrid: boolean = useSelector(selectShowGrid);
   const showAxes: boolean = useSelector(selectShowAxes);
   const showTrails: boolean = useSelector(selectShowTrails);
+  const showOrbitPaths: boolean = useSelector(selectShowOrbitPaths);
   const simulationScale: SimulationScale = useSelector(selectSimulationScale);
 
   // Per-body radius derived from current scale's radiusScale, indexed by name.
@@ -162,6 +165,9 @@ const Scene = () => {
             />
             {!isSun && showTrails && (
               <Trail bodyName={name} color={trailColor} />
+            )}
+            {!isSun && showOrbitPaths && (
+              <OrbitPath bodyName={name} color={trailColor} />
             )}
           </React.Fragment>
         );

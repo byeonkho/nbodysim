@@ -26,6 +26,7 @@ interface SliceShape {
       showGrid: boolean;
       showAxes: boolean;
       showTrails: boolean;
+      showOrbitPaths: boolean;
       showPlanetInfoOverlay: boolean;
       displayFrame: "helio" | "geo";
       lastRequest: {
@@ -83,6 +84,11 @@ function describe(action: KnownAction, state: SliceShape): string | null {
       return state.simulation.simulationParameters.showTrails
         ? "Trails: on"
         : "Trails: off";
+
+    case "simulation/toggleShowOrbitPaths":
+      return state.simulation.simulationParameters.showOrbitPaths
+        ? "Orbits: on"
+        : "Orbits: off";
 
     case "simulation/toggleShowPlanetInfoOverlay":
       return state.simulation.simulationParameters.showPlanetInfoOverlay

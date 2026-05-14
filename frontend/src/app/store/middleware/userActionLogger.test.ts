@@ -14,6 +14,7 @@ interface FakeState {
       showGrid: boolean;
       showAxes: boolean;
       showTrails: boolean;
+      showOrbitPaths: boolean;
       showPlanetInfoOverlay: boolean;
       lastRequest: {
         celestialBodyNames: string[];
@@ -34,6 +35,7 @@ function baseState(overrides?: Partial<FakeState["simulation"]>): FakeState {
         showGrid: false,
         showAxes: false,
         showTrails: true,
+        showOrbitPaths: true,
         showPlanetInfoOverlay: false,
         lastRequest: null,
       },
