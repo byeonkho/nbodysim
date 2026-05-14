@@ -5,7 +5,27 @@ import {
   computeBufferCapacity,
   selectBufferByteBudget,
   BUFFER_BYTE_BUDGETS,
+  appendChunk,
 } from "./chunkBuffer";
+
+function makeChunkPositions(
+  bodyCount: number,
+  timestepCount: number,
+  startValue = 0,
+): Float64Array {
+  const arr = new Float64Array(bodyCount * timestepCount * 6);
+  for (let i = 0; i < arr.length; i++) arr[i] = startValue + i;
+  return arr;
+}
+
+function makeChunkTimestamps(
+  timestepCount: number,
+  startMillis = 0n,
+): BigInt64Array {
+  const arr = new BigInt64Array(timestepCount);
+  for (let i = 0; i < timestepCount; i++) arr[i] = startMillis + BigInt(i);
+  return arr;
+}
 
 describe("createChunkBuffer", () => {
   it("allocates positions and timestamps sized for the given capacity", () => {
@@ -75,5 +95,59 @@ describe("computeBufferCapacity", () => {
     expect(computeBufferCapacity(3, BUFFER_BYTE_BUDGETS.default)).toBeGreaterThan(
       computeBufferCapacity(12, BUFFER_BYTE_BUDGETS.default),
     );
+  });
+});
+
+describe("appendChunk", () => {
+  it("appends to a fresh buffer without eviction", () => {
+    const buf = createChunkBuffer(["A", "B"], 100);
+    const positions = makeChunkPositions(2, 10);
+    const timestamps = makeChunkTimestamps(10);
+    appendChunk(buf, positions, timestamps, 10);
+
+    expect(buf.totalTimesteps).toBe(10);
+    expect(buf.bufferStartTimestep).toBe(0);
+    // First slot of first body
+    expect(buf.positions[0]).toBe(0);
+    // Last slot of last body of timestep 9
+    expect(buf.positions[10 * 2 * 6 - 1]).toBe(positions[positions.length - 1]);
+    expect(buf.timestamps[9]).toBe(9n);
+  });
+
+  it("evicts oldest timesteps in chunk-sized blocks when capacity is exceeded", () => {
+    // Capacity 30 = 3 × chunk-of-10. Fourth chunk forces eviction.
+    const buf = createChunkBuffer(["A"], 30);
+    appendChunk(buf, makeChunkPositions(1, 10, 0), makeChunkTimestamps(10, 0n), 10);
+    appendChunk(buf, makeChunkPositions(1, 10, 100), makeChunkTimestamps(10, 100n), 10);
+    appendChunk(buf, makeChunkPositions(1, 10, 200), makeChunkTimestamps(10, 200n), 10);
+    expect(buf.totalTimesteps).toBe(30);
+    expect(buf.bufferStartTimestep).toBe(0);
+
+    // Fourth chunk forces eviction of the first 10 timesteps.
+    appendChunk(buf, makeChunkPositions(1, 10, 300), makeChunkTimestamps(10, 300n), 10);
+    expect(buf.totalTimesteps).toBe(30);
+    expect(buf.bufferStartTimestep).toBe(10);
+
+    // First valid timestep is now what was originally timestep 10 (value 100).
+    expect(buf.timestamps[0]).toBe(100n);
+    expect(buf.positions[0]).toBe(100);
+    // Last valid timestep is the freshly-appended one (300+59).
+    expect(buf.timestamps[29]).toBe(309n);
+  });
+
+  it("returns the number of timesteps shifted (0 if no eviction)", () => {
+    const buf = createChunkBuffer(["A"], 30);
+    expect(
+      appendChunk(buf, makeChunkPositions(1, 10), makeChunkTimestamps(10), 10),
+    ).toBe(0);
+    expect(
+      appendChunk(buf, makeChunkPositions(1, 10), makeChunkTimestamps(10), 10),
+    ).toBe(0);
+    expect(
+      appendChunk(buf, makeChunkPositions(1, 10), makeChunkTimestamps(10), 10),
+    ).toBe(0);
+    expect(
+      appendChunk(buf, makeChunkPositions(1, 10), makeChunkTimestamps(10), 10),
+    ).toBe(10);
   });
 });
