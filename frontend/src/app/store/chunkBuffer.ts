@@ -1,3 +1,5 @@
+import type { Vector3 as ThreeVector3 } from "three";
+
 // Typed-array-backed buffer of simulation snapshots. Mirrors the backend's
 // CelestialBodySnapshot layout (6 doubles per body per timestep: px, py, pz,
 // vx, vy, vz) — the same flat layout the wire format ships, so the decode
@@ -124,4 +126,34 @@ export function appendChunk(
   buffer.totalTimesteps += chunkLen;
 
   return shifted;
+}
+
+// Caller provides the output Vector3 — never allocates per call. Designed
+// to be called inside useFrame at FPS rate.
+export function readBodyPositionInto(
+  out: ThreeVector3,
+  buffer: ChunkBuffer,
+  timestepIdx: number,
+  bodyIdx: number,
+): void {
+  const base = timestepIdx * buffer.bodyCount * 6 + bodyIdx * 6;
+  out.x = buffer.positions[base];
+  out.y = buffer.positions[base + 1];
+  out.z = buffer.positions[base + 2];
+}
+
+export function readBodyStateInto(
+  outPos: ThreeVector3,
+  outVel: ThreeVector3,
+  buffer: ChunkBuffer,
+  timestepIdx: number,
+  bodyIdx: number,
+): void {
+  const base = timestepIdx * buffer.bodyCount * 6 + bodyIdx * 6;
+  outPos.x = buffer.positions[base];
+  outPos.y = buffer.positions[base + 1];
+  outPos.z = buffer.positions[base + 2];
+  outVel.x = buffer.positions[base + 3];
+  outVel.y = buffer.positions[base + 4];
+  outVel.z = buffer.positions[base + 5];
 }

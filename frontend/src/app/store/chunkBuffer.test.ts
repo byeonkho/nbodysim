@@ -6,7 +6,10 @@ import {
   selectBufferByteBudget,
   BUFFER_BYTE_BUDGETS,
   appendChunk,
+  readBodyPositionInto,
+  readBodyStateInto,
 } from "./chunkBuffer";
+import * as THREE from "three";
 
 function makeChunkPositions(
   bodyCount: number,
@@ -149,5 +152,43 @@ describe("appendChunk", () => {
     expect(
       appendChunk(buf, makeChunkPositions(1, 10), makeChunkTimestamps(10), 10),
     ).toBe(10);
+  });
+});
+
+describe("readBodyPositionInto", () => {
+  it("reads px/py/pz into the provided Vector3 (no allocation)", () => {
+    const buf = createChunkBuffer(["A", "B"], 10);
+    // Timestep 2, body 1: write known values into the slot.
+    const base = 2 * 2 * 6 + 1 * 6;
+    buf.positions[base + 0] = 100;
+    buf.positions[base + 1] = 200;
+    buf.positions[base + 2] = 300;
+    buf.positions[base + 3] = 0.1; // vx — should be ignored
+    buf.totalTimesteps = 3;
+
+    const out = new THREE.Vector3();
+    readBodyPositionInto(out, buf, 2, 1);
+    expect(out.x).toBe(100);
+    expect(out.y).toBe(200);
+    expect(out.z).toBe(300);
+  });
+});
+
+describe("readBodyStateInto", () => {
+  it("reads position AND velocity into two provided Vector3s", () => {
+    const buf = createChunkBuffer(["A"], 5);
+    buf.positions[0] = 1;
+    buf.positions[1] = 2;
+    buf.positions[2] = 3;
+    buf.positions[3] = 4;
+    buf.positions[4] = 5;
+    buf.positions[5] = 6;
+    buf.totalTimesteps = 1;
+
+    const pos = new THREE.Vector3();
+    const vel = new THREE.Vector3();
+    readBodyStateInto(pos, vel, buf, 0, 0);
+    expect([pos.x, pos.y, pos.z]).toEqual([1, 2, 3]);
+    expect([vel.x, vel.y, vel.z]).toEqual([4, 5, 6]);
   });
 });
