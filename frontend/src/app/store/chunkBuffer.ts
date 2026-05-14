@@ -157,3 +157,16 @@ export function readBodyStateInto(
   outVel.y = buffer.positions[base + 4];
   outVel.z = buffer.positions[base + 5];
 }
+
+export function getTimestamp(buffer: ChunkBuffer, timestepIdx: number): bigint {
+  return buffer.timestamps[timestepIdx];
+}
+
+export function getTimestampAsIsoString(
+  buffer: ChunkBuffer,
+  timestepIdx: number,
+): string {
+  if (timestepIdx < 0 || timestepIdx >= buffer.totalTimesteps) return "";
+  const millis = Number(buffer.timestamps[timestepIdx]);
+  return new Date(millis).toISOString();
+}

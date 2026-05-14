@@ -8,6 +8,8 @@ import {
   appendChunk,
   readBodyPositionInto,
   readBodyStateInto,
+  getTimestamp,
+  getTimestampAsIsoString,
 } from "./chunkBuffer";
 import * as THREE from "three";
 
@@ -23,7 +25,7 @@ function makeChunkPositions(
 
 function makeChunkTimestamps(
   timestepCount: number,
-  startMillis = 0n,
+  startMillis: bigint = BigInt(0),
 ): BigInt64Array {
   const arr = new BigInt64Array(timestepCount);
   for (let i = 0; i < timestepCount; i++) arr[i] = startMillis + BigInt(i);
@@ -64,7 +66,7 @@ describe("selectBufferByteBudget", () => {
   it("returns lowMem budget when deviceMemory ≤ 4", () => {
     const budget = selectBufferByteBudget({
       navigator: { deviceMemory: 4 } as unknown as Navigator,
-      matchMedia: ((_q: string) => ({ matches: false })) as unknown as typeof window.matchMedia,
+      matchMedia: (() => ({ matches: false })) as unknown as typeof window.matchMedia,
     });
     expect(budget).toBe(BUFFER_BYTE_BUDGETS.lowMem);
   });
@@ -72,7 +74,7 @@ describe("selectBufferByteBudget", () => {
   it("returns default budget when neither low-mem signal applies", () => {
     const budget = selectBufferByteBudget({
       navigator: { deviceMemory: 8 } as unknown as Navigator,
-      matchMedia: ((_q: string) => ({ matches: false })) as unknown as typeof window.matchMedia,
+      matchMedia: (() => ({ matches: false })) as unknown as typeof window.matchMedia,
     });
     expect(budget).toBe(BUFFER_BYTE_BUDGETS.default);
   });
@@ -114,28 +116,28 @@ describe("appendChunk", () => {
     expect(buf.positions[0]).toBe(0);
     // Last slot of last body of timestep 9
     expect(buf.positions[10 * 2 * 6 - 1]).toBe(positions[positions.length - 1]);
-    expect(buf.timestamps[9]).toBe(9n);
+    expect(buf.timestamps[9]).toBe(BigInt(9));
   });
 
   it("evicts oldest timesteps in chunk-sized blocks when capacity is exceeded", () => {
     // Capacity 30 = 3 × chunk-of-10. Fourth chunk forces eviction.
     const buf = createChunkBuffer(["A"], 30);
-    appendChunk(buf, makeChunkPositions(1, 10, 0), makeChunkTimestamps(10, 0n), 10);
-    appendChunk(buf, makeChunkPositions(1, 10, 100), makeChunkTimestamps(10, 100n), 10);
-    appendChunk(buf, makeChunkPositions(1, 10, 200), makeChunkTimestamps(10, 200n), 10);
+    appendChunk(buf, makeChunkPositions(1, 10, 0), makeChunkTimestamps(10, BigInt(0)), 10);
+    appendChunk(buf, makeChunkPositions(1, 10, 100), makeChunkTimestamps(10, BigInt(100)), 10);
+    appendChunk(buf, makeChunkPositions(1, 10, 200), makeChunkTimestamps(10, BigInt(200)), 10);
     expect(buf.totalTimesteps).toBe(30);
     expect(buf.bufferStartTimestep).toBe(0);
 
     // Fourth chunk forces eviction of the first 10 timesteps.
-    appendChunk(buf, makeChunkPositions(1, 10, 300), makeChunkTimestamps(10, 300n), 10);
+    appendChunk(buf, makeChunkPositions(1, 10, 300), makeChunkTimestamps(10, BigInt(300)), 10);
     expect(buf.totalTimesteps).toBe(30);
     expect(buf.bufferStartTimestep).toBe(10);
 
     // First valid timestep is now what was originally timestep 10 (value 100).
-    expect(buf.timestamps[0]).toBe(100n);
+    expect(buf.timestamps[0]).toBe(BigInt(100));
     expect(buf.positions[0]).toBe(100);
     // Last valid timestep is the freshly-appended one (300+59).
-    expect(buf.timestamps[29]).toBe(309n);
+    expect(buf.timestamps[29]).toBe(BigInt(309));
   });
 
   it("returns the number of timesteps shifted (0 if no eviction)", () => {
@@ -190,5 +192,25 @@ describe("readBodyStateInto", () => {
     readBodyStateInto(pos, vel, buf, 0, 0);
     expect([pos.x, pos.y, pos.z]).toEqual([1, 2, 3]);
     expect([vel.x, vel.y, vel.z]).toEqual([4, 5, 6]);
+  });
+});
+
+describe("getTimestamp / getTimestampAsIsoString", () => {
+  it("returns raw millis as BigInt and ISO string for a given timestep", () => {
+    const buf = createChunkBuffer(["A"], 5);
+    const millis = BigInt(Date.UTC(2024, 5, 5));
+    buf.timestamps[0] = millis;
+    buf.totalTimesteps = 1;
+
+    expect(getTimestamp(buf, 0)).toBe(millis);
+    expect(getTimestampAsIsoString(buf, 0)).toBe("2024-06-05T00:00:00.000Z");
+  });
+
+  it("returns empty string for out-of-range indices", () => {
+    const buf = createChunkBuffer(["A"], 5);
+    buf.totalTimesteps = 0;
+    expect(getTimestampAsIsoString(buf, 0)).toBe("");
+    expect(getTimestampAsIsoString(buf, -1)).toBe("");
+    expect(getTimestampAsIsoString(buf, 5)).toBe("");
   });
 });
