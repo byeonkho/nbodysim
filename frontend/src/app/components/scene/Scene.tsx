@@ -2,6 +2,7 @@
 
 import { Canvas } from "@react-three/fiber";
 import { Grid, Stars } from "@react-three/drei";
+import { DoubleSide } from "three";
 import Camera from "@/app/components/scene/Camera";
 import Sphere from "@/app/components/scene/Sphere";
 import Trail from "@/app/components/scene/Trail";
@@ -121,6 +122,13 @@ const Scene = () => {
         // gives the user a meaningful "outer-system" landmark).
         // fadeDistance matches the camera's max-zoom-out cap so the
         // grid's visual horizon and the dolly wall line up.
+        // args is intentionally [1, 1] (drei default): with infiniteGrid
+        // the vertex shader scales the plane internally by (1 + fadeDistance),
+        // so passing larger args double-applies the scaling — at our
+        // zoom-out fadeDistance (~90k wu) that pushes vertex worldPosition
+        // to ~8 billion wu, where float32 has ~0 decimal digits of
+        // precision and per-fragment derivatives become nondeterministic
+        // noise (visible as the grid shaking on any camera motion).
         const auInWu = SimConstants.AU_M / simulationScale.positionScale;
         const fadeDistance = Math.min(
           simulationScale.AXES.SIZE * SimConstants.CAMERA_MAX_DISTANCE_MULTIPLIER,
@@ -128,7 +136,7 @@ const Scene = () => {
         );
         return (
           <Grid
-            args={[fadeDistance * 2, fadeDistance * 2]}
+            args={[1, 1]}
             cellSize={auInWu}
             cellThickness={0.6}
             cellColor="#3a3f4d"
@@ -138,7 +146,7 @@ const Scene = () => {
             fadeDistance={fadeDistance}
             fadeStrength={1.2}
             infiniteGrid
-            followCamera={false}
+            side={DoubleSide}
           />
         );
       })()}
