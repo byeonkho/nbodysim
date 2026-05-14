@@ -2,7 +2,6 @@
 
 import { useSelector } from "react-redux";
 import {
-  selectCelestialBodyPropertiesList,
   selectCurrentTimeStepIndex,
   selectCurrentTimeStepKey,
   selectLastSimRequest,
@@ -10,18 +9,18 @@ import {
 } from "@/app/store/slices/SimulationSlice";
 import {
   formatJD,
-  formatTimeStep,
   isoToDateOrNull,
   julianDate,
 } from "@/app/utils/dateMath";
 import { FpsValue } from "@/app/components/chrome/FpsValue";
 import { SimSetupButton } from "@/app/components/chrome/SimSetupButton";
+import { ConfigurationChip } from "@/app/components/chrome/ConfigurationChip";
 
-// Top glass strip telemetry. Frame / Integrator / Δt come from the
-// most-recent SimParams submission (selectLastSimRequest); UTC + JD
-// from the active timestep key; Bodies from the props list; BUFFER
-// from the buffered-vs-played delta; FPS from a self-contained RAF
-// loop. Cells render as static text or one of two helper components.
+// Top glass strip — the SimSetup CTA leads, followed by the
+// Configuration chip (collapsed Frame / Integrator / Δt / Bodies
+// summary that opens the same drawer). UTC + JD come from the active
+// timestep key; BUFFER from the buffered-vs-played delta; FPS from a
+// self-contained RAF loop.
 
 function StatusCell({
   label,
@@ -77,17 +76,12 @@ export function TopStatusStrip({
   simSetupActive,
 }: TopStatusStripProps) {
   const utcKey = useSelector(selectCurrentTimeStepKey);
-  const bodies = useSelector(selectCelestialBodyPropertiesList);
   const lastReq = useSelector(selectLastSimRequest);
   const total = useSelector(selectTotalTimeSteps);
   const idx = useSelector(selectCurrentTimeStepIndex);
 
   const utcDate = isoToDateOrNull(utcKey);
   const jdStr = utcDate ? formatJD(julianDate(utcDate)) : "—";
-
-  const frameDisplay = lastReq?.frame ?? "—";
-  const integratorDisplay = (lastReq?.integrator ?? "—").toUpperCase();
-  const deltaTDisplay = lastReq ? formatTimeStep(lastReq.timeStepUnit) : "—";
 
   const buffered = Math.max(0, total - idx);
   const bufferedStr = buffered.toLocaleString("en-US");
@@ -108,19 +102,13 @@ export function TopStatusStrip({
         onClick={onSimSetupClick}
       />
 
+      <ConfigurationChip onClick={onSimSetupClick} />
+
       <StatusCell label="UTC" value={formatUtc(utcKey)} />
       <StatusCell label="JD" value={jdStr} />
-      <StatusCell label="Frame" value={frameDisplay} />
-      <StatusCell
-        label="Integrator"
-        value={integratorDisplay}
-        valueClass="text-accent"
-      />
-      <StatusCell label="Δt" value={deltaTDisplay} />
 
       <div className="flex-1" />
 
-      <StatusCell label="Bodies" value={String(bodies?.length ?? 0)} />
       <StatusCell label="Buffer" value={bufferedStr} />
       <StatusCellWith label="FPS">
         <FpsValue className="text-success" />
