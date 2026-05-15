@@ -98,19 +98,28 @@ The accumulator/throttle pattern (`accRef`, `FRAME_INTERVAL`) stays — fires at
 - Eviction-shift handler at line 252-254 (`currentTimeStepIndex - shifted`) works for floats with no change.
 - Scrubber stays integer (`Math.round(...)` in `Timeline.tsx:182`) — fractional scrubbing adds nothing perceptible.
 
-### chunkBuffer additions — `chunkBuffer.ts`
+### chunkBuffer changes — `chunkBuffer.ts`
 
-Two new read functions, allocation-free, caller-provided scratch vectors:
+**Widen the existing `readBodyPositionInto` and `readBodyStateInto` to accept a float idx**, rather than adding parallel `*AtFrac` functions. Function signatures and existing call sites unchanged. Internal behavior:
+
+- At integer idx (the s=0 case), short-circuit to direct typed-array read — same path as today, single-branch overhead.
+- At fractional idx, perform cubic Hermite against the surrounding keyframes inline.
+
+Allocation-free, caller-provided scratch vectors throughout (existing pattern preserved).
 
 ```ts
-readBodyPositionAtFrac(
+// Signature unchanged; doc comment updated:
+// floatIdx ∈ [0, totalTimesteps - 1]. Integer = exact keyframe read.
+// Fractional = cubic Hermite between floor(floatIdx) and floor(floatIdx) + 1
+// using stored velocities as tangents.
+readBodyPositionInto(
   out: Vector3,
   buffer: ChunkBuffer,
   floatIdx: number,
   bodyIdx: number,
 ): void
 
-readBodyStateAtFrac(
+readBodyStateInto(
   outPos: Vector3,
   outVel: Vector3,
   buffer: ChunkBuffer,
@@ -119,24 +128,26 @@ readBodyStateAtFrac(
 ): void
 ```
 
-Both perform Hermite inline against the typed-array backing store. Existing integer-index `readBodyPositionInto` / `readBodyStateInto` stay for non-animation callers (Trail tail iteration, etc.).
+Why widen instead of adding new functions: every consumer (`Sphere`, `Trail`, `OrbitPath`, `Reticle`, `GhostLabel`, `Camera`, `BodyCard`, `framePivot`) currently passes the slice's `currentTimeStepIndex` straight through. After `AnimationController` makes that value a float, the consumers transparently forward it. No call-site migrations needed beyond AnimationController itself. Trail's tail loop still passes integer `i` and gets exact-keyframe values via the s=0 fast path — zero perf cost.
 
-Boundary handling: `floatIdx >= totalTimesteps - 1` → clamp to last keyframe's stored values (no Hermite). `floatIdx < 0` → clamp to first. No special-case across chunk boundaries because the buffer is contiguous regardless of which raw chunk a keyframe came from.
+Boundary handling: `floatIdx >= totalTimesteps - 1` → clamp to last keyframe (no Hermite). `floatIdx < 0` → clamp to first. No special-case across raw-chunk boundaries because the buffer is contiguous regardless of which chunk a keyframe came from.
 
 ### Scene consumer audit
 
-Per `frontend-render-loop.md` "audit EVERY consumer" rule. Every site that reads body position via integer-index becomes a float-index read:
+Per `frontend-render-loop.md` "audit EVERY consumer" rule. Because we widened `readBodyPositionInto` / `readBodyStateInto` rather than adding parallel functions, **none of the consumer files require code changes** — they already pass the slice's `currentTimeStepIndex` through to the read APIs unchanged. The audit confirms each consumer transparently propagates whatever index it receives:
 
-| File | Change | Notes |
-|---|---|---|
-| `Sphere.tsx` | `readBodyPositionInto` → `readBodyPositionAtFrac` | Direct swap |
-| `Trail.tsx` | Tail loop unchanged (integer past-keyframe iteration); **head** position becomes fractional | Trail head is the only fractional read; trail body is `start..end-1` integer iteration |
-| `OrbitPath.tsx` | `readBodyStateInto` → `readBodyStateAtFrac` | Uses interpolated velocity for Keplerian fit — matches interpolated position |
-| `Reticle.tsx` | Position read → fractional | |
-| `GhostLabel.tsx` | Position read → fractional | |
-| `Camera.tsx` | Focused-body position read → fractional | Existing per-frame `new THREE.Vector3` allocation (flagged in render-loop rules as known offender) — fix opportunistically while in the file |
-| `framePivot` helper | `writePivotInto(pivot, buffer, idx, frame)` → accept float idx; Hermite at fractional, exact keyframe at integer (Hermite degenerates to keyframe at s=0) | Single read API consumed by all six scene components above. Trail's tail loop passes int (gets exact); head passes float (gets interpolated). No call-site changes beyond the type widening |
-| `BodyCard.tsx` | `currentTimeStepIndex` consumer for display | Display strings can use fractional state |
+| File | Reads via | Index source | Notes |
+|---|---|---|---|
+| `Sphere.tsx` | `readBodyPositionInto` ×2 | `currentTimeStepIndex` (becomes float) | Body + parent reads — both pass the same float idx |
+| `Trail.tsx` | `readBodyPositionInto` ×2 in tail loop | `i` (always integer) | Tail uses s=0 fast path, no Hermite cost |
+| `OrbitPath.tsx` | `readBodyStateInto` ×2 | `currentTimeStepIndex` (becomes float) | Body + parent state — Hermite-interpolated velocity flows into Keplerian fit naturally |
+| `Reticle.tsx` | `readBodyPositionInto` | `currentTimeStepIndex` (becomes float) | |
+| `GhostLabel.tsx` | `readBodyPositionInto` ×3 | `currentTimeStepIndex` (becomes float) | |
+| `Camera.tsx` | `readBodyPositionInto` (via `framePivot`) | `currentTimeStepIndex` (becomes float) | Existing per-frame `new THREE.Vector3` allocation (flagged in render-loop rules as known offender) — fix opportunistically while in the file for visual smoothness verification |
+| `framePivot.ts` | `readBodyPositionInto` | passed-through `timestepIdx` | No signature change; just inherits the widened function's behavior |
+| `BodyCard.tsx` | `readBodyStateInto` ×3 | `currentTimeStepIndex` (becomes float) | Display strings naturally show fractional state |
+
+The only file with active code changes besides `chunkBuffer.ts` is `AnimationController.tsx` (drive-model switch + offender cleanup), plus the opportunistic `Camera.tsx` allocation fix.
 
 ### AnimationController known-offender cleanup
 
@@ -150,12 +161,13 @@ Currently subscribes to `currentTimeStepIndex` via `useSelector` then dispatches
 
 ### Phase 1 tests — `chunkBuffer.test.ts`
 
-- `readBodyPositionAtFrac` at integer index returns p0 exactly.
-- `readBodyPositionAtFrac` at integer+1 returns p1 exactly.
-- `readBodyStateAtFrac` velocity at integer keyframe matches stored velocity exactly (Hermite degenerates correctly).
-- Hermite passes through endpoints with correct tangents (synthesize a two-keyframe buffer with known motion → verify intermediate value against analytical formula).
+- `readBodyPositionInto` at integer index returns p_i exactly (regression-protects the s=0 fast path).
+- `readBodyPositionInto` at integer + 0.5 with synthetic two-keyframe buffer (known p0, v0, p1, v1, dt) returns the analytical Hermite midpoint.
+- `readBodyStateInto` at integer keyframe returns stored velocity exactly.
+- `readBodyStateInto` at integer + 0.5 returns the Hermite analytic-derivative velocity.
+- Hermite endpoints check: at floatIdx=0 returns p0 + v0; at floatIdx=1 returns p1 + v1.
 - Boundary clamping: floatIdx > `totalTimesteps - 1` → returns last keyframe values; floatIdx < 0 → returns first.
-- Single-keyframe buffer: falls back gracefully to that keyframe's position (no Hermite).
+- Single-keyframe buffer: falls back gracefully to that keyframe's position + velocity (no Hermite, no out-of-bounds reads).
 
 ### Phase 1 verify criterion
 
