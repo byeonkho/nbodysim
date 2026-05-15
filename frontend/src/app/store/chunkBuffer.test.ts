@@ -195,6 +195,51 @@ describe("readBodyStateInto", () => {
   });
 });
 
+describe("readBodyPositionInto — integer index (regression)", () => {
+  it("returns stored position exactly at integer keyframe", () => {
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      1, 2, 3, 10, 11, 12,
+      4, 5, 6, 13, 14, 15,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const out = new THREE.Vector3();
+    readBodyPositionInto(out, buf, 0, 0);
+    expect(out.x).toBe(1);
+    expect(out.y).toBe(2);
+    expect(out.z).toBe(3);
+
+    readBodyPositionInto(out, buf, 1, 0);
+    expect(out.x).toBe(4);
+    expect(out.y).toBe(5);
+    expect(out.z).toBe(6);
+  });
+});
+
+describe("readBodyStateInto — integer index (regression)", () => {
+  it("returns stored position and velocity exactly at integer keyframe", () => {
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      1, 2, 3, 10, 11, 12,
+      4, 5, 6, 13, 14, 15,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const outPos = new THREE.Vector3();
+    const outVel = new THREE.Vector3();
+    readBodyStateInto(outPos, outVel, buf, 1, 0);
+    expect(outPos.x).toBe(4);
+    expect(outPos.y).toBe(5);
+    expect(outPos.z).toBe(6);
+    expect(outVel.x).toBe(13);
+    expect(outVel.y).toBe(14);
+    expect(outVel.z).toBe(15);
+  });
+});
+
 describe("getTimestamp / getTimestampAsIsoString", () => {
   it("returns raw millis as BigInt and ISO string for a given timestep", () => {
     const buf = createChunkBuffer(["A"], 5);
