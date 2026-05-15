@@ -138,16 +138,75 @@ export function appendChunk(
 
 // Caller provides the output Vector3 — never allocates per call. Designed
 // to be called inside useFrame at FPS rate.
+//
+// floatIdx ∈ [0, totalTimesteps - 1]. Integer values short-circuit to a
+// direct typed-array read (zero perf cost; preserves existing s=0 behavior
+// for callers like Trail's tail loop). Fractional values invoke cubic
+// Hermite between floor(floatIdx) and floor(floatIdx) + 1, using the stored
+// velocities as exact tangents and per-keyframe timestamps for the interval.
 export function readBodyPositionInto(
   out: ThreeVector3,
   buffer: ChunkBuffer,
-  timestepIdx: number,
+  floatIdx: number,
   bodyIdx: number,
 ): void {
-  const base = timestepIdx * buffer.bodyCount * 6 + bodyIdx * 6;
-  out.x = buffer.positions[base];
-  out.y = buffer.positions[base + 1];
-  out.z = buffer.positions[base + 2];
+  if (floatIdx <= 0 || buffer.totalTimesteps <= 1) {
+    const base = 0 * buffer.bodyCount * 6 + bodyIdx * 6;
+    out.x = buffer.positions[base];
+    out.y = buffer.positions[base + 1];
+    out.z = buffer.positions[base + 2];
+    return;
+  }
+  if (floatIdx >= buffer.totalTimesteps - 1) {
+    const base =
+      (buffer.totalTimesteps - 1) * buffer.bodyCount * 6 + bodyIdx * 6;
+    out.x = buffer.positions[base];
+    out.y = buffer.positions[base + 1];
+    out.z = buffer.positions[base + 2];
+    return;
+  }
+
+  const i0 = Math.floor(floatIdx);
+  const s = floatIdx - i0;
+
+  if (s === 0) {
+    const base = i0 * buffer.bodyCount * 6 + bodyIdx * 6;
+    out.x = buffer.positions[base];
+    out.y = buffer.positions[base + 1];
+    out.z = buffer.positions[base + 2];
+    return;
+  }
+
+  const stride = buffer.bodyCount * 6;
+  const base0 = i0 * stride + bodyIdx * 6;
+  const base1 = base0 + stride;
+
+  const dtMs = Number(buffer.timestamps[i0 + 1] - buffer.timestamps[i0]);
+  const dt = dtMs / 1000;
+
+  const s2 = s * s;
+  const s3 = s2 * s;
+  const h00 = 2 * s3 - 3 * s2 + 1;
+  const h10 = s3 - 2 * s2 + s;
+  const h01 = -2 * s3 + 3 * s2;
+  const h11 = s3 - s2;
+
+  const p0x = buffer.positions[base0];
+  const p0y = buffer.positions[base0 + 1];
+  const p0z = buffer.positions[base0 + 2];
+  const v0x = buffer.positions[base0 + 3];
+  const v0y = buffer.positions[base0 + 4];
+  const v0z = buffer.positions[base0 + 5];
+  const p1x = buffer.positions[base1];
+  const p1y = buffer.positions[base1 + 1];
+  const p1z = buffer.positions[base1 + 2];
+  const v1x = buffer.positions[base1 + 3];
+  const v1y = buffer.positions[base1 + 4];
+  const v1z = buffer.positions[base1 + 5];
+
+  out.x = h00 * p0x + h10 * dt * v0x + h01 * p1x + h11 * dt * v1x;
+  out.y = h00 * p0y + h10 * dt * v0y + h01 * p1y + h11 * dt * v1y;
+  out.z = h00 * p0z + h10 * dt * v0z + h01 * p1z + h11 * dt * v1z;
 }
 
 export function readBodyStateInto(

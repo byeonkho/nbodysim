@@ -195,6 +195,40 @@ describe("readBodyStateInto", () => {
   });
 });
 
+describe("readBodyPositionInto — fractional index (Hermite)", () => {
+  it("interpolates position at midpoint via cubic Hermite", () => {
+    // Constant velocity → linear position; midpoint = (0.5, 0, 0).
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      0, 0, 0, 1, 0, 0,
+      1, 0, 0, 1, 0, 0,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const out = new THREE.Vector3();
+    readBodyPositionInto(out, buf, 0.5, 0);
+    expect(out.x).toBeCloseTo(0.5, 10);
+    expect(out.y).toBeCloseTo(0, 10);
+    expect(out.z).toBeCloseTo(0, 10);
+  });
+
+  it("interpolates non-linear motion correctly via Hermite cubic", () => {
+    // Zero tangents at both ends → smoothstep; midpoint = 0.5.
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      0, 0, 0, 0, 0, 0,
+      1, 0, 0, 0, 0, 0,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const out = new THREE.Vector3();
+    readBodyPositionInto(out, buf, 0.5, 0);
+    expect(out.x).toBeCloseTo(0.5, 10);
+  });
+});
+
 describe("readBodyPositionInto — integer index (regression)", () => {
   it("returns stored position exactly at integer keyframe", () => {
     const buf = createChunkBuffer(["Earth"], 4);
