@@ -229,6 +229,44 @@ describe("readBodyPositionInto — fractional index (Hermite)", () => {
   });
 });
 
+describe("readBodyStateInto — fractional index (Hermite)", () => {
+  it("interpolates position and velocity at midpoint via Hermite", () => {
+    // Constant velocity → linear position, vel constant.
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      0, 0, 0, 1, 0, 0,
+      1, 0, 0, 1, 0, 0,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const outPos = new THREE.Vector3();
+    const outVel = new THREE.Vector3();
+    readBodyStateInto(outPos, outVel, buf, 0.5, 0);
+    expect(outPos.x).toBeCloseTo(0.5, 10);
+    expect(outVel.x).toBeCloseTo(1, 10);
+  });
+
+  it("interpolates velocity correctly when endpoints differ", () => {
+    // p0=0, v0=0, p1=1, v1=0, dt=1. Smoothstep position.
+    // Velocity at s=0.5 = derivative wrt sim-time:
+    //   h00'(0.5)=-1.5, h01'(0.5)=1.5, h10'(0.5)=-0.25, h11'(0.5)=-0.25
+    //   vel = (-1.5·0 + 1.5·1)/1 + -0.25·0 + -0.25·0 = 1.5 m/s
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      0, 0, 0, 0, 0, 0,
+      1, 0, 0, 0, 0, 0,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const outPos = new THREE.Vector3();
+    const outVel = new THREE.Vector3();
+    readBodyStateInto(outPos, outVel, buf, 0.5, 0);
+    expect(outVel.x).toBeCloseTo(1.5, 10);
+  });
+});
+
 describe("readBodyPositionInto — integer index (regression)", () => {
   it("returns stored position exactly at integer keyframe", () => {
     const buf = createChunkBuffer(["Earth"], 4);

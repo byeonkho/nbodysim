@@ -209,20 +209,98 @@ export function readBodyPositionInto(
   out.z = h00 * p0z + h10 * dt * v0z + h01 * p1z + h11 * dt * v1z;
 }
 
+// Caller provides both output Vector3s — never allocates per call.
+//
+// floatIdx ∈ [0, totalTimesteps - 1]. Integer values short-circuit to
+// direct typed-array reads. Fractional values perform cubic Hermite for
+// position (using stored velocities as tangents) AND its analytic
+// derivative for velocity. Velocity at integer keyframes equals the
+// stored value exactly; velocity at fractional indices is consistent
+// with the Hermite-interpolated position.
 export function readBodyStateInto(
   outPos: ThreeVector3,
   outVel: ThreeVector3,
   buffer: ChunkBuffer,
-  timestepIdx: number,
+  floatIdx: number,
   bodyIdx: number,
 ): void {
-  const base = timestepIdx * buffer.bodyCount * 6 + bodyIdx * 6;
-  outPos.x = buffer.positions[base];
-  outPos.y = buffer.positions[base + 1];
-  outPos.z = buffer.positions[base + 2];
-  outVel.x = buffer.positions[base + 3];
-  outVel.y = buffer.positions[base + 4];
-  outVel.z = buffer.positions[base + 5];
+  if (floatIdx <= 0 || buffer.totalTimesteps <= 1) {
+    const base = 0 * buffer.bodyCount * 6 + bodyIdx * 6;
+    outPos.x = buffer.positions[base];
+    outPos.y = buffer.positions[base + 1];
+    outPos.z = buffer.positions[base + 2];
+    outVel.x = buffer.positions[base + 3];
+    outVel.y = buffer.positions[base + 4];
+    outVel.z = buffer.positions[base + 5];
+    return;
+  }
+  if (floatIdx >= buffer.totalTimesteps - 1) {
+    const base =
+      (buffer.totalTimesteps - 1) * buffer.bodyCount * 6 + bodyIdx * 6;
+    outPos.x = buffer.positions[base];
+    outPos.y = buffer.positions[base + 1];
+    outPos.z = buffer.positions[base + 2];
+    outVel.x = buffer.positions[base + 3];
+    outVel.y = buffer.positions[base + 4];
+    outVel.z = buffer.positions[base + 5];
+    return;
+  }
+
+  const i0 = Math.floor(floatIdx);
+  const s = floatIdx - i0;
+
+  if (s === 0) {
+    const base = i0 * buffer.bodyCount * 6 + bodyIdx * 6;
+    outPos.x = buffer.positions[base];
+    outPos.y = buffer.positions[base + 1];
+    outPos.z = buffer.positions[base + 2];
+    outVel.x = buffer.positions[base + 3];
+    outVel.y = buffer.positions[base + 4];
+    outVel.z = buffer.positions[base + 5];
+    return;
+  }
+
+  const stride = buffer.bodyCount * 6;
+  const base0 = i0 * stride + bodyIdx * 6;
+  const base1 = base0 + stride;
+
+  const dtMs = Number(buffer.timestamps[i0 + 1] - buffer.timestamps[i0]);
+  const dt = dtMs / 1000;
+
+  const s2 = s * s;
+  const s3 = s2 * s;
+
+  const h00 = 2 * s3 - 3 * s2 + 1;
+  const h10 = s3 - 2 * s2 + s;
+  const h01 = -2 * s3 + 3 * s2;
+  const h11 = s3 - s2;
+
+  const dh00 = 6 * s2 - 6 * s;
+  const dh10 = 3 * s2 - 4 * s + 1;
+  const dh01 = -6 * s2 + 6 * s;
+  const dh11 = 3 * s2 - 2 * s;
+  const invDt = 1 / dt;
+
+  const p0x = buffer.positions[base0];
+  const p0y = buffer.positions[base0 + 1];
+  const p0z = buffer.positions[base0 + 2];
+  const v0x = buffer.positions[base0 + 3];
+  const v0y = buffer.positions[base0 + 4];
+  const v0z = buffer.positions[base0 + 5];
+  const p1x = buffer.positions[base1];
+  const p1y = buffer.positions[base1 + 1];
+  const p1z = buffer.positions[base1 + 2];
+  const v1x = buffer.positions[base1 + 3];
+  const v1y = buffer.positions[base1 + 4];
+  const v1z = buffer.positions[base1 + 5];
+
+  outPos.x = h00 * p0x + h10 * dt * v0x + h01 * p1x + h11 * dt * v1x;
+  outPos.y = h00 * p0y + h10 * dt * v0y + h01 * p1y + h11 * dt * v1y;
+  outPos.z = h00 * p0z + h10 * dt * v0z + h01 * p1z + h11 * dt * v1z;
+
+  outVel.x = (dh00 * p0x + dh01 * p1x) * invDt + dh10 * v0x + dh11 * v1x;
+  outVel.y = (dh00 * p0y + dh01 * p1y) * invDt + dh10 * v0y + dh11 * v1y;
+  outVel.z = (dh00 * p0z + dh01 * p1z) * invDt + dh10 * v0z + dh11 * v1z;
 }
 
 export function getTimestamp(buffer: ChunkBuffer, timestepIdx: number): bigint {
