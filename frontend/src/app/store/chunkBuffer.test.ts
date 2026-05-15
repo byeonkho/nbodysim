@@ -267,6 +267,53 @@ describe("readBodyStateInto — fractional index (Hermite)", () => {
   });
 });
 
+describe("readBodyPositionInto — boundaries and edge cases", () => {
+  it("clamps floatIdx > totalTimesteps - 1 to last keyframe", () => {
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      1, 2, 3, 0, 0, 0,
+      4, 5, 6, 0, 0, 0,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const out = new THREE.Vector3();
+    readBodyPositionInto(out, buf, 999, 0);
+    expect(out.x).toBe(4);
+    expect(out.y).toBe(5);
+    expect(out.z).toBe(6);
+  });
+
+  it("clamps floatIdx < 0 to first keyframe", () => {
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      1, 2, 3, 0, 0, 0,
+      4, 5, 6, 0, 0, 0,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const out = new THREE.Vector3();
+    readBodyPositionInto(out, buf, -5, 0);
+    expect(out.x).toBe(1);
+    expect(out.y).toBe(2);
+    expect(out.z).toBe(3);
+  });
+
+  it("returns first-keyframe values for a single-keyframe buffer", () => {
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([1, 2, 3, 0, 0, 0]);
+    const timestamps = new BigInt64Array([0n]);
+    appendChunk(buf, positions, timestamps, 1);
+
+    const out = new THREE.Vector3();
+    readBodyPositionInto(out, buf, 0.5, 0);
+    expect(out.x).toBe(1);
+    expect(out.y).toBe(2);
+    expect(out.z).toBe(3);
+  });
+});
+
 describe("readBodyPositionInto — integer index (regression)", () => {
   it("returns stored position exactly at integer keyframe", () => {
     const buf = createChunkBuffer(["Earth"], 4);
