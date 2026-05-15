@@ -140,8 +140,9 @@ export function appendChunk(
 // to be called inside useFrame at FPS rate.
 //
 // floatIdx ∈ [0, totalTimesteps - 1]. Integer values short-circuit to a
-// direct typed-array read (zero perf cost; preserves existing s=0 behavior
-// for callers like Trail's tail loop). Fractional values invoke cubic
+// direct typed-array read after three cheap guard comparisons — minimal
+// branch overhead, preserves existing behavior for callers like Trail's
+// tail loop that pass integer indices. Fractional values invoke cubic
 // Hermite between floor(floatIdx) and floor(floatIdx) + 1, using the stored
 // velocities as exact tangents and per-keyframe timestamps for the interval.
 export function readBodyPositionInto(
@@ -151,7 +152,7 @@ export function readBodyPositionInto(
   bodyIdx: number,
 ): void {
   if (floatIdx <= 0 || buffer.totalTimesteps <= 1) {
-    const base = 0 * buffer.bodyCount * 6 + bodyIdx * 6;
+    const base = bodyIdx * 6;
     out.x = buffer.positions[base];
     out.y = buffer.positions[base + 1];
     out.z = buffer.positions[base + 2];
@@ -225,7 +226,7 @@ export function readBodyStateInto(
   bodyIdx: number,
 ): void {
   if (floatIdx <= 0 || buffer.totalTimesteps <= 1) {
-    const base = 0 * buffer.bodyCount * 6 + bodyIdx * 6;
+    const base = bodyIdx * 6;
     outPos.x = buffer.positions[base];
     outPos.y = buffer.positions[base + 1];
     outPos.z = buffer.positions[base + 2];

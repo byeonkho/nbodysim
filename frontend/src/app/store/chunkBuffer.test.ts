@@ -227,6 +227,23 @@ describe("readBodyPositionInto — fractional index (Hermite)", () => {
     readBodyPositionInto(out, buf, 0.5, 0);
     expect(out.x).toBeCloseTo(0.5, 10);
   });
+
+  it("scales Hermite tangent terms by dt correctly at non-unit interval", () => {
+    // dt = 0.5s. Constant velocity = 2 m/s in x.
+    // Linear motion over 0.5s covers 1 m: p0=(0,0,0) → p1=(1,0,0) with v0=v1=(2,0,0).
+    // Midpoint (s=0.5) should be (0.5, 0, 0).
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      0, 0, 0, 2, 0, 0,
+      1, 0, 0, 2, 0, 0,
+    ]);
+    const timestamps = new BigInt64Array([0n, 500n]); // dt = 0.5s
+    appendChunk(buf, positions, timestamps, 2);
+
+    const out = new THREE.Vector3();
+    readBodyPositionInto(out, buf, 0.5, 0);
+    expect(out.x).toBeCloseTo(0.5, 10);
+  });
 });
 
 describe("readBodyStateInto — fractional index (Hermite)", () => {
@@ -356,6 +373,26 @@ describe("readBodyStateInto — integer index (regression)", () => {
     expect(outVel.x).toBe(13);
     expect(outVel.y).toBe(14);
     expect(outVel.z).toBe(15);
+  });
+
+  it("returns first-keyframe position and velocity when floatIdx is exactly 0", () => {
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      1, 2, 3, 10, 11, 12,
+      4, 5, 6, 13, 14, 15,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const outPos = new THREE.Vector3();
+    const outVel = new THREE.Vector3();
+    readBodyStateInto(outPos, outVel, buf, 0, 0);
+    expect(outPos.x).toBe(1);
+    expect(outPos.y).toBe(2);
+    expect(outPos.z).toBe(3);
+    expect(outVel.x).toBe(10);
+    expect(outVel.y).toBe(11);
+    expect(outVel.z).toBe(12);
   });
 });
 
