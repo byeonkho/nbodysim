@@ -120,8 +120,14 @@ const Trail: React.FC<TrailProps> = ({
     }
 
     const length = Math.min(MAX_TRAIL_POINTS, getDevSettings().trailLength);
-    const start = Math.max(0, currentTimeStepIndex - length);
-    const end = Math.min(currentTimeStepIndex, buffer.totalTimesteps - 1);
+    // Floor the current index for the tail loop. Trail renders *historical*
+    // keyframes — integer indices semantically. Without this floor, every
+    // iteration of the loop below would hit the chunkBuffer's Hermite path
+    // (~30 mults/read) instead of the 4-read fast path. With ~5000 points × 9
+    // trails × FPS, the difference is measurable.
+    const idxFloor = Math.floor(currentTimeStepIndex);
+    const start = Math.max(0, idxFloor - length);
+    const end = Math.min(idxFloor, buffer.totalTimesteps - 1);
     const total = end - start;
 
     const bodyProps: CelestialBodyProperties | undefined =
