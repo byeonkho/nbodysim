@@ -25,8 +25,16 @@ import java.util.concurrent.ConcurrentHashMap;
  * <ul>
  *   <li><b>Burst:</b> 60 req/min, intervally refilled. Comfortably allows
  *       max-speed playback (~50 chunk requests/min) with headroom.</li>
- *   <li><b>Daily:</b> 500 req/day, intervally refilled. Caps total bandwidth
- *       cost per IP at ~2 GB/day given a 4 MB chunk size.</li>
+ *   <li><b>Daily:</b> 500 req/day, intervally refilled. Sizing budget per
+ *       chunk after Phase 3 (float32 + Mode C):
+ *       <ul>
+ *         <li>Default tier (Euler/RK4 highest bucket): up to 2 MB compressed
+ *             → ~1 GB/day per IP.</li>
+ *         <li>DP853 tier (highest bucket): up to ~3 MB compressed →
+ *             ~1.5 GB/day per IP.</li>
+ *       </ul>
+ *       Bounded by construction now — no chunks larger than the per-tier
+ *       ceiling can be emitted.</li>
  * </ul>
  *
  * <p>On limit hit: {@code 429 Too Many Requests} with a {@code Retry-After}
@@ -51,8 +59,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
     // attackers rotating IPs (residential proxies, IPv6, Tor) — per-IP limits
     // alone are trivially defeated by anyone willing to spend $10/mo on a
     // proxy farm. When this is exhausted, every request gets 429 regardless
-    // of source. Sized at ~50% of free Fly bandwidth (5000 chunks × 4MB =
-    // ~20GB/day vs 160GB/month budget).
+    // of source. Sized at ~50% of free Fly bandwidth (5000 chunks × ~3 MB
+    // highest DP853 chunk ≈ 15 GB/day vs 160 GB/month budget).
     private final Bucket globalBucket = Bucket.builder()
             .addLimit(Bandwidth.classic(
                     GLOBAL_DAILY_LIMIT,

@@ -1,95 +1,73 @@
 /**
  * Playback quality presets — the user-facing axis that maps to the
- * backend's keyframeIntervalSec lever (see Hermite Phase 2 spec). Higher
- * "quality" = more keyframes shipped per chunk = smoother playback per
- * step but larger compressed payloads. Lower quality = fewer keyframes,
- * Hermite interpolation fills the gaps. The "× stepDt" framing is internal;
- * the user picks a label or types a custom multiplier.
+ * backend's per-integrator emission settings via the {@code fidelityBucket}
+ * enum sent on /initialize.
+ *
+ * <p>Backend resolves each bucket to either {@code keyframesPerKept} (K,
+ * for fixed-step integrators) or {@code targetSnapshotsPerChunk} (N, for
+ * DP853 under Mode C time-gap thinning). Frontend just picks the bucket;
+ * what it resolves to depends on the integrator the session uses.
+ *
+ * <p>Mirror of backend {@code FidelityBucket} enum. Wire names match
+ * exactly. K/N preview tables are for UI tooltips only — backend is the
+ * source of truth.
  */
-// Key order is the display order in the segmented picker (Object.entries
-// preserves insertion order). Low → High left-to-right matches the natural
-// "more = right" slider mental model. Multiplier sequence is inverted
-// (16 → 1) because higher quality ships *more* keyframes per chunk.
-export const PLAYBACK_QUALITY_PRESETS = {
-  low:     { multiplier: 16, label: "Low" },
-  medLow:  { multiplier: 8,  label: "Med-Low" },
-  medium:  { multiplier: 4,  label: "Medium" },
-  medHigh: { multiplier: 2,  label: "Med-High" },
-  high:    { multiplier: 1,  label: "High" },
-} as const;
 
-export type PlaybackQualityKey = keyof typeof PLAYBACK_QUALITY_PRESETS;
+// 5 buckets, ordered low → high quality (left-to-right in the picker).
+// Wire names match backend FidelityBucket.wireName.
+export const FIDELITY_BUCKETS = [
+  "low",
+  "medLow",
+  "medium",
+  "medHigh",
+  "high",
+] as const;
 
-/**
- * Default preset per integrator. Rationale (from the spec):
- * - euler:  K=1 — Euler is already crude; no point ditching keyframes.
- * - rk4:    K=4 — balanced; interpolation hides most thinning artifacts.
- * - dp853:  K=8 — DP853's orbits are smooth and over-sampled at fixed dt,
- *           so aggressive thinning + Hermite still looks great.
- */
-export const INTEGRATOR_QUALITY_DEFAULTS: Record<string, PlaybackQualityKey> = {
-  euler:  "high",
-  rk4:    "medium",
-  dp853:  "medLow",
+export type FidelityBucket = (typeof FIDELITY_BUCKETS)[number];
+
+export const BUCKET_LABELS: Record<FidelityBucket, string> = {
+  low: "Low",
+  medLow: "Med-Low",
+  medium: "Medium",
+  medHigh: "Med-High",
+  high: "High",
 };
 
 /**
- * Mirror of `SimulationLimits.MAX_KEYFRAMES_PER_KEPT` on the backend.
- * Kept in sync manually — if the backend cap changes, change here too.
+ * Per-integrator landing default — the bucket the SimSetupDrawer surfaces
+ * on first open and when switching integrators mid-config.
+ *
+ * <p>Must mirror backend {@code FidelityBucket.defaultFor()}. Drift means
+ * the UI shows one bucket as "active" while the backend actually uses a
+ * different one when the bucket field is null.
  */
-export const MAX_QUALITY_MULTIPLIER = 100;
+export const INTEGRATOR_DEFAULT_BUCKETS: Record<string, FidelityBucket> = {
+  euler: "medHigh",
+  rk4: "medium",
+  dp853: "medLow",
+};
 
 /**
- * Returns the preset key whose multiplier matches the given value, or
- * null if no preset matches (i.e., the picker is in "custom" mode).
+ * Bucket → K (keyframesPerKept) preview for fixed-step integrators
+ * (Euler, RK4). Mirror of backend FidelityBucket enum constants.
+ * Display-only: backend computes the actual K from the bucket directly.
  */
-export function getActivePresetKey(multiplier: number): PlaybackQualityKey | null {
-  for (const [key, preset] of Object.entries(PLAYBACK_QUALITY_PRESETS) as Array<
-    [PlaybackQualityKey, { multiplier: number; label: string }]
-  >) {
-    if (preset.multiplier === multiplier) return key;
-  }
-  return null;
-}
+export const K_BY_BUCKET: Record<FidelityBucket, number> = {
+  low: 20,
+  medLow: 10,
+  medium: 5,
+  medHigh: 2,
+  high: 1,
+};
 
 /**
- * Converts the drawer's timeStepUnit string to seconds. Mirrors the
- * backend's stepDtSeconds switch in SimulationController. The drawer's
- * TIME_UNITS values are capitalized ("Seconds", "Hours", "Days", "Weeks");
- * this function is case-insensitive to be defensive.
+ * Bucket → N (targetSnapshotsPerChunk) preview for DP853. Mirror of
+ * backend FidelityBucket enum constants. Display-only.
  */
-export function stepDtSeconds(timeStepUnit: string): number {
-  switch (timeStepUnit.toLowerCase()) {
-    case "seconds": return 1;
-    case "hours":   return 3600;
-    case "days":    return 86400;
-    case "weeks":   return 7 * 86400;
-    default:
-      throw new Error(`Unsupported time step unit: ${timeStepUnit}`);
-  }
-}
-
-/**
- * Parses + validates a string from the "Custom" numeric input. Accepts
- * positive integers in [1, MAX_QUALITY_MULTIPLIER]. Returns either a
- * parsed value (error null) or a user-facing error message (value null).
- */
-export function parseCustomMultiplier(
-  raw: string,
-): { value: number; error: null } | { value: null; error: string } {
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) {
-    return { value: null, error: "Enter a number" };
-  }
-  if (!/^-?\d+$/.test(trimmed)) {
-    return { value: null, error: "Must be a whole number" };
-  }
-  const n = Number(trimmed);
-  if (n < 1) {
-    return { value: null, error: "Must be at least 1" };
-  }
-  if (n > MAX_QUALITY_MULTIPLIER) {
-    return { value: null, error: `Must be at most ${MAX_QUALITY_MULTIPLIER}` };
-  }
-  return { value: n, error: null };
-}
+export const N_BY_BUCKET: Record<FidelityBucket, number> = {
+  low: 3000,
+  medLow: 5000,
+  medium: 7500,
+  medHigh: 10000,
+  high: 15000,
+};

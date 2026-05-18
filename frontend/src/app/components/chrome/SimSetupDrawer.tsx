@@ -17,9 +17,8 @@ import { BodySphere } from "@/app/components/chrome/BodySphere";
 import { PlaybackQualityPicker } from "@/app/components/chrome/PlaybackQualityPicker";
 import { InfoTooltip } from "@/app/components/chrome/InfoTooltip";
 import {
-  PLAYBACK_QUALITY_PRESETS,
-  INTEGRATOR_QUALITY_DEFAULTS,
-  stepDtSeconds,
+  INTEGRATOR_DEFAULT_BUCKETS,
+  type FidelityBucket,
 } from "@/app/constants/PlaybackQuality";
 
 // Sim Setup drawer — left-anchored glass panel that owns the
@@ -56,26 +55,22 @@ export function SimSetupDrawer({ open, onOpenChange }: SimSetupDrawerProps) {
   const [integrator, setIntegrator] = useState<string>("rk4");
   const [timeStepUnit, setTimeStepUnit] =
     useState<(typeof TIME_UNITS)[number]>("Hours");
-  const [qualityMultiplier, setQualityMultiplier] = useState<number>(
-    PLAYBACK_QUALITY_PRESETS[INTEGRATOR_QUALITY_DEFAULTS[integrator]].multiplier,
+  const [fidelityBucket, setFidelityBucket] = useState<FidelityBucket>(
+    INTEGRATOR_DEFAULT_BUCKETS[integrator] ?? "medLow",
   );
-  const [qualityValid, setQualityValid] = useState<boolean>(true);
 
-  // Reset quality to the new integrator's default whenever integrator changes.
-  // React-canonical "adjusting state when a prop changes" pattern — setState
-  // during render (guarded by a change check) rather than useEffect, to
-  // satisfy this repo's react-hooks/set-state-in-effect lint rule and
-  // produce a single render with the new defaults instead of a flash of the
-  // stale value. Simple model — discards any custom value the user typed.
-  // Sticky-override is deferred per spec. Also clears any stale invalid
-  // state in the picker.
+  // Reset bucket to the new integrator's landing default whenever
+  // integrator changes. React-canonical "adjusting state when a prop
+  // changes" pattern — setState during render (guarded by a change
+  // check) rather than useEffect, to satisfy this repo's
+  // react-hooks/set-state-in-effect lint rule and produce a single
+  // render with the new default instead of a flash of the stale value.
   const [prevIntegrator, setPrevIntegrator] = useState<string>(integrator);
   if (prevIntegrator !== integrator) {
     setPrevIntegrator(integrator);
-    const defaultKey = INTEGRATOR_QUALITY_DEFAULTS[integrator];
-    if (defaultKey) {
-      setQualityMultiplier(PLAYBACK_QUALITY_PRESETS[defaultKey].multiplier);
-      setQualityValid(true);
+    const defaultBucket = INTEGRATOR_DEFAULT_BUCKETS[integrator];
+    if (defaultBucket) {
+      setFidelityBucket(defaultBucket);
     }
   }
 
@@ -103,7 +98,7 @@ export function SimSetupDrawer({ open, onOpenChange }: SimSetupDrawerProps) {
         frame,
         integrator,
         timeStepUnit,
-        keyframeIntervalSec: qualityMultiplier * stepDtSeconds(timeStepUnit),
+        fidelityBucket,
       };
       await initializeCelestialBodies(dispatch, requestPayload);
       const sessionID =
@@ -243,9 +238,8 @@ export function SimSetupDrawer({ open, onOpenChange }: SimSetupDrawerProps) {
               }
             >
               <PlaybackQualityPicker
-                multiplier={qualityMultiplier}
-                onChange={setQualityMultiplier}
-                onValidityChange={setQualityValid}
+                bucket={fidelityBucket}
+                onChange={setFidelityBucket}
               />
             </Field>
 
@@ -298,7 +292,6 @@ export function SimSetupDrawer({ open, onOpenChange }: SimSetupDrawerProps) {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={!qualityValid}
               className="flex flex-1 items-center justify-center gap-2 rounded-[10px] px-5 py-2.5 text-[14px] font-semibold text-[#16182a] disabled:cursor-not-allowed disabled:opacity-50"
               style={{
                 background:

@@ -61,8 +61,9 @@ export interface LastSimRequest {
   frame: string;
   integrator: string;
   timeStepUnit: string;
-  /** Optional — populated by SimSetupDrawer Phase 3 onward. */
-  keyframeIntervalSec?: number;
+  /** Fidelity bucket — populated by SimSetupDrawer. Optional for
+   * backwards-compat with any preserved request that pre-dates it. */
+  fidelityBucket?: string;
 }
 
 interface ActiveBodyState {

@@ -33,7 +33,7 @@ interface SliceShape {
         celestialBodyNames: string[];
         integrator: string;
         frame: string;
-        keyframeIntervalSec?: number;
+        fidelityBucket?: string;
       } | null;
     };
     activeBodyState: { activeBodyName: string | null };

@@ -8,5 +8,8 @@ public record SimulationRequestDTO(
         String frame,
         String integrator,
         String timeStepUnit,
-        Double keyframeIntervalSec  // nullable; null → no thinning (K=1)
+        // Nullable; null → backend uses the per-integrator landing default
+        // from FidelityBucket.defaultFor(integrator). Wire format: one of
+        // "low" | "medLow" | "medium" | "medHigh" | "high".
+        String fidelityBucket
 ) {}
