@@ -12,8 +12,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import personal.spacesim.simulation.body.CelestialBodySnapshot;
 
-import personal.spacesim.simulation.exception.ChunkSnapshotBudgetExceededException;
-
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URISyntaxException;
@@ -24,15 +22,24 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Pins {@link Simulation#run()}'s keyframe-thinning emission contract.
- * At K=1 every step is kept; at K&gt;1 every Kth step is kept, with the
- * initial frame always kept and cross-chunk continuity preserved (the
- * second run()'s first kept step is exactly K steps after the first
+ * Pins {@link Simulation#run()}'s emission contract for both fixed-step
+ * and adaptive integrators.
+ *
+ * <p>Fixed-step (Euler/RK4): {@code keyframesPerKept} (K) thinning of the
+ * external-step grid — at K=1 every step is kept, at K&gt;1 every Kth step
+ * is kept, initial frame always kept, cross-chunk continuity preserved
+ * (the second run()'s first kept step is exactly K steps after the first
  * run()'s last kept step).
+ *
+ * <p>Adaptive (DP853): time-gap thinning to {@code targetSnapshotsPerChunk}
+ * (N) — emit when sim-time since last emission exceeds
+ * {@code chunk_duration / (N-1)}. Snapshot count lands within tolerance
+ * of N regardless of how many internal substeps Hipparchus took, so wire
+ * size is bounded by construction (no exception throw, no add-mode
+ * runaway substep capture).
  */
 @ExtendWith(SpringExtension.class)
 @SpringBootTest
@@ -64,11 +71,12 @@ class SimulationTest {
                 "EULER",
                 new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC()),
                 "seconds",
-                keyframesPerKept
+                keyframesPerKept,
+                /* targetSnapshotsPerChunk= */ 5000  // ignored for fixed-step
         );
     }
 
-    private Simulation newDP853Sim(String sessionSuffix, int keyframesPerKept, int maxSnapshotsPerChunk) {
+    private Simulation newDP853Sim(String sessionSuffix, int targetSnapshotsPerChunk) {
         return simulationFactory.createSimulation(
                 "test-dp853-" + sessionSuffix,
                 List.of("Sun", "Earth"),
@@ -76,8 +84,8 @@ class SimulationTest {
                 "DP853",
                 new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC()),
                 "weeks",
-                keyframesPerKept,
-                maxSnapshotsPerChunk
+                /* keyframesPerKept= */ 1,  // ignored for DP853
+                targetSnapshotsPerChunk
         );
     }
 
@@ -139,28 +147,66 @@ class SimulationTest {
     }
 
     /**
-     * With DP853 + dt=1 week (>{@code MAX_STEP}=1 day), Hipparchus must
-     * accept ≥6 intermediate substeps per external step. Each of those
-     * intermediates is emitted alongside the regular external-step
-     * keyframes, so the chunk must contain strictly more than the today
-     * fixed count of 10001 (1 initial + 10000 external).
+     * DP853 under Mode C (time-gap thinning) emits a snapshot count that
+     * lands within tolerance of N regardless of how many internal substeps
+     * Hipparchus took. Pinned at three points across the design's preset
+     * range (3000–15000 per the design doc).
      */
     @Test
-    void dp853ChunkContainsIntermediateSubsteps() {
-        Simulation sim = newDP853Sim("substeps", 1, 10_000_000);
+    void dp853EmitsApproximatelyTargetSnapshotsAtN5000() {
+        Simulation sim = newDP853Sim("n5000", 5000);
 
         Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk = sim.run();
 
-        assertTrue(chunk.size() > 10_001,
-                "DP853 chunk should contain intermediate substeps in addition "
-                        + "to the 10001 external-step keyframes; got " + chunk.size());
+        // ±5% tolerance: time-gap thinning emits at the first substep past
+        // each gap threshold, so the actual count drifts slightly from N
+        // depending on substep cadence. Design-doc verify criterion.
+        int actual = chunk.size();
+        assertTrue(actual >= 4750 && actual <= 5250,
+                "DP853 N=5000 expected ~5000 snapshots ±5%, got " + actual);
     }
 
     @Test
-    void exceedingSnapshotBudgetThrowsClearException() {
-        Simulation sim = newDP853Sim("budget", 1, 5);
+    void dp853EmitsApproximatelyTargetSnapshotsAtN10000() {
+        Simulation sim = newDP853Sim("n10000", 10000);
 
-        assertThrows(ChunkSnapshotBudgetExceededException.class, sim::run);
+        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk = sim.run();
+
+        int actual = chunk.size();
+        assertTrue(actual >= 9500 && actual <= 10500,
+                "DP853 N=10000 expected ~10000 snapshots ±5%, got " + actual);
+    }
+
+    @Test
+    void dp853EmitsApproximatelyTargetSnapshotsAtN15000() {
+        Simulation sim = newDP853Sim("n15000", 15000);
+
+        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk = sim.run();
+
+        int actual = chunk.size();
+        assertTrue(actual >= 14250 && actual <= 15750,
+                "DP853 N=15000 expected ~15000 snapshots ±5%, got " + actual);
+    }
+
+    /**
+     * Cross-chunk continuity for DP853: the time-gap accounting carries
+     * across run() invocations via the per-session {@code lastEmitTime}
+     * field. The total emission count across two chunks should be roughly
+     * 2N (within tolerance), not 2N+1 (which would indicate the second
+     * chunk reset the timer and re-emitted at its start boundary).
+     */
+    @Test
+    void dp853CrossChunkContinuityPreservesEmissionCadence() {
+        Simulation sim = newDP853Sim("continuity", 5000);
+
+        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk1 = sim.run();
+        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk2 = sim.run();
+
+        int total = chunk1.size() + chunk2.size();
+        // 2 chunks × ~5000 = ~10000, ±5%
+        assertTrue(total >= 9500 && total <= 10500,
+                "Two DP853 chunks at N=5000 should total ~10000 snapshots "
+                        + "(continuous time-gap accounting across chunks), got " + total);
     }
 
     private static AbsoluteDate firstKey(Map<AbsoluteDate, List<CelestialBodySnapshot>> m) {
