@@ -14,6 +14,13 @@ import {
   type BodyKey,
 } from "@/app/constants/BodyVisuals";
 import { BodySphere } from "@/app/components/chrome/BodySphere";
+import { PlaybackQualityPicker } from "@/app/components/chrome/PlaybackQualityPicker";
+import { InfoTooltip } from "@/app/components/chrome/InfoTooltip";
+import {
+  PLAYBACK_QUALITY_PRESETS,
+  INTEGRATOR_QUALITY_DEFAULTS,
+  stepDtSeconds,
+} from "@/app/constants/PlaybackQuality";
 
 // Sim Setup drawer — left-anchored glass panel that owns the
 // configure-and-Run flow. Replaces the centered Radix modal that was
@@ -49,6 +56,28 @@ export function SimSetupDrawer({ open, onOpenChange }: SimSetupDrawerProps) {
   const [integrator, setIntegrator] = useState<string>("rk4");
   const [timeStepUnit, setTimeStepUnit] =
     useState<(typeof TIME_UNITS)[number]>("Hours");
+  const [qualityMultiplier, setQualityMultiplier] = useState<number>(
+    PLAYBACK_QUALITY_PRESETS[INTEGRATOR_QUALITY_DEFAULTS[integrator]].multiplier,
+  );
+  const [qualityValid, setQualityValid] = useState<boolean>(true);
+
+  // Reset quality to the new integrator's default whenever integrator changes.
+  // React-canonical "adjusting state when a prop changes" pattern — setState
+  // during render (guarded by a change check) rather than useEffect, to
+  // satisfy this repo's react-hooks/set-state-in-effect lint rule and
+  // produce a single render with the new defaults instead of a flash of the
+  // stale value. Simple model — discards any custom value the user typed.
+  // Sticky-override is deferred per spec. Also clears any stale invalid
+  // state in the picker.
+  const [prevIntegrator, setPrevIntegrator] = useState<string>(integrator);
+  if (prevIntegrator !== integrator) {
+    setPrevIntegrator(integrator);
+    const defaultKey = INTEGRATOR_QUALITY_DEFAULTS[integrator];
+    if (defaultKey) {
+      setQualityMultiplier(PLAYBACK_QUALITY_PRESETS[defaultKey].multiplier);
+      setQualityValid(true);
+    }
+  }
 
   const toggleBody = (key: BodyKey) => {
     setSelectedBodies((prev) => {
@@ -74,6 +103,7 @@ export function SimSetupDrawer({ open, onOpenChange }: SimSetupDrawerProps) {
         frame,
         integrator,
         timeStepUnit,
+        keyframeIntervalSec: qualityMultiplier * stepDtSeconds(timeStepUnit),
       };
       await initializeCelestialBodies(dispatch, requestPayload);
       const sessionID =
@@ -200,6 +230,25 @@ export function SimSetupDrawer({ open, onOpenChange }: SimSetupDrawerProps) {
               </select>
             </Field>
 
+            <Field
+              label={
+                <span className="flex items-center gap-1.5">
+                  Playback quality
+                  <InfoTooltip label="What is playback quality?">
+                    Lower quality ships fewer keyframes — smaller payloads,
+                    smoother bandwidth, but motion between samples is
+                    interpolated. Higher quality ships every step.
+                  </InfoTooltip>
+                </span>
+              }
+            >
+              <PlaybackQualityPicker
+                multiplier={qualityMultiplier}
+                onChange={setQualityMultiplier}
+                onValidityChange={setQualityValid}
+              />
+            </Field>
+
             <p className="eyebrow mt-5 mb-2 px-1">
               BODIES · {selectedBodies.size} ENABLED
             </p>
@@ -249,7 +298,8 @@ export function SimSetupDrawer({ open, onOpenChange }: SimSetupDrawerProps) {
             <button
               type="button"
               onClick={handleSubmit}
-              className="flex flex-1 items-center justify-center gap-2 rounded-[10px] px-5 py-2.5 text-[14px] font-semibold text-[#16182a]"
+              disabled={!qualityValid}
+              className="flex flex-1 items-center justify-center gap-2 rounded-[10px] px-5 py-2.5 text-[14px] font-semibold text-[#16182a] disabled:cursor-not-allowed disabled:opacity-50"
               style={{
                 background:
                   "linear-gradient(180deg, #c4c8ff 0%, #9298ee 100%)",
@@ -282,7 +332,7 @@ function Field({
   help,
   children,
 }: {
-  label: string;
+  label: React.ReactNode;
   help?: string;
   children: React.ReactNode;
 }) {
