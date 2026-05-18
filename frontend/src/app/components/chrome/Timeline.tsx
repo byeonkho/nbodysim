@@ -280,9 +280,9 @@ function ViewToggles() {
   // candidates: master toggle for the right column, or in-scene labels.
   const [info, setInfo] = useState(true);
 
-  // Decision 3 (design.md): rename UI from SEMI/REAL to LIN/LOG. Backing
-  // logic still cycles SEMI_REALISTIC ↔ REALISTIC; #61 swaps in real log
-  // compression and the labels become accurate.
+  // UI label cycles LIN/LOG; backing logic still cycles
+  // SEMI_REALISTIC ↔ REALISTIC. Real logarithmic radial compression is
+  // queued (#61); once it lands the labels become literally accurate.
   const scaleLabel = scale.name === "Realistic" ? "LIN" : "LOG";
 
   return (

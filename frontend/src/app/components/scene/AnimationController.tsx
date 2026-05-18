@@ -17,8 +17,9 @@ const AnimationController = () => {
   const store = useStore<RootState>();
   // Note: NOT subscribing to currentTimeStepIndex via useSelector — this
   // component dispatches that value every frame, so a selector subscription
-  // would re-render every frame (the known offender flagged in
-  // frontend-render-loop.md). We read it imperatively from store.getState()
+  // would re-render every frame (re-render cascades from per-frame redux
+  // dispatches are one of the load-bearing render-loop performance traps
+  // in this codebase). We read it imperatively from store.getState()
   // inside useFrame instead.
   const isPaused = useSelector(selectIsPaused);
   const speedMultiplier = useSelector(selectSpeedMultiplier);
