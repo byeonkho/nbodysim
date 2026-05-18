@@ -73,8 +73,6 @@ The user picks a "Playback quality" bucket in SimSetupDrawer (5 buckets, per-int
 
 **Wire compactness.** Positions float64, velocities float32 (timestamp int64, µ float64). Float32 on positions was the original Phase 1 lever but caused visible orbit-plane jitter on outer planets at high fidelity — float32's ~540 km quantization at Neptune's 4.5×10¹² m radius dominated per-sample Z motion. Velocities are quantization-safe: their downstream uses (Hermite tangent over one gap-interval; Keplerian v² → semi-major axis) damp precision loss far below visible. Net wire is 75% of full float64. Combined with Mode C, DP853 default chunks dropped from ~16 MB compressed (the old "emit every accepted substep + throw at MAX_SNAPSHOTS_PER_CHUNK" model) to ~1.5 MB compressed.
 
-Full rationale + math + rollout: Hermite in `docs/superpowers/specs/2026-05-15-hermite-keyframe-interpolation-design.md`; DP853 emission model + mixed-precision wire format in `docs/superpowers/specs/2026-05-18-dp853-emission-model-design.md`.
-
 ## Resolved design decisions (UI redesign)
 
 Decisions made during the Tailwind + Radix + shadcn migration that shape what's on screen now:
