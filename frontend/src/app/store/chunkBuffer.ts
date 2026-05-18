@@ -312,7 +312,15 @@ export function getTimestampAsIsoString(
   buffer: ChunkBuffer,
   timestepIdx: number,
 ): string {
-  if (timestepIdx < 0 || timestepIdx >= buffer.totalTimesteps) return "";
-  const millis = Number(buffer.timestamps[timestepIdx]);
+  // Floor the index so float values from Phase 1's wall-clock-rate animation
+  // driving land on a real keyframe slot. BigInt64Array indexed with a
+  // fractional key returns undefined → Number(undefined) = NaN →
+  // new Date(NaN).toISOString() throws RangeError. Semantically: "the
+  // timestamp at or before this fractional position" — same reasoning as
+  // Trail's tail loop ("integer indexing is semantically correct for
+  // historical keyframe reads").
+  const idx = Math.floor(timestepIdx);
+  if (idx < 0 || idx >= buffer.totalTimesteps) return "";
+  const millis = Number(buffer.timestamps[idx]);
   return new Date(millis).toISOString();
 }

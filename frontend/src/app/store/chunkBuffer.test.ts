@@ -414,4 +414,31 @@ describe("getTimestamp / getTimestampAsIsoString", () => {
     expect(getTimestampAsIsoString(buf, -1)).toBe("");
     expect(getTimestampAsIsoString(buf, 5)).toBe("");
   });
+
+  // Regression: post-Phase-1, currentTimeStepIndex is a float driven by
+  // wall-clock-rate animation. The Phase 1 hotfix (commit 9464608) floored
+  // at Trail / DevPanel / TopStatusStrip-buffered sites but missed this
+  // selector path (TopStatusStrip + Timeline both consume
+  // selectCurrentTimeStepIsoString). With a fractional index,
+  // BigInt64Array[3.5] returns undefined → Number(undefined) = NaN →
+  // new Date(NaN).toISOString() throws RangeError. Floor inside the
+  // function so every caller is protected from float indices.
+  it("returns the keyframe-N ISO string when given a fractional index between N and N+1", () => {
+    const buf = createChunkBuffer(["A"], 5);
+    const t0 = BigInt(Date.UTC(2024, 5, 5, 0));
+    const t1 = BigInt(Date.UTC(2024, 5, 5, 4));
+    buf.timestamps[0] = t0;
+    buf.timestamps[1] = t1;
+    buf.totalTimesteps = 2;
+
+    // Should NOT throw and should return the keyframe-0 timestamp
+    // (semantically: "you are AT or PAST keyframe 0").
+    expect(getTimestampAsIsoString(buf, 0.5)).toBe("2024-06-05T00:00:00.000Z");
+    expect(getTimestampAsIsoString(buf, 0.999)).toBe(
+      "2024-06-05T00:00:00.000Z",
+    );
+    expect(getTimestampAsIsoString(buf, 1.5)).toBe(
+      "2024-06-05T04:00:00.000Z",
+    );
+  });
 });
