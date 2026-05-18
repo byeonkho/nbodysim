@@ -49,4 +49,18 @@ public sealed interface Integrator
         stepInto(result, state.data(), dt, derivatives);
         return new GlobalState(result, state.bodyCount());
     }
+
+    /**
+     * Register a {@link SubstepHandler} to receive accepted intermediate
+     * substeps for each subsequent {@code stepInto} call. Pass {@code null}
+     * to clear.
+     *
+     * <p>Default is a no-op: fixed-step integrators (Euler, RK4) take a
+     * single step per call and have no intermediate substeps to expose.
+     * Only {@link DP853Integrator} overrides this to delegate Hipparchus's
+     * step-handler events.
+     */
+    default void setSubstepHandler(SubstepHandler handler) {
+        // no-op for fixed-step integrators
+    }
 }

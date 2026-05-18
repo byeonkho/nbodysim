@@ -5,6 +5,7 @@ import org.orekit.time.TimeScalesFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -14,6 +15,7 @@ import personal.spacesim.dtos.SimulationChunkRequest;
 import personal.spacesim.dtos.SimulationRequestDTO;
 import personal.spacesim.dtos.SimulationResponseDTO;
 import personal.spacesim.services.SimulationSessionService;
+import personal.spacesim.simulation.exception.ChunkSnapshotBudgetExceededException;
 
 import java.util.List;
 
@@ -148,6 +150,28 @@ public class SimulationController {
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .body(compressedData);
+    }
+
+    /**
+     * Surfaces {@link ChunkSnapshotBudgetExceededException} as 422
+     * Unprocessable Entity. The user's request was syntactically valid but
+     * the dynamics demand more keyframes than a single chunk can hold —
+     * the client should prompt the user to coarsen settings rather than
+     * retry. The async precompute path wraps the throw in
+     * {@code RuntimeException}, so also unwrap one level.
+     */
+    @ExceptionHandler(RuntimeException.class)
+    public ResponseEntity<String> handleChunkBudgetExceeded(RuntimeException ex) {
+        Throwable t = ex;
+        if (!(t instanceof ChunkSnapshotBudgetExceededException) && t.getCause() != null) {
+            t = t.getCause();
+        }
+        if (t instanceof ChunkSnapshotBudgetExceededException budgetEx) {
+            logger.warn("Chunk snapshot budget exceeded: {}", budgetEx.getMessage());
+            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                    .body(budgetEx.getMessage());
+        }
+        throw ex;
     }
 
 }

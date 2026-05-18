@@ -4,6 +4,7 @@ import org.orekit.frames.Frame;
 import org.orekit.time.AbsoluteDate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import personal.spacesim.constants.SimulationLimits;
 import personal.spacesim.simulation.body.CelestialBodyWrapper;
 import personal.spacesim.simulation.body.CelestialBodyWrapperFactory;
 import personal.spacesim.simulation.frame.CustomFrameFactory;
@@ -39,6 +40,26 @@ public class SimulationFactory {
             String timeStepUnit,
             int keyframesPerKept
     ) {
+        return createSimulation(sessionID, celestialBodyNames, frameStr, integratorStr,
+                simStartDate, timeStepUnit, keyframesPerKept,
+                SimulationLimits.MAX_SNAPSHOTS_PER_CHUNK);
+    }
+
+    /**
+     * Test/internal overload taking an explicit chunk snapshot budget.
+     * Production paths go through the single-arity overload above so the
+     * budget stays a single source of truth in {@link SimulationLimits}.
+     */
+    public Simulation createSimulation(
+            String sessionID,
+            List<String> celestialBodyNames,
+            String frameStr,
+            String integratorStr,
+            AbsoluteDate simStartDate,
+            String timeStepUnit,
+            int keyframesPerKept,
+            int maxSnapshotsPerChunk
+    ) {
 
         // using singleton DI instead of static method
         Frame frame = customFrameFactory.createFrame(frameStr);
@@ -57,7 +78,8 @@ public class SimulationFactory {
                 integrator,
                 simStartDate,
                 timeStepUnit,
-                keyframesPerKept
+                keyframesPerKept,
+                maxSnapshotsPerChunk
         );
     }
 }

@@ -12,6 +12,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import personal.spacesim.simulation.body.CelestialBodySnapshot;
 
+import personal.spacesim.simulation.exception.ChunkSnapshotBudgetExceededException;
+
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URISyntaxException;
@@ -22,6 +24,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Pins {@link Simulation#run()}'s keyframe-thinning emission contract.
@@ -61,6 +65,19 @@ class SimulationTest {
                 new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC()),
                 "seconds",
                 keyframesPerKept
+        );
+    }
+
+    private Simulation newDP853Sim(String sessionSuffix, int keyframesPerKept, int maxSnapshotsPerChunk) {
+        return simulationFactory.createSimulation(
+                "test-dp853-" + sessionSuffix,
+                List.of("Sun", "Earth"),
+                "ICRF",
+                "DP853",
+                new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC()),
+                "weeks",
+                keyframesPerKept,
+                maxSnapshotsPerChunk
         );
     }
 
@@ -119,6 +136,31 @@ class SimulationTest {
         // entry than Chunk 1 at the same K.
         assertEquals(2500, chunk2.size(),
                 "Second chunk should emit only thinned keyframes, no initial");
+    }
+
+    /**
+     * With DP853 + dt=1 week (>{@code MAX_STEP}=1 day), Hipparchus must
+     * accept ≥6 intermediate substeps per external step. Each of those
+     * intermediates is emitted alongside the regular external-step
+     * keyframes, so the chunk must contain strictly more than the today
+     * fixed count of 10001 (1 initial + 10000 external).
+     */
+    @Test
+    void dp853ChunkContainsIntermediateSubsteps() {
+        Simulation sim = newDP853Sim("substeps", 1, 10_000_000);
+
+        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk = sim.run();
+
+        assertTrue(chunk.size() > 10_001,
+                "DP853 chunk should contain intermediate substeps in addition "
+                        + "to the 10001 external-step keyframes; got " + chunk.size());
+    }
+
+    @Test
+    void exceedingSnapshotBudgetThrowsClearException() {
+        Simulation sim = newDP853Sim("budget", 1, 5);
+
+        assertThrows(ChunkSnapshotBudgetExceededException.class, sim::run);
     }
 
     private static AbsoluteDate firstKey(Map<AbsoluteDate, List<CelestialBodySnapshot>> m) {

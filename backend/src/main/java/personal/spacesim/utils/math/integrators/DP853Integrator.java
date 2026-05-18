@@ -1,8 +1,11 @@
 package personal.spacesim.utils.math.integrators;
 
 import org.hipparchus.ode.ODEState;
+import org.hipparchus.ode.ODEStateAndDerivative;
 import org.hipparchus.ode.OrdinaryDifferentialEquation;
 import org.hipparchus.ode.nonstiff.DormandPrince853Integrator;
+import org.hipparchus.ode.sampling.ODEStateInterpolator;
+import org.hipparchus.ode.sampling.ODEStepHandler;
 import personal.spacesim.simulation.state.NBodyDerivatives;
 
 /**
@@ -54,6 +57,20 @@ public final class DP853Integrator implements Integrator {
     private double[] derivScratch;
 
     /**
+     * Optional callback receiving each accepted intermediate substep.
+     * Read inside Hipparchus's step handler — null = nothing to forward.
+     */
+    private SubstepHandler substepHandler;
+
+    /**
+     * Set at the top of each {@link #stepInto} call so the step handler
+     * can distinguish the final substep (which lands exactly at {@code dt})
+     * from intermediates. The final substep is suppressed because it
+     * duplicates the endpoint the simulation loop emits separately.
+     */
+    private double currentStepDt;
+
+    /**
      * Reused across steps. Holds {@link #currentDerivatives} and
      * {@link #derivScratch} via closure over the outer instance.
      */
@@ -70,12 +87,40 @@ public final class DP853Integrator implements Integrator {
         }
     };
 
+    public DP853Integrator() {
+        hipparchusIntegrator.addStepHandler(new ODEStepHandler() {
+            @Override
+            public void handleStep(ODEStateInterpolator interpolator) {
+                SubstepHandler h = substepHandler;
+                if (h == null) {
+                    return;
+                }
+                ODEStateAndDerivative end = interpolator.getCurrentState();
+                double t = end.getTime();
+                // The substep landing exactly at dt is the integration
+                // endpoint — the simulation loop emits a keyframe for it
+                // through the regular post-step path, so suppress here to
+                // avoid a duplicate at every external-step boundary.
+                if (t >= currentStepDt) {
+                    return;
+                }
+                h.onSubstep(t, end.getCompleteState());
+            }
+        });
+    }
+
+    @Override
+    public void setSubstepHandler(SubstepHandler handler) {
+        this.substepHandler = handler;
+    }
+
     @Override
     public void stepInto(double[] out, double[] state, double dt, NBodyDerivatives derivatives) {
         if (derivScratch == null || derivScratch.length != state.length) {
             derivScratch = new double[state.length];
         }
         currentDerivatives = derivatives;
+        currentStepDt = dt;
 
         ODEState start = new ODEState(0.0, state);
         ODEState end = hipparchusIntegrator.integrate(ode, start, dt);
