@@ -113,13 +113,16 @@ class BinaryResponseSerializerTest {
 
         assertEquals(1, buf.getInt(), "timestepCount");
 
-        // Per-timestep — positions+velocities are float32 (small integers roundtrip exactly).
+        // Per-timestep — positions are float64 (precision matters for outer
+        // planet orbit-plane rendering), velocities are float32 (their
+        // precision-loss path damps by ~5 orders of magnitude before
+        // anything visible).
         assertEquals(expectedMillis, buf.getLong(), "timestamp millis");
-        // Earth
-        assertEquals(1.0f, buf.getFloat()); assertEquals(2.0f, buf.getFloat()); assertEquals(3.0f, buf.getFloat());
+        // Earth — position float64, velocity float32.
+        assertEquals(1.0, buf.getDouble()); assertEquals(2.0, buf.getDouble()); assertEquals(3.0, buf.getDouble());
         assertEquals(4.0f, buf.getFloat()); assertEquals(5.0f, buf.getFloat()); assertEquals(6.0f, buf.getFloat());
         // Moon
-        assertEquals(7.0f, buf.getFloat()); assertEquals(8.0f, buf.getFloat()); assertEquals(9.0f, buf.getFloat());
+        assertEquals(7.0, buf.getDouble()); assertEquals(8.0, buf.getDouble()); assertEquals(9.0, buf.getDouble());
         assertEquals(10.0f, buf.getFloat()); assertEquals(11.0f, buf.getFloat()); assertEquals(12.0f, buf.getFloat());
 
         // Buffer should be exactly consumed

@@ -1,7 +1,7 @@
 # DP853 chunk-emission model
 
 **Date:** 2026-05-18
-**Status:** Implemented (Phases 1–3 landed as PRs #14 / #15 / pending Phase 3)
+**Status:** Implemented + post-merge fix (Phases 1–3 landed as PRs #14 / #15 / #16; mixed-precision wire format fix pending — see "Postscript: float32 → mixed precision" at the bottom)
 **Tracker entry:** `todo.md` #69 (emission-mode design) — feeds #37 (per-chunk bandwidth)
 **Related:** `todo.md` #37, `2026-05-15-hermite-keyframe-interpolation-design.md`, [#13](https://github.com/byeonkho/spacesim/pull/13)
 **Companion data:** `ChunkSizeBenchmark.java` (run with `./mvnw test -Dtest=ChunkSizeBenchmark -Dchunk.benchmark=true`)
@@ -180,3 +180,51 @@ After Phase 3 lands, `todo.md` updates:
 
 - **Delta encoding (#37 option B).** Bigger structural change; only worth doing if Phase 1 + 2 don't hit the target. Current math says they will.
 - **Per-tier rate-limit accounting.** Today's rate limiter is bytes-per-IP-per-window agnostic of integrator. Once DP853 is heavier, a fairer model might be "chunks-per-IP-per-window" weighted by tier. Defer until usage data justifies it.
+
+---
+
+## Postscript: float32 → mixed precision (post-merge bug fix)
+
+Phase 1's "float32 positions + float32 velocities" claim that "~7-decimal-digit precision is fine for visualisation" turned out to be wrong for **outer planets at high fidelity**. The math I never worked through at the time:
+
+- Float32 quantization at radius R: `~R / 2^23`. At Neptune's 4.5×10¹² m, that's ~540 km per axis.
+- Per-sample Z motion of an outer planet (slow Z because near-ecliptic orbit) at gap = 3600s ≈ 610 km for Neptune.
+- Ratio quantization / per-sample-motion ≈ 0.89 → orbital plane appears to jitter frame-to-frame as new chunks arrive with different quantization noise patterns.
+
+This was reproduced on Euler, RK4, and DP853 (all share the wire format), scaling monotonically with fidelity (smaller gap → smaller per-sample motion → worse ratio), most pronounced on outer planets (larger R → coarser quantization).
+
+### Fix
+
+Mixed precision on the wire:
+- **Positions: float64** (3 × 8B per body) — rendered directly, per-pixel sensitive
+- **Velocities: float32** (3 × 4B per body) — used only as Hermite tangents and Keplerian inputs; precision-loss path damps by ~5 orders of magnitude before anything visible
+
+Asymmetry rationale:
+- *Positions* feed `setBodyWorldPosition` → world-space coordinates → pixels. Quantization is rendered as-is, every sample.
+- *Velocities* feed `outVel = (dh00·p0 + dh01·p1) / dt + dh10·v0 + dh11·v1` (Hermite analytic derivative) — velocity contribution is multiplied by Hermite basis functions in [0, 1] and the result is a *velocity*, not a *position*; doesn't accumulate. Float32 velocity at Neptune (~5 km/s) carries ~0.6 mm/s noise, contributing ~2 m of position uncertainty over one 3600s sample — vs the ~18 million m per-sample motion. Ratio 10⁻⁷, invisible.
+
+### Wire-size impact
+
+| Format | Per-body B | DP853 N=15000 zstd | Notes |
+|---|---|---|---|
+| Original (full float64) | 48 | ~7 MB | Pre-Phase 1 baseline |
+| Phase 1 (full float32) | 24 | ~3 MB | The wobble bug |
+| **Mixed (post-fix)** | **36** | **~4.5 MB** | 75% of float64, 1.5× Phase 1 |
+
+### Updated ceilings
+
+The original 2 MB default-tier ceiling no longer holds for Euler K=1 (highest preset = 3 MB compressed under mixed precision). Pragmatic resolution: **raise the default-tier ceiling to ~3 MB** rather than tighten the highest preset to K=2 (which would degrade the slider's top end). All values still well within rate limiter sizing (~4 MB chunk budget).
+
+Updated table:
+
+| Bucket | Euler/RK4 zstd | DP853 zstd |
+|---|---|---|
+| Low | ~0.3 MB | ~0.9 MB |
+| Med-Low | ~0.6 MB | ~1.5 MB |
+| Medium | ~1.2 MB (RK4 default) | ~2.3 MB |
+| Med-High | ~1.5 MB (Euler default) | ~3 MB |
+| Highest | ~3 MB | ~4.5 MB |
+
+### Lesson
+
+Phase 1's precision-loss sanity check was performed against the easy case (Earth in helio mode at typical zoom) where the ratios came out fine. The actual failure mode required reasoning across **outer-planet position magnitude × low orbital inclination × high sample density** — three axes I should have checked together rather than each in isolation. Future precision changes: validate against the full body × scale × fidelity matrix, not one representative case.
