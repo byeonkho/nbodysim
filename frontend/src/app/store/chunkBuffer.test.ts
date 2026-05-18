@@ -195,6 +195,207 @@ describe("readBodyStateInto", () => {
   });
 });
 
+describe("readBodyPositionInto — fractional index (Hermite)", () => {
+  it("interpolates position at midpoint via cubic Hermite", () => {
+    // Constant velocity → linear position; midpoint = (0.5, 0, 0).
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      0, 0, 0, 1, 0, 0,
+      1, 0, 0, 1, 0, 0,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const out = new THREE.Vector3();
+    readBodyPositionInto(out, buf, 0.5, 0);
+    expect(out.x).toBeCloseTo(0.5, 10);
+    expect(out.y).toBeCloseTo(0, 10);
+    expect(out.z).toBeCloseTo(0, 10);
+  });
+
+  it("interpolates non-linear motion correctly via Hermite cubic", () => {
+    // Zero tangents at both ends → smoothstep; midpoint = 0.5.
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      0, 0, 0, 0, 0, 0,
+      1, 0, 0, 0, 0, 0,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const out = new THREE.Vector3();
+    readBodyPositionInto(out, buf, 0.5, 0);
+    expect(out.x).toBeCloseTo(0.5, 10);
+  });
+
+  it("scales Hermite tangent terms by dt correctly at non-unit interval", () => {
+    // dt = 0.5s. Constant velocity = 2 m/s in x.
+    // Linear motion over 0.5s covers 1 m: p0=(0,0,0) → p1=(1,0,0) with v0=v1=(2,0,0).
+    // Midpoint (s=0.5) should be (0.5, 0, 0).
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      0, 0, 0, 2, 0, 0,
+      1, 0, 0, 2, 0, 0,
+    ]);
+    const timestamps = new BigInt64Array([0n, 500n]); // dt = 0.5s
+    appendChunk(buf, positions, timestamps, 2);
+
+    const out = new THREE.Vector3();
+    readBodyPositionInto(out, buf, 0.5, 0);
+    expect(out.x).toBeCloseTo(0.5, 10);
+  });
+});
+
+describe("readBodyStateInto — fractional index (Hermite)", () => {
+  it("interpolates position and velocity at midpoint via Hermite", () => {
+    // Constant velocity → linear position, vel constant.
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      0, 0, 0, 1, 0, 0,
+      1, 0, 0, 1, 0, 0,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const outPos = new THREE.Vector3();
+    const outVel = new THREE.Vector3();
+    readBodyStateInto(outPos, outVel, buf, 0.5, 0);
+    expect(outPos.x).toBeCloseTo(0.5, 10);
+    expect(outVel.x).toBeCloseTo(1, 10);
+  });
+
+  it("interpolates velocity correctly when endpoints differ", () => {
+    // p0=0, v0=0, p1=1, v1=0, dt=1. Smoothstep position.
+    // Velocity at s=0.5 = derivative wrt sim-time:
+    //   h00'(0.5)=-1.5, h01'(0.5)=1.5, h10'(0.5)=-0.25, h11'(0.5)=-0.25
+    //   vel = (-1.5·0 + 1.5·1)/1 + -0.25·0 + -0.25·0 = 1.5 m/s
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      0, 0, 0, 0, 0, 0,
+      1, 0, 0, 0, 0, 0,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const outPos = new THREE.Vector3();
+    const outVel = new THREE.Vector3();
+    readBodyStateInto(outPos, outVel, buf, 0.5, 0);
+    expect(outVel.x).toBeCloseTo(1.5, 10);
+  });
+});
+
+describe("readBodyPositionInto — boundaries and edge cases", () => {
+  it("clamps floatIdx > totalTimesteps - 1 to last keyframe", () => {
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      1, 2, 3, 0, 0, 0,
+      4, 5, 6, 0, 0, 0,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const out = new THREE.Vector3();
+    readBodyPositionInto(out, buf, 999, 0);
+    expect(out.x).toBe(4);
+    expect(out.y).toBe(5);
+    expect(out.z).toBe(6);
+  });
+
+  it("clamps floatIdx < 0 to first keyframe", () => {
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      1, 2, 3, 0, 0, 0,
+      4, 5, 6, 0, 0, 0,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const out = new THREE.Vector3();
+    readBodyPositionInto(out, buf, -5, 0);
+    expect(out.x).toBe(1);
+    expect(out.y).toBe(2);
+    expect(out.z).toBe(3);
+  });
+
+  it("returns first-keyframe values for a single-keyframe buffer", () => {
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([1, 2, 3, 0, 0, 0]);
+    const timestamps = new BigInt64Array([0n]);
+    appendChunk(buf, positions, timestamps, 1);
+
+    const out = new THREE.Vector3();
+    readBodyPositionInto(out, buf, 0.5, 0);
+    expect(out.x).toBe(1);
+    expect(out.y).toBe(2);
+    expect(out.z).toBe(3);
+  });
+});
+
+describe("readBodyPositionInto — integer index (regression)", () => {
+  it("returns stored position exactly at integer keyframe", () => {
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      1, 2, 3, 10, 11, 12,
+      4, 5, 6, 13, 14, 15,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const out = new THREE.Vector3();
+    readBodyPositionInto(out, buf, 0, 0);
+    expect(out.x).toBe(1);
+    expect(out.y).toBe(2);
+    expect(out.z).toBe(3);
+
+    readBodyPositionInto(out, buf, 1, 0);
+    expect(out.x).toBe(4);
+    expect(out.y).toBe(5);
+    expect(out.z).toBe(6);
+  });
+});
+
+describe("readBodyStateInto — integer index (regression)", () => {
+  it("returns stored position and velocity exactly at integer keyframe", () => {
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      1, 2, 3, 10, 11, 12,
+      4, 5, 6, 13, 14, 15,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const outPos = new THREE.Vector3();
+    const outVel = new THREE.Vector3();
+    readBodyStateInto(outPos, outVel, buf, 1, 0);
+    expect(outPos.x).toBe(4);
+    expect(outPos.y).toBe(5);
+    expect(outPos.z).toBe(6);
+    expect(outVel.x).toBe(13);
+    expect(outVel.y).toBe(14);
+    expect(outVel.z).toBe(15);
+  });
+
+  it("returns first-keyframe position and velocity when floatIdx is exactly 0", () => {
+    const buf = createChunkBuffer(["Earth"], 4);
+    const positions = new Float64Array([
+      1, 2, 3, 10, 11, 12,
+      4, 5, 6, 13, 14, 15,
+    ]);
+    const timestamps = new BigInt64Array([0n, 1000n]);
+    appendChunk(buf, positions, timestamps, 2);
+
+    const outPos = new THREE.Vector3();
+    const outVel = new THREE.Vector3();
+    readBodyStateInto(outPos, outVel, buf, 0, 0);
+    expect(outPos.x).toBe(1);
+    expect(outPos.y).toBe(2);
+    expect(outPos.z).toBe(3);
+    expect(outVel.x).toBe(10);
+    expect(outVel.y).toBe(11);
+    expect(outVel.z).toBe(12);
+  });
+});
+
 describe("getTimestamp / getTimestampAsIsoString", () => {
   it("returns raw millis as BigInt and ISO string for a given timestep", () => {
     const buf = createChunkBuffer(["A"], 5);

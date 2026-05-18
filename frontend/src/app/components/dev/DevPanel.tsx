@@ -73,7 +73,8 @@ export function DevPanel() {
 function DevMetrics() {
   const total = useSelector(selectTotalTimeSteps);
   const idx = useSelector(selectCurrentTimeStepIndex);
-  const remaining = Math.max(0, total - idx);
+  const idxInt = Math.floor(idx);
+  const remaining = Math.max(0, total - idxInt);
   const buffer = useSelector(selectChunkBuffer);
   // Cheap O(1) calc — no JSON.stringify or Blob construction. Includes the
   // positions Float64Array (totalTimesteps × bodyCount × 48 bytes) and the
@@ -87,7 +88,7 @@ function DevMetrics() {
     <section className="flex flex-col gap-1.5 border-t border-dashed border-white/[0.06] pt-2.5">
       <p className="eyebrow">CHUNK BUFFER</p>
       <Row k="Total steps" v={total.toLocaleString("en-US")} />
-      <Row k="Current step" v={idx.toLocaleString("en-US")} />
+      <Row k="Current step" v={idxInt.toLocaleString("en-US")} />
       <Row k="Remaining" v={remaining.toLocaleString("en-US")} />
       <Row k="Payload size" v={formatBytes(bytes)} />
       {buffer && (

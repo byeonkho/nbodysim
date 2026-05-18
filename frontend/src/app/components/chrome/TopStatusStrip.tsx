@@ -83,7 +83,7 @@ export function TopStatusStrip({
   const utcDate = isoToDateOrNull(utcKey);
   const jdStr = utcDate ? formatJD(julianDate(utcDate)) : "—";
 
-  const buffered = Math.max(0, total - idx);
+  const buffered = Math.max(0, total - Math.floor(idx));
   const bufferedStr = buffered.toLocaleString("en-US");
 
   // Pulse the Sim setup CTA only until the user has run their first sim.
