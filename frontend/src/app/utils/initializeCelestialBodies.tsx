@@ -11,6 +11,13 @@ interface InitializeRequest {
   frame: string;
   integrator: string;
   timeStepUnit: string;
+  /**
+   * Keyframe-interval lever for backend thinning. Optional in Phase 2 —
+   * omitted by today's callers, which results in the server defaulting
+   * to K=1 (no thinning). Phase 3 wires a SimSetupDrawer control that
+   * populates this from a "Playback quality" preset.
+   */
+  keyframeIntervalSec?: number;
 }
 
 export const initializeCelestialBodies = async (
