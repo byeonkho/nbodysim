@@ -45,6 +45,22 @@ public class Simulation {
     private final int keyframesPerKept;
 
     /**
+     * Monotonic step counter spanning all run() invocations on this Simulation.
+     * Drives the cross-chunk-continuous thinning decision in run().
+     */
+    private long globalStepCount = 0;
+
+    /**
+     * Next globalStepCount at which the snapshot should be kept. Set to
+     * keyframesPerKept on first chunk (right after the initial frame is
+     * emitted at step 0) and incremented by keyframesPerKept on each kept
+     * step. Surviving as a field across run() calls is what guarantees
+     * chunk N+1's first kept step lands exactly K steps after chunk N's
+     * last kept step — no boundary gap.
+     */
+    private long nextKeptAtStep = 0;
+
+    /**
      * Live state vector, advanced once per timestep. Carries position +
      * velocity for all bodies in the same flat layout as {@link GlobalState}.
      * Replaced each step by swap with {@link #nextStateBuffer} (so the
@@ -116,16 +132,23 @@ public class Simulation {
         long startTime = System.nanoTime();
         Map<AbsoluteDate, List<CelestialBodySnapshot>> results = new LinkedHashMap<>();
 
-        // Emit the initial frame only on the first run; subsequent runs continue from where we left off.
+        // Initial frame is always kept (step 0). Only on the first chunk.
         if (!hasEmittedInitialFrame) {
             results.put(simCurrentDate, snapshotFromState());
             hasEmittedInitialFrame = true;
+            nextKeptAtStep = keyframesPerKept;
         }
 
         int currentTimeStep = 0;
         while (currentTimeStep < TIMESTEPS_TO_RUN) {
             update();
-            results.put(simCurrentDate, snapshotFromState());
+            globalStepCount++;
+            // Single integer compare — K=1 path is identical to today
+            // (true every step, snapshot kept every step).
+            if (globalStepCount >= nextKeptAtStep) {
+                results.put(simCurrentDate, snapshotFromState());
+                nextKeptAtStep += keyframesPerKept;
+            }
             currentTimeStep++;
         }
 
