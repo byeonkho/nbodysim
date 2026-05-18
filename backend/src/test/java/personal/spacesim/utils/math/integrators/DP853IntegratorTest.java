@@ -4,7 +4,12 @@ import org.junit.jupiter.api.Test;
 import personal.spacesim.simulation.state.GlobalState;
 import personal.spacesim.simulation.state.NBodyDerivatives;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DP853IntegratorTest {
 
@@ -57,5 +62,57 @@ class DP853IntegratorTest {
 
         assertEquals(0.0, data[0], 1e-12);
         assertEquals(1.0, data[3], 1e-12);
+    }
+
+    /**
+     * With dt of 7 days, Hipparchus's MAX_STEP=1 day cap forces the
+     * integrator to take at least 6 accepted substeps before the final one,
+     * so the substep handler must fire with strictly intermediate times.
+     */
+    @Test
+    void substepHandlerReceivesIntermediateAcceptedSubsteps() {
+        // Sun + Earth at perihelion-ish — enough gravity that DP853 doesn't
+        // race through, but not stiff enough to time out.
+        double mSun = 1.989e30;
+        double mEarth = 5.972e24;
+        double r = 1.496e11;
+        double v = 2.978e4;
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{mSun, mEarth});
+        GlobalState state = new GlobalState(new double[]{
+                0, 0, 0, 0, 0, 0,
+                r, 0, 0, 0, v, 0,
+        }, 2);
+
+        DP853Integrator dp = new DP853Integrator();
+        List<Double> substepTimes = new ArrayList<>();
+        dp.setSubstepHandler((t, y) -> substepTimes.add(t));
+
+        double dt = 86400.0 * 7;
+        dp.step(state, dt, derivs);
+
+        assertFalse(substepTimes.isEmpty(),
+                "Substep handler must fire for dt > MAX_STEP");
+        for (double t : substepTimes) {
+            assertTrue(t > 0 && t < dt,
+                    "Substep time " + t + " must lie strictly within (0, " + dt + ")");
+        }
+        for (int i = 1; i < substepTimes.size(); i++) {
+            assertTrue(substepTimes.get(i) > substepTimes.get(i - 1),
+                    "Substep times must be monotonically increasing");
+        }
+    }
+
+    @Test
+    void substepHandlerNotCalledWhenUnset() {
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{1.989e30, 5.972e24});
+        GlobalState state = new GlobalState(new double[]{
+                0, 0, 0, 0, 0, 0,
+                1.496e11, 0, 0, 0, 2.978e4, 0,
+        }, 2);
+
+        // No handler registered. Should run without invoking anything.
+        new DP853Integrator().step(state, 86400.0 * 7, derivs);
+        // No assertion needed — if a stray callback were firing it'd NPE
+        // or surface in coverage. This test pins "absent handler = no work".
     }
 }

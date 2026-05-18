@@ -8,6 +8,7 @@ import org.orekit.time.AbsoluteDate;
 import personal.spacesim.constants.PhysicsConstants;
 import personal.spacesim.simulation.body.CelestialBodySnapshot;
 import personal.spacesim.simulation.body.CelestialBodyWrapper;
+import personal.spacesim.simulation.exception.ChunkSnapshotBudgetExceededException;
 import personal.spacesim.simulation.state.GlobalState;
 import personal.spacesim.simulation.state.NBodyDerivatives;
 import personal.spacesim.utils.math.integrators.Integrator;
@@ -76,6 +77,14 @@ public class Simulation {
      */
     private final int sunIndex;
 
+    /**
+     * Hard ceiling on snapshots a single {@link #run()} invocation may
+     * emit before throwing {@link ChunkSnapshotBudgetExceededException}.
+     * Bounds wire size when DP853's adaptive substep capture fires dense
+     * bursts of keyframes during close encounters or chaotic scenarios.
+     */
+    private final int maxSnapshotsPerChunk;
+
     public Simulation(
             String sessionID,
             List<CelestialBodyWrapper> celestialBodies,
@@ -83,7 +92,8 @@ public class Simulation {
             Integrator integrator,
             AbsoluteDate simStartDate,
             String timeStepUnit,
-            int keyframesPerKept
+            int keyframesPerKept,
+            int maxSnapshotsPerChunk
     ) {
         this.sessionID = sessionID;
         this.frame = frame;
@@ -93,6 +103,7 @@ public class Simulation {
         this.simCurrentDate = simStartDate;
         this.timeStepUnit = timeStepUnit;
         this.keyframesPerKept = keyframesPerKept;
+        this.maxSnapshotsPerChunk = maxSnapshotsPerChunk;
         this.derivatives = NBodyDerivatives.forBodies(celestialBodies);
 
         // Pack initial wrapper state into the buffer once. After this, the
@@ -115,8 +126,15 @@ public class Simulation {
         this.sunIndex = sunIdx;
     }
 
+    /**
+     * Captured at the top of {@link #update()} so the substep handler can
+     * map Hipparchus's per-step relative times back into absolute dates.
+     */
+    private AbsoluteDate stepStartDate;
+
     private void update() {
         double deltaTimeSeconds = convertTimeStep(timeStepUnit);
+        stepStartDate = simCurrentDate;
         simCurrentDate = simCurrentDate.shiftedBy(deltaTimeSeconds);
 
         integrator.stepInto(nextStateBuffer, currentStateBuffer, deltaTimeSeconds, derivatives);
@@ -132,24 +150,53 @@ public class Simulation {
         long startTime = System.nanoTime();
         Map<AbsoluteDate, List<CelestialBodySnapshot>> results = new LinkedHashMap<>();
 
-        // Initial frame is always kept (step 0). Only on the first chunk.
-        if (!hasEmittedInitialFrame) {
-            results.put(simCurrentDate, snapshotFromState());
-            hasEmittedInitialFrame = true;
-            nextKeptAtStep = keyframesPerKept;
-        }
-
-        int currentTimeStep = 0;
-        while (currentTimeStep < TIMESTEPS_TO_RUN) {
-            update();
-            globalStepCount++;
-            // Single integer compare — K=1 path is identical to today
-            // (true every step, snapshot kept every step).
-            if (globalStepCount >= nextKeptAtStep) {
-                results.put(simCurrentDate, snapshotFromState());
-                nextKeptAtStep += keyframesPerKept;
+        // Adaptive-integrator substep capture: fires inside stepInto() for
+        // every accepted intermediate substep, emitting an extra keyframe
+        // at the substep's absolute time. Fixed-step integrators no-op.
+        integrator.setSubstepHandler((relativeTime, substepState) -> {
+            if (results.size() >= maxSnapshotsPerChunk) {
+                throw new ChunkSnapshotBudgetExceededException(
+                        "Chunk snapshot budget of " + maxSnapshotsPerChunk
+                                + " exceeded — dynamics are too stiff for the current "
+                                + "chunk parameters. Try a coarser keyframesPerKept, a "
+                                + "smaller timeStep unit, or a simpler body set.");
             }
-            currentTimeStep++;
+            results.put(stepStartDate.shiftedBy(relativeTime),
+                    snapshotFromState(substepState));
+        });
+
+        try {
+            // Initial frame is always kept (step 0). Only on the first chunk.
+            if (!hasEmittedInitialFrame) {
+                results.put(simCurrentDate, snapshotFromState(currentStateBuffer));
+                hasEmittedInitialFrame = true;
+                nextKeptAtStep = keyframesPerKept;
+            }
+
+            int currentTimeStep = 0;
+            while (currentTimeStep < TIMESTEPS_TO_RUN) {
+                update();
+                globalStepCount++;
+                // Single integer compare — K=1 path is identical to today
+                // (true every step, snapshot kept every step).
+                if (globalStepCount >= nextKeptAtStep) {
+                    if (results.size() >= maxSnapshotsPerChunk) {
+                        throw new ChunkSnapshotBudgetExceededException(
+                                "Chunk snapshot budget of " + maxSnapshotsPerChunk
+                                        + " exceeded at external step " + globalStepCount
+                                        + " — try a coarser keyframesPerKept or smaller "
+                                        + "timeStep unit.");
+                    }
+                    results.put(simCurrentDate, snapshotFromState(currentStateBuffer));
+                    nextKeptAtStep += keyframesPerKept;
+                }
+                currentTimeStep++;
+            }
+        } finally {
+            // Clear so a subsequent run() on this Simulation starts clean —
+            // and so the captured `results` reference does not outlive this
+            // chunk via the integrator's retained handler field.
+            integrator.setSubstepHandler(null);
         }
 
         long endTime = System.nanoTime();
@@ -162,14 +209,17 @@ public class Simulation {
     }
 
     /**
-     * Build a snapshot list directly from {@link #currentStateBuffer}.
+     * Build a snapshot list directly from the given flat state vector.
      * Sun-relative shifting (so the rendered Sun stays anchored at origin)
      * is done component-wise on primitive doubles — only the final two
      * Vector3D constructions inside each {@link CelestialBodySnapshot} are
      * unavoidable, since the snapshot record is the public wire format.
+     *
+     * <p>The state argument lets external-step keyframes use the live
+     * {@code currentStateBuffer} while substep callbacks can pass through
+     * Hipparchus's transient interpolator state directly.
      */
-    private List<CelestialBodySnapshot> snapshotFromState() {
-        double[] data = currentStateBuffer;
+    private List<CelestialBodySnapshot> snapshotFromState(double[] data) {
         double sunX = 0, sunY = 0, sunZ = 0;
         double sunVx = 0, sunVy = 0, sunVz = 0;
         if (sunIndex >= 0) {
