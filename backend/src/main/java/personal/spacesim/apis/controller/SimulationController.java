@@ -58,7 +58,8 @@ public class SimulationController {
                 frame,
                 integrator,
                 date,
-                timeStepUnit
+                timeStepUnit,
+                1  // K=1 (no thinning); proper computation+validation lands in Task 6
         );
 
         // building response object

@@ -81,7 +81,8 @@ class IntegratorBenchmark {
                     FRAME,
                     integratorName,
                     startDate,
-                    TIME_STEP_UNIT
+                    TIME_STEP_UNIT,
+                    1
                 );
 
                 // Warmup — let the JIT optimise the hot loop before measuring.

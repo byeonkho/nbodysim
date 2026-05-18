@@ -36,7 +36,8 @@ public class SimulationFactory {
             String frameStr,
             String integratorStr,
             AbsoluteDate simStartDate,
-            String timeStepUnit
+            String timeStepUnit,
+            int keyframesPerKept
     ) {
 
         // using singleton DI instead of static method
@@ -55,7 +56,8 @@ public class SimulationFactory {
                 frame,
                 integrator,
                 simStartDate,
-                timeStepUnit
+                timeStepUnit,
+                keyframesPerKept
         );
     }
 }

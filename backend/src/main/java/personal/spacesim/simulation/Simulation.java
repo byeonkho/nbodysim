@@ -36,6 +36,15 @@ public class Simulation {
     private static final int TIMESTEPS_TO_RUN = 10_000;
 
     /**
+     * Emit every Nth integration step to the snapshot stream (1 = no thinning).
+     * Computed by the HTTP boundary from request `keyframeIntervalSec / stepDt`
+     * and validated to 1..MAX_KEYFRAMES_PER_KEPT before reaching this ctor.
+     * Final because the value is session-scoped — set once at session create,
+     * cannot change mid-session.
+     */
+    private final int keyframesPerKept;
+
+    /**
      * Live state vector, advanced once per timestep. Carries position +
      * velocity for all bodies in the same flat layout as {@link GlobalState}.
      * Replaced each step by swap with {@link #nextStateBuffer} (so the
@@ -57,7 +66,8 @@ public class Simulation {
             Frame frame,
             Integrator integrator,
             AbsoluteDate simStartDate,
-            String timeStepUnit
+            String timeStepUnit,
+            int keyframesPerKept
     ) {
         this.sessionID = sessionID;
         this.frame = frame;
@@ -66,6 +76,7 @@ public class Simulation {
         this.simStartDate = simStartDate;
         this.simCurrentDate = simStartDate;
         this.timeStepUnit = timeStepUnit;
+        this.keyframesPerKept = keyframesPerKept;
         this.derivatives = NBodyDerivatives.forBodies(celestialBodies);
 
         // Pack initial wrapper state into the buffer once. After this, the
