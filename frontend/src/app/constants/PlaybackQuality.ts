@@ -6,12 +6,16 @@
  * Hermite interpolation fills the gaps. The "× stepDt" framing is internal;
  * the user picks a label or types a custom multiplier.
  */
+// Key order is the display order in the segmented picker (Object.entries
+// preserves insertion order). Low → High left-to-right matches the natural
+// "more = right" slider mental model. Multiplier sequence is inverted
+// (16 → 1) because higher quality ships *more* keyframes per chunk.
 export const PLAYBACK_QUALITY_PRESETS = {
-  high:    { multiplier: 1,  label: "High" },
-  medHigh: { multiplier: 2,  label: "Med-High" },
-  medium:  { multiplier: 4,  label: "Medium" },
-  medLow:  { multiplier: 8,  label: "Med-Low" },
   low:     { multiplier: 16, label: "Low" },
+  medLow:  { multiplier: 8,  label: "Med-Low" },
+  medium:  { multiplier: 4,  label: "Medium" },
+  medHigh: { multiplier: 2,  label: "Med-High" },
+  high:    { multiplier: 1,  label: "High" },
 } as const;
 
 export type PlaybackQualityKey = keyof typeof PLAYBACK_QUALITY_PRESETS;

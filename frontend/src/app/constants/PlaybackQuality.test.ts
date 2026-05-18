@@ -10,11 +10,11 @@ import {
 } from "./PlaybackQuality";
 
 describe("PLAYBACK_QUALITY_PRESETS", () => {
-  it("has the 5 expected keys with monotonically increasing multipliers", () => {
+  it("has the 5 expected keys ordered low → high quality (left → right in the picker), with monotonically decreasing multipliers", () => {
     const keys = Object.keys(PLAYBACK_QUALITY_PRESETS) as PlaybackQualityKey[];
-    expect(keys).toEqual(["high", "medHigh", "medium", "medLow", "low"]);
+    expect(keys).toEqual(["low", "medLow", "medium", "medHigh", "high"]);
     const multipliers = keys.map((k) => PLAYBACK_QUALITY_PRESETS[k].multiplier);
-    expect(multipliers).toEqual([1, 2, 4, 8, 16]);
+    expect(multipliers).toEqual([16, 8, 4, 2, 1]);
   });
 
   it("every preset has a non-empty label", () => {
