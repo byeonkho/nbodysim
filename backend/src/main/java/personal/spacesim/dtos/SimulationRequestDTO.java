@@ -7,5 +7,6 @@ public record SimulationRequestDTO(
         String date,
         String frame,
         String integrator,
-        String timeStepUnit
+        String timeStepUnit,
+        Double keyframeIntervalSec  // nullable; null → no thinning (K=1)
 ) {}
