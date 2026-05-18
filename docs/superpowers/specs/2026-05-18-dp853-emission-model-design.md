@@ -123,16 +123,17 @@ Math: ~40 B compressed per snapshot·body × 10 bodies × N snapshots ≈ 400 B 
 
 ### Thinning algorithm
 
-**Time-gap with drift-free targeting.** Track the next scheduled emission target as an `AbsoluteDate`. Initialise to `simStartDate + targetGapSeconds` immediately after the initial-frame emission. On each candidate (substep callback OR external-step boundary): if candidate ≥ next target, emit at candidate and advance target by exactly `targetGapSeconds` (regardless of how far past the target the actual emission landed). Cross-chunk continuity: the target survives across `run()` invocations so chunk N+1's first emission lands at the natural gap-tick after chunk N's last.
+**Interpolator-backed emission at exact schedule targets.** Hipparchus's DP853 step handler fires once per accepted substep with an interpolator that can evaluate state at any time within the substep's `[prev, curr]` window. The `Simulation` substep handler maintains a schedule (`nextEmitTarget = simStartDate.shiftedBy(adaptiveEmitCount × targetGapSeconds)`) and, whenever the schedule target falls inside the current substep, emits `eval.stateAt(targetRelTime)` — interpolated state at the exact target time, NOT at the substep boundary. Cross-chunk continuity: `adaptiveEmitCount` survives across `run()` invocations.
 
-**Drift-free vs drift-prone.** The naive formulation (`lastEmitTime + gap` as the threshold) accumulates "how far past the threshold each emission landed" as cumulative schedule lag. For DP853 with sub-day substep cadence and gaps of several days, this drift adds up to ~7–8% under-count by chunk end. The drift-free formulation walks the target by exactly `gap` each tick — so actual emission count over a chunk is within ≪1% of N. Empirically: N=5000 → 4999 actual; N=10000 → 10000 actual; N=15000 → 14999 actual.
+**Why "at exact target time" matters.** Naive formulations that emit at the actual *substep* timestamp (whenever the substep first crosses the target) produce non-uniform-time samples — substep cadence is DP853's call, not ours. Consumers that iterate the buffer by integer index (Trail.tsx, Sphere at integer indices, ghost labels) assume uniform-time samples and render visible wobble between adjacent buffer entries. Interpolator-backed emission produces samples at exactly `simStart + k × gap` for k = 0..N-1 — uniform by construction, independent of how DP853 chose its substep cadence.
 
-**On density preservation.** Time-gap thinning produces **approximately uniform-time** samples — not adaptive-density-preserving. In both benign and stiff regions, you get ~1 emission per `targetGapSeconds` of sim-time; the difference is just *which* substep gets picked (in stiff regions, more candidate substeps are near the threshold, so the chosen one lands closer to it). This is acceptable because:
-- Euler/RK4 already produce uniform-time samples; visualisation at those settings is fine.
-- DP853's *integration* accuracy is preserved — adaptive substeps still happen internally — only the visual sampling becomes uniform.
-- Hermite quality near close approaches under uniform DP853 sampling is no worse than RK4 at the same N today.
+**Empirical:** N=5000 → 5000 actual; N=10000 → 10000; N=15000 → 15000. Exact count by construction; only edge cases around chunk boundaries introduce small differences (chunk 2 emits N-1 because chunk 1's last target sits at the shared boundary).
 
-Importance-weighted thinning held in reserve — revisit only if real visual quality near close approaches regresses in practice.
+**Absolute schedule, not incremental.** `nextEmitTarget` is recomputed from `simStartDate` each emission via `shiftedBy(adaptiveEmitCount × gap)`, not incremented from the previous target by `shiftedBy(gap)`. Incremental updates accumulate float-rounding drift over N iterations and were enough at N=5000 to push the final target a sliver past `chunk_end`, losing one emission per chunk. Absolute computation eliminates the accumulation.
+
+**Performance.** The substep callback's while-loop calls `eval.stateAt(t)` 0–2 times per substep (depending on whether one or more gap-sized intervals fit inside this substep). Interpolation is cheap polynomial arithmetic on coefficients DP853 maintains anyway during integration — bounded acceptable cost.
+
+Importance-weighted thinning held in reserve — revisit only if real visual quality near close approaches regresses in practice (uniform-time sampling doesn't preserve adaptive density, but Euler/RK4 are uniform-time too and look fine; DP853's integration accuracy is preserved internally regardless).
 
 ### `MAX_SNAPSHOTS_PER_CHUNK` deleted
 

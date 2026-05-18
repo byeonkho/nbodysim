@@ -9,6 +9,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DP853IntegratorTest {
@@ -65,12 +66,17 @@ class DP853IntegratorTest {
     }
 
     /**
-     * With dt of 7 days, Hipparchus's MAX_STEP=1 day cap forces the
-     * integrator to take at least 6 accepted substeps before the final one,
-     * so the substep handler must fire with strictly intermediate times.
+     * Substep callbacks fire for every accepted substep — including the
+     * final one ending at {@code dt}. Intervals are contiguous and span
+     * the full {@code [0, dt]} range.
+     *
+     * <p>Previously this test asserted the final-at-dt substep was
+     * suppressed (the old "avoid duplicate boundary emission" model);
+     * the Simulation now drives emission at exact target times via the
+     * evaluator and the suppression is unnecessary.
      */
     @Test
-    void substepHandlerReceivesIntermediateAcceptedSubsteps() {
+    void substepHandlerReceivesContiguousIntervalsCoveringFullStep() {
         // Sun + Earth at perihelion-ish — enough gravity that DP853 doesn't
         // race through, but not stiff enough to time out.
         double mSun = 1.989e30;
@@ -84,22 +90,54 @@ class DP853IntegratorTest {
         }, 2);
 
         DP853Integrator dp = new DP853Integrator();
-        List<Double> substepTimes = new ArrayList<>();
-        dp.setSubstepHandler((t, y) -> substepTimes.add(t));
+        List<double[]> intervals = new ArrayList<>();
+        dp.setSubstepHandler((prev, curr, eval) -> intervals.add(new double[]{prev, curr}));
 
         double dt = 86400.0 * 7;
         dp.step(state, dt, derivs);
 
-        assertFalse(substepTimes.isEmpty(),
+        assertFalse(intervals.isEmpty(),
                 "Substep handler must fire for dt > MAX_STEP");
-        for (double t : substepTimes) {
-            assertTrue(t > 0 && t < dt,
-                    "Substep time " + t + " must lie strictly within (0, " + dt + ")");
+        assertEquals(0.0, intervals.get(0)[0], 1e-9,
+                "First substep must start at t=0");
+        assertEquals(dt, intervals.get(intervals.size() - 1)[1], 1e-9,
+                "Last substep must end at t=dt (no suppression)");
+        for (int i = 1; i < intervals.size(); i++) {
+            assertEquals(intervals.get(i - 1)[1], intervals.get(i)[0], 1e-9,
+                    "Substep intervals must be contiguous: prev.curr == next.prev");
         }
-        for (int i = 1; i < substepTimes.size(); i++) {
-            assertTrue(substepTimes.get(i) > substepTimes.get(i - 1),
-                    "Substep times must be monotonically increasing");
-        }
+    }
+
+    @Test
+    void substepHandlerEvaluatorReturnsStateWithinInterval() {
+        // The evaluator must be usable at any time within the substep's
+        // [prev, curr] window — that's how Simulation emits at exact
+        // scheduled target times.
+        double mSun = 1.989e30;
+        double mEarth = 5.972e24;
+        double r = 1.496e11;
+        double v = 2.978e4;
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{mSun, mEarth});
+        GlobalState state = new GlobalState(new double[]{
+                0, 0, 0, 0, 0, 0,
+                r, 0, 0, 0, v, 0,
+        }, 2);
+
+        DP853Integrator dp = new DP853Integrator();
+        boolean[] sampled = {false};
+        dp.setSubstepHandler((prev, curr, eval) -> {
+            if (sampled[0]) return;
+            // Mid-interval sample. Earth y-coordinate should evolve
+            // measurably between t=prev and t=mid.
+            double[] start = eval.stateAt(prev).clone();
+            double[] mid = eval.stateAt((prev + curr) / 2.0).clone();
+            assertNotEquals(start[7], mid[7],
+                    "Earth's y-coordinate should evolve between prev and mid");
+            sampled[0] = true;
+        });
+
+        dp.step(state, 86400.0 * 7, derivs);
+        assertTrue(sampled[0], "Handler did not fire — sampling never validated");
     }
 
     @Test
