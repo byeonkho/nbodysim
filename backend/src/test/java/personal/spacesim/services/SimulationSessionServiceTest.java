@@ -57,7 +57,8 @@ class SimulationSessionServiceTest {
                 "EULER",
                 new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC()),
                 "days",
-                1
+                /* keyframesPerKept= */ 1,
+                /* targetSnapshotsPerChunk= */ 5000
         );
 
         byte[] first = service.getNextChunkBytes(sessionID);
@@ -84,7 +85,8 @@ class SimulationSessionServiceTest {
                 "EULER",
                 new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC()),
                 "days",
-                1
+                /* keyframesPerKept= */ 1,
+                /* targetSnapshotsPerChunk= */ 5000
         );
 
         service.getNextChunkBytes(sessionID);

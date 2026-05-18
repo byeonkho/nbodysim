@@ -82,7 +82,8 @@ class IntegratorBenchmark {
                     integratorName,
                     startDate,
                     TIME_STEP_UNIT,
-                    1
+                    /* keyframesPerKept= */ 1,
+                    /* targetSnapshotsPerChunk= */ 5000
                 );
 
                 // Warmup — let the JIT optimise the hot loop before measuring.

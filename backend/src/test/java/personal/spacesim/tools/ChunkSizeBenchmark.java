@@ -17,33 +17,18 @@ import personal.spacesim.utils.compressor.ZstdCompressor;
 import personal.spacesim.utils.serializers.BinaryResponseSerializer;
 
 /**
- * One-off wire-size measurement harness for chunk bandwidth optimisation
- * (todos #37 and #69).
+ * One-off wire-size measurement harness for chunk bandwidth (todos
+ * #37 and #69). Walks realistic user-facing scenarios (full solar
+ * system, 10 bodies), runs the same serialize → zstd pipeline the
+ * controller uses, and prints snapshots / raw KB / zstd KB / ratio /
+ * B/snap·body per row.
  *
- * <p>Walks the realistic integrator × K matrix users actually encounter
- * (full solar system, 10 bodies), runs the same serialize → zstd pipeline
- * the controller uses, and prints per-scenario:
- * <ul>
- *   <li>snapshot count</li>
- *   <li>raw bytes (post-serializer)</li>
- *   <li>compressed bytes (post-zstd, includes the 4-byte length prefix)</li>
- *   <li>compression ratio</li>
- *   <li>bytes per snapshot (raw + compressed)</li>
- *   <li>bytes per snapshot-body (the implicit unit in
- *       {@code SimulationLimits.MAX_SNAPSHOTS_PER_CHUNK} docstring)</li>
- * </ul>
+ * <p>For DP853 (Mode C time-gap thinning), exercises the three
+ * preset-relevant N values from the design doc — N=5000 / N=10000 /
+ * N=15000 — so each row's snapshot count should land within ±5% of
+ * its target N. That's the Phase 2 verify criterion.
  *
- * <p>Output is plain text on stdout — this is a measurement tool, not an
- * assertion. The numbers feed the wire-size target decision before any
- * format changes (float32, delta encoding) land.
- *
- * <p>The DP853 K=1 row uses an elevated snapshot budget so we can measure
- * the worst-case substep burst rather than tripping
- * {@code ChunkSnapshotBudgetExceededException} — exactly the design question
- * todo #69 is about.
- *
- * <p>Disabled by default — runs only when {@code -Dchunk.benchmark=true}
- * is passed, mirroring {@link IntegratorBenchmark}.
+ * <p>Disabled by default — runs only when {@code -Dchunk.benchmark=true}.
  *
  * <p>Run:
  * <pre>
@@ -62,18 +47,16 @@ class ChunkSizeBenchmark {
     private static final String FRAME = "ICRF";
     private static final String TIME_STEP_UNIT = "hours";
 
-    private record Scenario(String label, String integrator, int k, int snapshotBudget) {}
+    private record Scenario(String label, String integrator, int k, int n) {}
 
-    // Centered on what real users hit (per-integrator defaults from the
-    // Hermite work — Euler K=1, RK4 K=4, DP853 K=8). DP853 K=4 and K=1
-    // bracket the high-fidelity end; K=1 uses an elevated budget so we
-    // can measure the substep-burst worst case rather than throw.
+    // Fixed-step rows use K (n is ignored). DP853 rows use N (k is ignored).
+    // DP853 N values match the design doc preset map (bucket 2, 4, 5).
     private static final List<Scenario> SCENARIOS = List.of(
-        new Scenario("euler   K=1  (default)",        "euler", 1, 100_000),
-        new Scenario("rk4     K=4  (default)",        "rk4",   4, 100_000),
-        new Scenario("dp853   K=8  (default)",        "dp853", 8, 100_000),
-        new Scenario("dp853   K=4  (medium-high)",    "dp853", 4, 100_000),
-        new Scenario("dp853   K=1  (stress — substep worst case)", "dp853", 1, 100_000)
+        new Scenario("euler   K=1   (highest)",   "euler", 1,  0),
+        new Scenario("rk4     K=4   (default)",   "rk4",   4,  0),
+        new Scenario("dp853   N=5000  (default)", "dp853", 1,  5000),
+        new Scenario("dp853   N=10000 (high)",    "dp853", 1, 10000),
+        new Scenario("dp853   N=15000 (highest)", "dp853", 1, 15000)
     );
 
     @Autowired private SimulationFactory simulationFactory;
@@ -93,10 +76,11 @@ class ChunkSizeBenchmark {
         System.out.println("  " + "-".repeat(112));
 
         for (Scenario s : SCENARIOS) {
+            String sessionId = "chunk-bench-" + s.integrator + "-" + (s.n > 0 ? "N" + s.n : "K" + s.k);
             Simulation sim = simulationFactory.createSimulation(
-                "chunk-bench-" + s.integrator + "-K" + s.k,
+                sessionId,
                 BODIES, FRAME, s.integrator, startDate, TIME_STEP_UNIT,
-                s.k, s.snapshotBudget
+                s.k, s.n
             );
 
             Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk = sim.run();
@@ -127,8 +111,9 @@ class ChunkSizeBenchmark {
         }
 
         System.out.println();
-        System.out.println("Target reference (todo #37): <1 MB compressed per chunk.");
-        System.out.println("Current MAX_SNAPSHOTS_PER_CHUNK = 20000 (todo #69).");
+        System.out.println("Wire-size targets (per design doc):");
+        System.out.println("  Default tier (Euler/RK4): 2 MB compressed ceiling");
+        System.out.println("  DP853 tier (opt-in):      6 MB compressed ceiling");
         System.out.println();
     }
 }
