@@ -61,6 +61,8 @@ export interface LastSimRequest {
   frame: string;
   integrator: string;
   timeStepUnit: string;
+  /** Optional — populated by SimSetupDrawer Phase 3 onward. */
+  keyframeIntervalSec?: number;
 }
 
 interface ActiveBodyState {
