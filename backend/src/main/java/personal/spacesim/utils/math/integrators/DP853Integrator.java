@@ -1,7 +1,6 @@
 package personal.spacesim.utils.math.integrators;
 
 import org.hipparchus.ode.ODEState;
-import org.hipparchus.ode.ODEStateAndDerivative;
 import org.hipparchus.ode.OrdinaryDifferentialEquation;
 import org.hipparchus.ode.nonstiff.DormandPrince853Integrator;
 import org.hipparchus.ode.sampling.ODEStateInterpolator;
@@ -57,18 +56,10 @@ public final class DP853Integrator implements Integrator {
     private double[] derivScratch;
 
     /**
-     * Optional callback receiving each accepted intermediate substep.
-     * Read inside Hipparchus's step handler — null = nothing to forward.
+     * Optional callback receiving each accepted substep. Read inside
+     * Hipparchus's step handler — null = nothing to forward.
      */
     private SubstepHandler substepHandler;
-
-    /**
-     * Set at the top of each {@link #stepInto} call so the step handler
-     * can distinguish the final substep (which lands exactly at {@code dt})
-     * from intermediates. The final substep is suppressed because it
-     * duplicates the endpoint the simulation loop emits separately.
-     */
-    private double currentStepDt;
 
     /**
      * Reused across steps. Holds {@link #currentDerivatives} and
@@ -95,16 +86,15 @@ public final class DP853Integrator implements Integrator {
                 if (h == null) {
                     return;
                 }
-                ODEStateAndDerivative end = interpolator.getCurrentState();
-                double t = end.getTime();
-                // The substep landing exactly at dt is the integration
-                // endpoint — the simulation loop emits a keyframe for it
-                // through the regular post-step path, so suppress here to
-                // avoid a duplicate at every external-step boundary.
-                if (t >= currentStepDt) {
-                    return;
-                }
-                h.onSubstep(t, end.getCompleteState());
+                double prevTime = interpolator.getPreviousState().getTime();
+                double currTime = interpolator.getCurrentState().getTime();
+                // Adapter: forward the per-step interpolator as a typed
+                // evaluator. Lifetime is bounded by this callback — the
+                // interpolator is reused by Hipparchus on subsequent
+                // steps, so the lambda must not be retained.
+                IntermediateStateEvaluator eval = (timeSec) ->
+                        interpolator.getInterpolatedState(timeSec).getCompleteState();
+                h.onSubstep(prevTime, currTime, eval);
             }
         });
     }
@@ -120,7 +110,6 @@ public final class DP853Integrator implements Integrator {
             derivScratch = new double[state.length];
         }
         currentDerivatives = derivatives;
-        currentStepDt = dt;
 
         ODEState start = new ODEState(0.0, state);
         ODEState end = hipparchusIntegrator.integrate(ode, start, dt);

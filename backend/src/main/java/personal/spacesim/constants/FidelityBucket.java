@@ -17,10 +17,12 @@ package personal.spacesim.constants;
  * than the enum constant name so the contract reads cleanly in request
  * bodies.
  *
- * <p>Values come from the design doc table in
- * {@code docs/superpowers/specs/2026-05-18-dp853-emission-model-design.md}.
- * Snapshot counts are sized so the highest bucket lands within the
- * per-tier wire-size ceilings (2 MB default tier, 6 MB DP853 tier).
+ * <p>K and N values are sized so the highest bucket lands within the
+ * per-tier compressed wire-size ceilings — roughly 3 MB for the
+ * fixed-step default tier and 4.5 MB for the DP853 opt-in tier under
+ * the mixed-precision wire format (float64 positions, float32
+ * velocities). The fixed-step column maps onto the existing K thinning;
+ * the DP853 column maps onto Mode C target-snapshots-per-chunk.
  */
 public enum FidelityBucket {
 

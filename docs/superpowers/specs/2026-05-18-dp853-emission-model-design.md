@@ -1,7 +1,7 @@
 # DP853 chunk-emission model
 
 **Date:** 2026-05-18
-**Status:** Implemented (Phases 1–3 landed as PRs #14 / #15 / pending Phase 3)
+**Status:** Implemented + post-merge fix (Phases 1–3 landed as PRs #14 / #15 / #16; mixed-precision wire format fix pending — see "Postscript: float32 → mixed precision" at the bottom)
 **Tracker entry:** `todo.md` #69 (emission-mode design) — feeds #37 (per-chunk bandwidth)
 **Related:** `todo.md` #37, `2026-05-15-hermite-keyframe-interpolation-design.md`, [#13](https://github.com/byeonkho/spacesim/pull/13)
 **Companion data:** `ChunkSizeBenchmark.java` (run with `./mvnw test -Dtest=ChunkSizeBenchmark -Dchunk.benchmark=true`)
@@ -123,16 +123,17 @@ Math: ~40 B compressed per snapshot·body × 10 bodies × N snapshots ≈ 400 B 
 
 ### Thinning algorithm
 
-**Time-gap with drift-free targeting.** Track the next scheduled emission target as an `AbsoluteDate`. Initialise to `simStartDate + targetGapSeconds` immediately after the initial-frame emission. On each candidate (substep callback OR external-step boundary): if candidate ≥ next target, emit at candidate and advance target by exactly `targetGapSeconds` (regardless of how far past the target the actual emission landed). Cross-chunk continuity: the target survives across `run()` invocations so chunk N+1's first emission lands at the natural gap-tick after chunk N's last.
+**Interpolator-backed emission at exact schedule targets.** Hipparchus's DP853 step handler fires once per accepted substep with an interpolator that can evaluate state at any time within the substep's `[prev, curr]` window. The `Simulation` substep handler maintains a schedule (`nextEmitTarget = simStartDate.shiftedBy(adaptiveEmitCount × targetGapSeconds)`) and, whenever the schedule target falls inside the current substep, emits `eval.stateAt(targetRelTime)` — interpolated state at the exact target time, NOT at the substep boundary. Cross-chunk continuity: `adaptiveEmitCount` survives across `run()` invocations.
 
-**Drift-free vs drift-prone.** The naive formulation (`lastEmitTime + gap` as the threshold) accumulates "how far past the threshold each emission landed" as cumulative schedule lag. For DP853 with sub-day substep cadence and gaps of several days, this drift adds up to ~7–8% under-count by chunk end. The drift-free formulation walks the target by exactly `gap` each tick — so actual emission count over a chunk is within ≪1% of N. Empirically: N=5000 → 4999 actual; N=10000 → 10000 actual; N=15000 → 14999 actual.
+**Why "at exact target time" matters.** Naive formulations that emit at the actual *substep* timestamp (whenever the substep first crosses the target) produce non-uniform-time samples — substep cadence is DP853's call, not ours. Consumers that iterate the buffer by integer index (Trail.tsx, Sphere at integer indices, ghost labels) assume uniform-time samples and render visible wobble between adjacent buffer entries. Interpolator-backed emission produces samples at exactly `simStart + k × gap` for k = 0..N-1 — uniform by construction, independent of how DP853 chose its substep cadence.
 
-**On density preservation.** Time-gap thinning produces **approximately uniform-time** samples — not adaptive-density-preserving. In both benign and stiff regions, you get ~1 emission per `targetGapSeconds` of sim-time; the difference is just *which* substep gets picked (in stiff regions, more candidate substeps are near the threshold, so the chosen one lands closer to it). This is acceptable because:
-- Euler/RK4 already produce uniform-time samples; visualisation at those settings is fine.
-- DP853's *integration* accuracy is preserved — adaptive substeps still happen internally — only the visual sampling becomes uniform.
-- Hermite quality near close approaches under uniform DP853 sampling is no worse than RK4 at the same N today.
+**Empirical:** N=5000 → 5000 actual; N=10000 → 10000; N=15000 → 15000. Exact count by construction; only edge cases around chunk boundaries introduce small differences (chunk 2 emits N-1 because chunk 1's last target sits at the shared boundary).
 
-Importance-weighted thinning held in reserve — revisit only if real visual quality near close approaches regresses in practice.
+**Absolute schedule, not incremental.** `nextEmitTarget` is recomputed from `simStartDate` each emission via `shiftedBy(adaptiveEmitCount × gap)`, not incremented from the previous target by `shiftedBy(gap)`. Incremental updates accumulate float-rounding drift over N iterations and were enough at N=5000 to push the final target a sliver past `chunk_end`, losing one emission per chunk. Absolute computation eliminates the accumulation.
+
+**Performance.** The substep callback's while-loop calls `eval.stateAt(t)` 0–2 times per substep (depending on whether one or more gap-sized intervals fit inside this substep). Interpolation is cheap polynomial arithmetic on coefficients DP853 maintains anyway during integration — bounded acceptable cost.
+
+Importance-weighted thinning held in reserve — revisit only if real visual quality near close approaches regresses in practice (uniform-time sampling doesn't preserve adaptive density, but Euler/RK4 are uniform-time too and look fine; DP853's integration accuracy is preserved internally regardless).
 
 ### `MAX_SNAPSHOTS_PER_CHUNK` deleted
 
@@ -179,3 +180,51 @@ After Phase 3 lands, `todo.md` updates:
 
 - **Delta encoding (#37 option B).** Bigger structural change; only worth doing if Phase 1 + 2 don't hit the target. Current math says they will.
 - **Per-tier rate-limit accounting.** Today's rate limiter is bytes-per-IP-per-window agnostic of integrator. Once DP853 is heavier, a fairer model might be "chunks-per-IP-per-window" weighted by tier. Defer until usage data justifies it.
+
+---
+
+## Postscript: float32 → mixed precision (post-merge bug fix)
+
+Phase 1's "float32 positions + float32 velocities" claim that "~7-decimal-digit precision is fine for visualisation" turned out to be wrong for **outer planets at high fidelity**. The math I never worked through at the time:
+
+- Float32 quantization at radius R: `~R / 2^23`. At Neptune's 4.5×10¹² m, that's ~540 km per axis.
+- Per-sample Z motion of an outer planet (slow Z because near-ecliptic orbit) at gap = 3600s ≈ 610 km for Neptune.
+- Ratio quantization / per-sample-motion ≈ 0.89 → orbital plane appears to jitter frame-to-frame as new chunks arrive with different quantization noise patterns.
+
+This was reproduced on Euler, RK4, and DP853 (all share the wire format), scaling monotonically with fidelity (smaller gap → smaller per-sample motion → worse ratio), most pronounced on outer planets (larger R → coarser quantization).
+
+### Fix
+
+Mixed precision on the wire:
+- **Positions: float64** (3 × 8B per body) — rendered directly, per-pixel sensitive
+- **Velocities: float32** (3 × 4B per body) — used only as Hermite tangents and Keplerian inputs; precision-loss path damps by ~5 orders of magnitude before anything visible
+
+Asymmetry rationale:
+- *Positions* feed `setBodyWorldPosition` → world-space coordinates → pixels. Quantization is rendered as-is, every sample.
+- *Velocities* feed `outVel = (dh00·p0 + dh01·p1) / dt + dh10·v0 + dh11·v1` (Hermite analytic derivative) — velocity contribution is multiplied by Hermite basis functions in [0, 1] and the result is a *velocity*, not a *position*; doesn't accumulate. Float32 velocity at Neptune (~5 km/s) carries ~0.6 mm/s noise, contributing ~2 m of position uncertainty over one 3600s sample — vs the ~18 million m per-sample motion. Ratio 10⁻⁷, invisible.
+
+### Wire-size impact
+
+| Format | Per-body B | DP853 N=15000 zstd | Notes |
+|---|---|---|---|
+| Original (full float64) | 48 | ~7 MB | Pre-Phase 1 baseline |
+| Phase 1 (full float32) | 24 | ~3 MB | The wobble bug |
+| **Mixed (post-fix)** | **36** | **~4.5 MB** | 75% of float64, 1.5× Phase 1 |
+
+### Updated ceilings
+
+The original 2 MB default-tier ceiling no longer holds for Euler K=1 (highest preset = 3 MB compressed under mixed precision). Pragmatic resolution: **raise the default-tier ceiling to ~3 MB** rather than tighten the highest preset to K=2 (which would degrade the slider's top end). All values still well within rate limiter sizing (~4 MB chunk budget).
+
+Updated table:
+
+| Bucket | Euler/RK4 zstd | DP853 zstd |
+|---|---|---|
+| Low | ~0.3 MB | ~0.9 MB |
+| Med-Low | ~0.6 MB | ~1.5 MB |
+| Medium | ~1.2 MB (RK4 default) | ~2.3 MB |
+| Med-High | ~1.5 MB (Euler default) | ~3 MB |
+| Highest | ~3 MB | ~4.5 MB |
+
+### Lesson
+
+Phase 1's precision-loss sanity check was performed against the easy case (Earth in helio mode at typical zoom) where the ratios came out fine. The actual failure mode required reasoning across **outer-planet position magnitude × low orbital inclination × high sample density** — three axes I should have checked together rather than each in isolation. Future precision changes: validate against the full body × scale × fidelity matrix, not one representative case.

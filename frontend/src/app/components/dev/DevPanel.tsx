@@ -14,10 +14,10 @@ import {
   type DevSettings,
 } from "@/app/dev/devSettingsStore";
 
-// Dev-only panel — mounted only when the URL has ?dev=1 (Decision 9 in
-// design.md). Re-styled to match the redesign palette: glass surface,
-// eyebrow labels, mono numerics. Holds the chunk-buffer metrics, camera
-// tunable sliders, and the trail-length tunable.
+// Dev-only panel — mounted only when the URL has ?dev=1. Styled to
+// match the rest of the chrome (glass surface, eyebrow labels, mono
+// numerics). Holds the chunk-buffer metrics, camera tunable sliders,
+// and the trail-length tunable.
 //
 // Positioned bottom-left, right of the LeftRail and above the bottom
 // timeline, so it never overlaps the right column (body card / event

@@ -89,17 +89,26 @@ public class Simulation {
     private long nextKeptAtStep = 0;
 
     /**
-     * Adaptive path: timestamp of the NEXT scheduled emission. Emit when
-     * a candidate date is at or past this target, then advance by exactly
-     * {@code targetGapSeconds}. Drift-free: the schedule walks by the
-     * gap each tick regardless of where each actual emission landed, so
-     * total count over a chunk ≈ N even when substeps consistently fall
-     * a fraction of the gap past the target (which they typically do —
-     * substep cadence is set by DP853's local error, not by N).
+     * Adaptive path: number of emissions made so far (initial + scheduled
+     * targets). Surviving across run() invocations preserves smooth
+     * cadence across chunk seams.
      *
-     * <p>Carried across run() invocations so chunk N+1's first emission
-     * lands at the natural gap-tick after chunk N's last, not at chunk
-     * N+1's start boundary — preserves smooth cadence across chunk seams.
+     * <p>Used to recompute {@link #nextEmitTarget} absolutely from
+     * {@link #simStartDate} on each emission, rather than incrementing
+     * the previous target by gap. Incremental {@code shiftedBy(gap)}
+     * accumulates float rounding error over N-1 iterations; for N=5000
+     * with weekly chunks that drift was enough to push the final target
+     * a sliver past chunk_end and lose one emission per chunk (off-by-one
+     * regression caught at test time).
+     */
+    private long adaptiveEmitCount = 0;
+
+    /**
+     * Adaptive path: timestamp of the NEXT scheduled emission, computed
+     * as {@code simStartDate.shiftedBy(adaptiveEmitCount * targetGapSeconds)}.
+     * Emit when a substep's evaluator can produce state at this time
+     * (i.e. target falls within the current substep's [prev, curr]
+     * interval), then bump {@code adaptiveEmitCount} and recompute.
      */
     private AbsoluteDate nextEmitTarget;
 
@@ -193,12 +202,33 @@ public class Simulation {
         long startTime = System.nanoTime();
         Map<AbsoluteDate, List<CelestialBodySnapshot>> results = new LinkedHashMap<>();
 
-        // Adaptive integrators (DP853) route accepted intermediate substeps
-        // through this handler. The time-gap check inside maybeEmit decides
-        // whether each candidate substep crosses the next emission tick.
-        // Fixed-step integrators register but never fire (no substeps).
-        integrator.setSubstepHandler((relativeTime, substepState) ->
-                maybeEmitAdaptive(stepStartDate.shiftedBy(relativeTime), substepState, results));
+        // Adaptive integrators (DP853): every accepted substep gives us
+        // an interpolator-backed window [stepStart+prev, stepStart+curr]
+        // over which we can compute state at any time. We emit at EXACT
+        // scheduled target times (not at substep boundaries) by
+        // interpolating — produces uniformly-time-spaced samples
+        // regardless of how DP853 chose its substep cadence. Critical
+        // for Trail.tsx and other integer-index consumers that assume
+        // uniform spacing. Fixed-step integrators register but never
+        // fire (no substeps).
+        integrator.setSubstepHandler((prevTimeSec, currTimeSec, eval) -> {
+            while (nextEmitTarget != null) {
+                double targetRelTime = nextEmitTarget.durationFrom(stepStartDate);
+                // Strictly past the substep's window — wait for a later
+                // substep (or a later external step's substeps).
+                if (targetRelTime > currTimeSec) {
+                    break;
+                }
+                // Clamp to prevTime for the rare case where a target
+                // slipped between substeps (shouldn't happen with
+                // correct accounting, but eval requires t in interval).
+                double evalT = Math.max(targetRelTime, prevTimeSec);
+                results.put(nextEmitTarget, snapshotFromState(eval.stateAt(evalT)));
+                adaptiveEmitCount++;
+                nextEmitTarget = simStartDate.shiftedBy(
+                        adaptiveEmitCount * targetGapSeconds);
+            }
+        });
 
         try {
             // Initial frame is always kept (step 0). Only on the first chunk.
@@ -206,8 +236,10 @@ public class Simulation {
                 results.put(simCurrentDate, snapshotFromState(currentStateBuffer));
                 hasEmittedInitialFrame = true;
                 nextKeptAtStep = keyframesPerKept;
-                // Schedule the next emission gap-seconds after the initial.
-                nextEmitTarget = simCurrentDate.shiftedBy(targetGapSeconds);
+                // Initial counts as emission #1; next target at #2's tick.
+                adaptiveEmitCount = 1;
+                nextEmitTarget = simStartDate.shiftedBy(
+                        adaptiveEmitCount * targetGapSeconds);
             }
 
             int currentTimeStep = 0;
@@ -215,19 +247,14 @@ public class Simulation {
                 update();
                 globalStepCount++;
 
-                if (isAdaptiveIntegrator) {
-                    // DP853: the external-step boundary is also a candidate
-                    // emission point. Hipparchus suppresses its final-at-dt
-                    // substep callback to avoid duplicating boundaries, so
-                    // the substep handler won't fire here — explicit check.
-                    maybeEmitAdaptive(simCurrentDate, currentStateBuffer, results);
-                } else {
-                    // Fixed-step path: single integer compare. K=1 → true
-                    // every step (snapshot kept every step).
-                    if (globalStepCount >= nextKeptAtStep) {
-                        results.put(simCurrentDate, snapshotFromState(currentStateBuffer));
-                        nextKeptAtStep += keyframesPerKept;
-                    }
+                // Fixed-step path: keyframesPerKept thinning. The adaptive
+                // path is driven entirely by the substep handler above —
+                // no external-boundary check needed because t==dt substeps
+                // are no longer suppressed.
+                if (!isAdaptiveIntegrator
+                        && globalStepCount >= nextKeptAtStep) {
+                    results.put(simCurrentDate, snapshotFromState(currentStateBuffer));
+                    nextKeptAtStep += keyframesPerKept;
                 }
                 currentTimeStep++;
             }
@@ -244,25 +271,6 @@ public class Simulation {
         log.info("Simulation ran using frame: {}", frame.getName());
 
         return results;
-    }
-
-    /**
-     * Adaptive-path emission gate. Emits when the candidate date is at
-     * or past the next scheduled emission target, then advances the
-     * target by exactly {@link #targetGapSeconds} (drift-free schedule).
-     * Operates on both substep callbacks (intermediate) and external-step
-     * boundaries (final).
-     */
-    private void maybeEmitAdaptive(
-            AbsoluteDate candidateDate,
-            double[] state,
-            Map<AbsoluteDate, List<CelestialBodySnapshot>> results
-    ) {
-        if (nextEmitTarget == null || candidateDate.compareTo(nextEmitTarget) < 0) {
-            return;
-        }
-        results.put(candidateDate, snapshotFromState(state));
-        nextEmitTarget = nextEmitTarget.shiftedBy(targetGapSeconds);
     }
 
     /**

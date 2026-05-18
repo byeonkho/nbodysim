@@ -23,21 +23,23 @@ import java.util.Map;
  *   per timestep:
  *     int64    timestamp (millis since UNIX epoch, UTC)
  *     per body (in header order):
- *       float32 × 6   (px, py, pz, vx, vy, vz)
+ *       float64 × 3   (px, py, pz)   — position
+ *       float32 × 3   (vx, vy, vz)   — velocity
  *
- * Positions + velocities use float32 — ~7-decimal-digit precision is fine
- * for visualisation (the Keplerian-element math is performed once per body
- * card render, not in the integrator, so input precision dominates over
- * derivative-amplified rounding). Halves raw per-timestep bytes.
+ * Mixed precision (post trail-wobble investigation): positions need
+ * float64 because their quantization is rendered directly — float32's
+ * ~540 km cells at Neptune's 4.5×10¹² m radius dominated per-sample Z
+ * motion at high fidelity, causing visible orbit-plane jitter. Velocities
+ * are fine at float32: their use sites (Hermite tangent → position over
+ * one gap-interval; Keplerian v² → semi-major axis) damp the precision
+ * loss by ~5 orders of magnitude before anything visible. 75% of
+ * full-float64 wire bytes.
  *
  * Body names + µ (standard gravitational parameter, m³/s²) are sent once in
- * the header; per-timestep payloads use header-order indexing. µ stays
- * float64 because it appears once per session per body (not per timestep)
- * and the Keplerian derivation is sensitive to µ precision in a way the
- * positions aren't. µ is needed client-side to derive Keplerian orbital
- * elements from (r, v) state vectors; inlining it avoids a separate metadata
- * fetch and is constant per session so resending per chunk costs only
- * bodyCount × 8 bytes (~80 B for 10 bodies).
+ * the header; per-timestep payloads use header-order indexing. µ is needed
+ * client-side to derive Keplerian orbital elements from (r, v) state vectors;
+ * inlining it avoids a separate metadata fetch and is constant per session
+ * so resending per chunk costs only bodyCount × 8 bytes (~80 B for 10 bodies).
  *
  * Assumes a stable body order across timesteps within a chunk, which the
  * integrator guarantees.
@@ -69,8 +71,8 @@ public class BinaryResponseSerializer {
         }
 
         int timestepCount = data.size();
-        // timestamp (int64) + 6 floats (float32) per body
-        int perTimestepSize = 8 + bodyCount * 6 * 4;
+        // timestamp (int64) + per body: 3 doubles (position) + 3 floats (velocity)
+        int perTimestepSize = 8 + bodyCount * (3 * 8 + 3 * 4);
         int totalSize = headerSize + timestepCount * perTimestepSize;
 
         ByteBuffer buf = ByteBuffer.allocate(totalSize).order(ByteOrder.LITTLE_ENDIAN);
@@ -98,7 +100,7 @@ public class BinaryResponseSerializer {
             for (int i = 0; i < bodyCount; i++) {
                 Vector3D pos = snapshot.get(i).position();
                 Vector3D vel = snapshot.get(i).velocity();
-                buf.putFloat((float) pos.getX()).putFloat((float) pos.getY()).putFloat((float) pos.getZ());
+                buf.putDouble(pos.getX()).putDouble(pos.getY()).putDouble(pos.getZ());
                 buf.putFloat((float) vel.getX()).putFloat((float) vel.getY()).putFloat((float) vel.getZ());
             }
         }

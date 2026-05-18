@@ -24,8 +24,8 @@ export type BodyKey =
   | "NEPTUNE"
   | "MOON";
 
-// Canonical pill-row order. Decision 1 (design.md): keep all 10. N-body
-// framing is a feature, not a footnote.
+// Canonical pill-row order. All 10 bodies surfaced — N-body framing is
+// a feature, not a footnote.
 export const BODY_ORDER: readonly BodyKey[] = [
   "SUN",
   "MERCURY",
