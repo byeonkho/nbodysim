@@ -113,14 +113,14 @@ class BinaryResponseSerializerTest {
 
         assertEquals(1, buf.getInt(), "timestepCount");
 
-        // Per-timestep
+        // Per-timestep — positions+velocities are float32 (small integers roundtrip exactly).
         assertEquals(expectedMillis, buf.getLong(), "timestamp millis");
         // Earth
-        assertEquals(1.0, buf.getDouble()); assertEquals(2.0, buf.getDouble()); assertEquals(3.0, buf.getDouble());
-        assertEquals(4.0, buf.getDouble()); assertEquals(5.0, buf.getDouble()); assertEquals(6.0, buf.getDouble());
+        assertEquals(1.0f, buf.getFloat()); assertEquals(2.0f, buf.getFloat()); assertEquals(3.0f, buf.getFloat());
+        assertEquals(4.0f, buf.getFloat()); assertEquals(5.0f, buf.getFloat()); assertEquals(6.0f, buf.getFloat());
         // Moon
-        assertEquals(7.0, buf.getDouble()); assertEquals(8.0, buf.getDouble()); assertEquals(9.0, buf.getDouble());
-        assertEquals(10.0, buf.getDouble()); assertEquals(11.0, buf.getDouble()); assertEquals(12.0, buf.getDouble());
+        assertEquals(7.0f, buf.getFloat()); assertEquals(8.0f, buf.getFloat()); assertEquals(9.0f, buf.getFloat());
+        assertEquals(10.0f, buf.getFloat()); assertEquals(11.0f, buf.getFloat()); assertEquals(12.0f, buf.getFloat());
 
         // Buffer should be exactly consumed
         assertEquals(0, buf.remaining(), "no trailing bytes");

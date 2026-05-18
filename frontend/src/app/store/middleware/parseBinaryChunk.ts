@@ -9,10 +9,17 @@
 //   per timestep:
 //     int64    timestamp (millis since UNIX epoch, UTC)
 //     per body (header order):
-//       float64 × 6   (px, py, pz, vx, vy, vz)
+//       float32 × 6   (px, py, pz, vx, vy, vz)
+//
+// Positions + velocities use float32 — ~7-decimal-digit precision is fine
+// for visualisation and halves the per-timestep wire size. Decoded into the
+// existing Float64Array buffer via implicit widening; downstream consumers
+// (Sphere, Trail, etc.) see no shape change.
 //
 // `mu` is the standard gravitational parameter (G·M, m³/s²) for each body —
-// constant per session, sent once with names. Used client-side to derive
+// constant per session, sent once with names. Stays float64 because µ
+// appears once per session per body (not per timestep) and the Keplerian
+// derivation is sensitive to µ precision. Used client-side to derive
 // Keplerian orbital elements from (r, v) state vectors. µ=0 means "unknown"
 // (backend missing-entry fallback) and downstream code skips Keplerian
 // rendering for that body rather than producing NaN cascades.
@@ -67,12 +74,12 @@ export function parseBinaryChunk(bytes: Uint8Array): ParsedChunk {
 
     const snapshot: CelestialBody[] = new Array(bodyCount);
     for (let b = 0; b < bodyCount; b++) {
-      const px = view.getFloat64(offset, true); offset += 8;
-      const py = view.getFloat64(offset, true); offset += 8;
-      const pz = view.getFloat64(offset, true); offset += 8;
-      const vx = view.getFloat64(offset, true); offset += 8;
-      const vy = view.getFloat64(offset, true); offset += 8;
-      const vz = view.getFloat64(offset, true); offset += 8;
+      const px = view.getFloat32(offset, true); offset += 4;
+      const py = view.getFloat32(offset, true); offset += 4;
+      const pz = view.getFloat32(offset, true); offset += 4;
+      const vx = view.getFloat32(offset, true); offset += 4;
+      const vy = view.getFloat32(offset, true); offset += 4;
+      const vz = view.getFloat32(offset, true); offset += 4;
       snapshot[b] = {
         name: names[b],
         position: { x: px, y: py, z: pz },
@@ -137,12 +144,13 @@ export function parseBinaryChunkToTypedArrays(
     const tBase = t * bodyCount * 6;
     for (let b = 0; b < bodyCount; b++) {
       const slotBase = tBase + b * 6;
-      positions[slotBase + 0] = view.getFloat64(offset, true); offset += 8;
-      positions[slotBase + 1] = view.getFloat64(offset, true); offset += 8;
-      positions[slotBase + 2] = view.getFloat64(offset, true); offset += 8;
-      positions[slotBase + 3] = view.getFloat64(offset, true); offset += 8;
-      positions[slotBase + 4] = view.getFloat64(offset, true); offset += 8;
-      positions[slotBase + 5] = view.getFloat64(offset, true); offset += 8;
+      // Float32 reads widen to float64 on assignment into the Float64Array slot.
+      positions[slotBase + 0] = view.getFloat32(offset, true); offset += 4;
+      positions[slotBase + 1] = view.getFloat32(offset, true); offset += 4;
+      positions[slotBase + 2] = view.getFloat32(offset, true); offset += 4;
+      positions[slotBase + 3] = view.getFloat32(offset, true); offset += 4;
+      positions[slotBase + 4] = view.getFloat32(offset, true); offset += 4;
+      positions[slotBase + 5] = view.getFloat32(offset, true); offset += 4;
     }
   }
 
