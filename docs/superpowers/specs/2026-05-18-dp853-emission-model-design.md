@@ -1,7 +1,7 @@
 # DP853 chunk-emission model
 
 **Date:** 2026-05-18
-**Status:** Design — awaiting decision
+**Status:** Design — decisions finalized, awaiting implementation
 **Tracker entry:** `todo.md` #69 (emission-mode design) — feeds #37 (per-chunk bandwidth)
 **Related:** `todo.md` #37, `2026-05-15-hermite-keyframe-interpolation-design.md`, [#13](https://github.com/byeonkho/spacesim/pull/13)
 **Companion data:** `ChunkSizeBenchmark.java` (run with `./mvnw test -Dtest=ChunkSizeBenchmark -Dchunk.benchmark=true`)
@@ -92,34 +92,83 @@ This is the deciding factor for Mode B vs Mode C:
 
 Reality drift (#39 in todo) and integrator residuals (#60) both display visible-quality diagnostics — they'll specifically expose any close-approach quality loss. Mode C is the right play if we want those features to read honest.
 
-## Recommendation: Mode C (replace + budget)
+## Decisions (finalized 2026-05-18)
 
-Concretely:
+### Two-tier wire-size ceiling
 
-1. **Wire-size target: 1 MB compressed per chunk** for the user-default preset. Headroom for 2 MB on the highest-fidelity preset; sub-300 KB on the most-aggressive thinning.
-2. **Snapshot budget per chunk: ~5000** at the default preset. With ~40 B compressed per snapshot·body × 10 bodies = ~400 B/snapshot compressed × 5000 = **2 MB compressed today**. Combined with float32 (option A from #37, ~2×): **~1 MB compressed**. Hits target.
-3. **For Euler/RK4: nothing changes.** Fixed-step, K stays as today. Already within budget.
-4. **For DP853: time-gap thinning** as the v1. Cheap, deterministic, preserves density. Revisit importance-weighted if visual quality regresses.
-5. **User-facing control:** "Playback quality" slider stays the same in the UI — backend translates the bucket to either K (for fixed-step) or snapshot budget N (for DP853). Slider semantics don't leak the integrator coupling.
-6. **`MAX_SNAPSHOTS_PER_CHUNK` becomes a real cap**, not a safety throw — set to N_max (the highest-fidelity preset), and the emission logic enforces it by construction. The exception goes away.
+DP853 is treated as an **opt-in heavier tier** — discoverable feature for users who want adaptive accuracy and are willing to pay the bandwidth. Default flows land on Euler/RK4.
 
-## Open questions
+| Tier | Wire-size ceiling (highest preset) | Snapshot ceiling (today) | With float32 |
+|---|---|---|---|
+| Default (Euler / RK4) | 2 MB compressed | ~5000 | ~1 MB |
+| DP853 (opt-in) | 6 MB compressed | ~15000 | ~3 MB |
 
-1. **Does Hipparchus expose accepted-substep timestamps + states cleanly through the StepHandler interface we already use, or does substep capture need re-plumbing?** Implementation detail, doesn't change the design — but affects effort estimate for Mode C.
-2. **Cross-chunk continuity under non-uniform thinning.** Chunk N+1 needs to dovetail with chunk N for Hermite reconstruction. The current `globalStepCount` cursor preserves this for fixed-step add-mode. Time-gap thinning needs the equivalent: each chunk starts time-gap accounting from the last kept substep of the previous chunk, not from the chunk boundary. Single integer in session state.
-3. **Default preset for DP853.** Today's "DP853 default = K=8" picks the per-integrator default in the SimSetupDrawer. Under Mode C, the equivalent is "DP853 default = N=5000 snapshots." Want to ship that as the default, or pick a smaller N to make the bandwidth win more obvious by default?
-4. **Backwards compat.** No existing sessions persist across deploys (in-memory only, idle-timeout sweeper), so we can break wire-format request params freely. Worth confirming there are no saved-URL flows that would break.
+Math: ~40 B compressed per snapshot·body × 10 bodies × N snapshots ≈ 400 B × N bytes compressed.
+
+### Preset map (5 buckets, matches existing Hermite UI)
+
+| Bucket | Euler / RK4 | DP853 |
+|---|---|---|
+| 1 (Lowest) | K=20 → ~500 snap (~0.2 MB) | N=3000 (~1.2 MB) |
+| 2 | K=10 → ~1000 (~0.4 MB) | N=5000 (~2 MB) |
+| 3 (Med) | K=5 → ~2000 (~0.8 MB) | N=7500 (~3 MB) |
+| 4 | K=2 → ~5000 (~2 MB) | N=10000 (~4 MB) |
+| 5 (Highest) | K=1 → ~10000 (~4 MB → 2 MB float32) | N=15000 (~6 MB → 3 MB float32) |
+
+### Landing defaults (per-integrator first-load preset)
+
+- **Euler** → bucket 4 (K=2, ~2 MB). Bumped from today's K=1 to fit the 2 MB ceiling pre-float32.
+- **RK4** → bucket 3 (K=5, ~0.8 MB). Slightly tighter than today's K=4 for headroom.
+- **DP853** → bucket 2 (N=5000, ~2 MB). Same ceiling as fixed-step defaults; reward for opting deeper into DP853 is moving up the slider.
+
+### Thinning algorithm
+
+**Time-gap.** Backend emits a snapshot when cumulative sim-time since last emission exceeds `chunk_duration / N`. Cheap, deterministic, density-preserving (regions where DP853 took many small substeps in a row naturally produce denser emissions because more small-step transitions cross any given time gap). Cross-chunk continuity: carry last-emit-time in session state so the next chunk's time-gap timer starts from that, not from the chunk boundary. Single `long` per session.
+
+Importance-weighted thinning held in reserve — revisit only if time-gap fails Hermite quality near close approaches in practice.
+
+### `MAX_SNAPSHOTS_PER_CHUNK` deleted
+
+With time-gap thinning the budget IS the cap, enforced by construction. Three things removed:
+1. `MAX_SNAPSHOTS_PER_CHUNK` constant in `SimulationLimits.java`
+2. `ChunkSnapshotBudgetExceededException` class
+3. The throw site in `Simulation.run()` + the test-only `maxSnapshotsPerChunk` overload in `SimulationFactory.createSimulation()`
+
+A "much larger safety net" would be unhit dead code. If time-gap thinning ever miscounts, we want the bug visible, not silently caught one threshold up.
+
+### Request API unified
+
+Replace the current `keyframesPerKept` request param with a single `fidelityBucket` enum (1–5) that the backend resolves per-integrator at `/initialize`. Cleaner contract; client doesn't need to know whether the integrator is fixed-step or adaptive. Backwards compat: no persisted sessions (idle-timeout sweeper at 15 min) — wire-param break is free.
+
+### Bundled with float32 in Phase 1
+
+Float32 quantization (#37 option A) lands in the same rollout window as Mode C. Bundling them means we ship one coherent "chunks are bounded now" change rather than two phases where day-one numbers don't quite hit target (Euler K=1 ships at 4 MB compressed today — over the 2 MB ceiling until float32 lands).
+
+---
+
+## Phased rollout
+
+Three phases, each on its own branch with verify-and-merge gate (per `branch-workflow.md`). Each phase is independently shippable and reversible.
+
+| Phase | Branch | Scope | Verify criterion |
+|---|---|---|---|
+| 1 | `chunk-float32` | Float32 positions+velocities in wire format. Serializer + parser + two-sided tests updated. Timestamp stays int64, µ stays float64. | ChunkSizeBenchmark shows ~half raw bytes; trail/scene visually unchanged; Keplerian elements display unchanged at the precision the body card renders. |
+| 2 | `dp853-time-gap` | Time-gap thinning in Simulation. Delete `MAX_SNAPSHOTS_PER_CHUNK` + exception + test-only overload. Backend internally accepts a `targetSnapshots` (N) param for DP853 (controller wires it from a temporary hardcoded default until Phase 3 surfaces the UI). Cross-chunk continuity via per-session last-emit-time. | ChunkSizeBenchmark with explicit N=5000 / N=10000 / N=15000 hits target snapshot counts ±5%; DP853 default no longer throws; no visible discontinuity in Hermite-interpolated trails across chunk boundaries during scrub. |
+| 3 | `fidelity-bucket-api` | Unify request API to `fidelityBucket` enum at `/initialize`. Frontend SimParams slider re-mapped per the preset table. Per-integrator landing defaults wired. Rate-limiter sizing comment updated for the new 6 MB DP853 ceiling. | Switching integrators auto-adjusts slider preset; DevTools chunk size per bucket × integrator matches the table within ±10%; landing defaults match the spec. |
+
+Phase 1 is the most mechanical (the wire-format pin tests give us a tight loop). Phase 2 is the most thinking-heavy (time-gap algorithm + continuity state + Hipparchus substep plumbing). Phase 3 is mostly UI + one DTO change.
+
+After Phase 3 lands, `todo.md` updates:
+- **#37** — close. Wire-size target hit via Float32 + Mode C; delta encoding deferred unless future need emerges.
+- **#69** — close. Emission model decided + shipped.
+- **Rate limiter sizing comment** in `RateLimitFilter.java` — update to reflect new 6 MB DP853 ceiling.
+
+## Open questions (implementation-time, don't block decision)
+
+1. **Hipparchus substep capture mechanism.** Does Mode C's time-gap logic plug into the existing StepHandler interface cleanly, or does substep capture need re-plumbing in `DormandPrince853Step`? Investigate at the start of Phase 2.
+2. **Bucket-resolution location.** Resolve `fidelityBucket → K` or `fidelityBucket → N` at the controller boundary (mirrors the current `keyframeIntervalSec → K` resolution) or push it into `SimulationFactory`? Decide during Phase 3.
 
 ## Out of scope (followups, not blockers)
 
-- **Float32 quantization (#37 option A).** Orthogonal — applies the same to all emission modes. Lands after Mode C as a clean 2× absolute cut.
-- **Delta encoding (#37 option B).** Bigger structural change; only worth doing if Mode C + float32 doesn't hit the target. Current math says they will.
-- **Re-sizing the rate limiter.** Today's nominal "4 MB chunk" sizing is wrong even for Euler K=1 (actually 4 MB compressed) and dramatically wrong for DP853 (16+ MB). Update the comment + sizing after Mode C lands and bytes are actually bounded.
-
-## Decision needed
-
-Before implementation:
-- (1) Confirm Mode C direction
-- (2) Confirm 1 MB compressed wire-size target + 5000-snapshot default budget
-- (3) Pick time-gap vs importance-weighted for v1 (recommend time-gap)
-- (4) Decide whether `MAX_SNAPSHOTS_PER_CHUNK` should remain a safety floor (set to e.g. 2× N_max) or be deleted entirely once the cap is enforced by construction
+- **Delta encoding (#37 option B).** Bigger structural change; only worth doing if Phase 1 + 2 don't hit the target. Current math says they will.
+- **Per-tier rate-limit accounting.** Today's rate limiter is bytes-per-IP-per-window agnostic of integrator. Once DP853 is heavier, a fairer model might be "chunks-per-IP-per-window" weighted by tier. Defer until usage data justifies it.
