@@ -20,7 +20,8 @@ function buildChunkBytes(
     // Each body: 2 (nameLen) + name bytes + 8 (µ).
     encodedNames.reduce((sum, b) => sum + 2 + b.length + 8, 0) +
     4;
-  const perTimestep = 8 + bodies.length * 6 * 8;
+  // Positions + velocities are float32 (4 bytes each); timestamp stays int64, µ stays float64.
+  const perTimestep = 8 + bodies.length * 6 * 4;
   const total = headerSize + timesteps.length * perTimestep;
 
   const buf = new ArrayBuffer(total);
@@ -46,12 +47,12 @@ function buildChunkBytes(
     view.setBigInt64(offset, BigInt(t.millis), true);
     offset += 8;
     for (const body of t.bodies) {
-      view.setFloat64(offset, body.pos[0], true); offset += 8;
-      view.setFloat64(offset, body.pos[1], true); offset += 8;
-      view.setFloat64(offset, body.pos[2], true); offset += 8;
-      view.setFloat64(offset, body.vel[0], true); offset += 8;
-      view.setFloat64(offset, body.vel[1], true); offset += 8;
-      view.setFloat64(offset, body.vel[2], true); offset += 8;
+      view.setFloat32(offset, body.pos[0], true); offset += 4;
+      view.setFloat32(offset, body.pos[1], true); offset += 4;
+      view.setFloat32(offset, body.pos[2], true); offset += 4;
+      view.setFloat32(offset, body.vel[0], true); offset += 4;
+      view.setFloat32(offset, body.vel[1], true); offset += 4;
+      view.setFloat32(offset, body.vel[2], true); offset += 4;
     }
   }
   return out;
