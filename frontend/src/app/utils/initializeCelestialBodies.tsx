@@ -12,12 +12,13 @@ interface InitializeRequest {
   integrator: string;
   timeStepUnit: string;
   /**
-   * Keyframe-interval lever for backend thinning. Optional in Phase 2 —
-   * omitted by today's callers, which results in the server defaulting
-   * to K=1 (no thinning). Phase 3 wires a SimSetupDrawer control that
-   * populates this from a "Playback quality" preset.
+   * Fidelity bucket — user-facing quality preset. Backend resolves to
+   * per-integrator K (fixed-step) or N (DP853). Optional — null/omitted
+   * → backend uses per-integrator landing default from
+   * {@code FidelityBucket.defaultFor()}. One of: "low" | "medLow" |
+   * "medium" | "medHigh" | "high".
    */
-  keyframeIntervalSec?: number;
+  fidelityBucket?: string;
 }
 
 export const initializeCelestialBodies = async (

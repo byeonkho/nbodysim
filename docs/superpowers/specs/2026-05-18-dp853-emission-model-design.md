@@ -1,7 +1,7 @@
 # DP853 chunk-emission model
 
 **Date:** 2026-05-18
-**Status:** Design — decisions finalized, awaiting implementation
+**Status:** Implemented (Phases 1–3 landed as PRs #14 / #15 / pending Phase 3)
 **Tracker entry:** `todo.md` #69 (emission-mode design) — feeds #37 (per-chunk bandwidth)
 **Related:** `todo.md` #37, `2026-05-15-hermite-keyframe-interpolation-design.md`, [#13](https://github.com/byeonkho/spacesim/pull/13)
 **Companion data:** `ChunkSizeBenchmark.java` (run with `./mvnw test -Dtest=ChunkSizeBenchmark -Dchunk.benchmark=true`)

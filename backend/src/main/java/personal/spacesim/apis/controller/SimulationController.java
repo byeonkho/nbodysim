@@ -8,8 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import personal.spacesim.constants.PhysicsConstants;
-import personal.spacesim.constants.SimulationLimits;
+import personal.spacesim.constants.FidelityBucket;
 import personal.spacesim.dtos.SimulationChunkRequest;
 import personal.spacesim.dtos.SimulationRequestDTO;
 import personal.spacesim.dtos.SimulationResponseDTO;
@@ -37,6 +36,7 @@ public class SimulationController {
      *                2. list of celestial bodies to simulate
      *                3. frame
      *                4. integrator
+     *                5. fidelityBucket (optional; null → per-integrator default)
      * @return returns the list of celestial bodies with position and velocity at the simulation start date as a JSON
      * object + the sessionID used
      * to identify the simulation instance the client owns.
@@ -54,75 +54,34 @@ public class SimulationController {
         String integrator = request.integrator();
         String timeStepUnit = request.timeStepUnit();
 
-        // Resolve keyframesPerKept (K) from the optional interval-in-seconds
-        // request param. null → K=1 (no thinning).
-        int keyframesPerKept;
+        // Resolve the fidelity bucket. Null bucket → per-integrator landing
+        // default. Each bucket carries both K (used by fixed-step) and N
+        // (used by DP853); the Simulation reads whichever applies to its
+        // integrator type and ignores the other.
+        FidelityBucket bucket;
         try {
-            keyframesPerKept = resolveKeyframesPerKept(
-                    request.keyframeIntervalSec(),
-                    timeStepUnit
-            );
+            bucket = request.fidelityBucket() == null
+                    ? FidelityBucket.defaultFor(integrator)
+                    : FidelityBucket.fromWireName(request.fidelityBucket());
         } catch (IllegalArgumentException e) {
-            logger.warn("Rejecting /initialize with invalid keyframeIntervalSec: {}", e.getMessage());
+            logger.warn("Rejecting /initialize with invalid fidelityBucket / integrator: {}",
+                    e.getMessage());
             return ResponseEntity.badRequest().build();
         }
 
-        // TODO(Phase 3): replace hardcoded targetSnapshotsPerChunk with
-        // the resolved fidelityBucket from the request. For Phase 2 we
-        // use the per-design landing default for DP853 (bucket 2, N=5000);
-        // ignored for fixed-step integrators.
-        int targetSnapshotsPerChunk = 5000;
-
-        // calling the service
         String sessionID = simulationSessionService.createSimulation(
                 celestialBodyNames,
                 frame,
                 integrator,
                 date,
                 timeStepUnit,
-                keyframesPerKept,
-                targetSnapshotsPerChunk
+                bucket.keyframesPerKept(),
+                bucket.targetSnapshotsPerChunk()
         );
 
         // building response object
         SimulationResponseDTO responseDTO = simulationSessionService.returnSimulationResponseDTO(sessionID);
         return ResponseEntity.ok(responseDTO);
-    }
-
-    /**
-     * Computes {@code K = max(1, round(keyframeIntervalSec / stepDtSeconds))}
-     * and validates {@code 1 <= K <= MAX_KEYFRAMES_PER_KEPT}. Null input
-     * resolves to K=1 (no thinning).
-     *
-     * @throws IllegalArgumentException if the resolved K is out of range, or
-     *         if {@code timeStepUnit} is unrecognized.
-     */
-    private static int resolveKeyframesPerKept(Double keyframeIntervalSec, String timeStepUnit) {
-        if (keyframeIntervalSec == null) {
-            return 1;
-        }
-        if (keyframeIntervalSec <= 0 || !Double.isFinite(keyframeIntervalSec)) {
-            throw new IllegalArgumentException(
-                    "keyframeIntervalSec must be a finite positive number, got " + keyframeIntervalSec);
-        }
-        double stepDtSeconds = stepDtSeconds(timeStepUnit);
-        int k = (int) Math.max(1, Math.round(keyframeIntervalSec / stepDtSeconds));
-        if (k > SimulationLimits.MAX_KEYFRAMES_PER_KEPT) {
-            throw new IllegalArgumentException(
-                    "keyframeIntervalSec resolves to K=" + k
-                            + ", which exceeds the maximum " + SimulationLimits.MAX_KEYFRAMES_PER_KEPT);
-        }
-        return k;
-    }
-
-    private static double stepDtSeconds(String timeStepUnit) {
-        return switch (timeStepUnit.toLowerCase()) {
-            case "seconds" -> 1.0;
-            case "hours" -> PhysicsConstants.SECONDS_PER_HOUR;
-            case "days" -> PhysicsConstants.SECONDS_PER_DAY;
-            case "weeks" -> PhysicsConstants.SECONDS_PER_WEEK;
-            default -> throw new IllegalArgumentException("Unsupported time step unit: " + timeStepUnit);
-        };
     }
 
     /**
