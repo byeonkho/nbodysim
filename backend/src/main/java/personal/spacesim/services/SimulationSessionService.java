@@ -74,7 +74,8 @@ public class SimulationSessionService {
             String frame,
             String integrator,
             AbsoluteDate simStartDate,
-            String timeStep
+            String timeStep,
+            int keyframesPerKept
     ) {
         String sessionID = UUID.randomUUID().toString();
         Simulation simulation = simulationFactory.createSimulation(
@@ -83,7 +84,8 @@ public class SimulationSessionService {
                 frame,
                 integrator,
                 simStartDate,
-                timeStep
+                timeStep,
+                keyframesPerKept
         );
         simulationMap.put(sessionID, simulation);
         lastAccessedAt.put(sessionID, System.currentTimeMillis());

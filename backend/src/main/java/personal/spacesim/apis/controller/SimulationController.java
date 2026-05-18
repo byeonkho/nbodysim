@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import personal.spacesim.constants.PhysicsConstants;
+import personal.spacesim.constants.SimulationLimits;
 import personal.spacesim.dtos.SimulationChunkRequest;
 import personal.spacesim.dtos.SimulationRequestDTO;
 import personal.spacesim.dtos.SimulationResponseDTO;
@@ -52,18 +54,68 @@ public class SimulationController {
         String integrator = request.integrator();
         String timeStepUnit = request.timeStepUnit();
 
+        // Resolve keyframesPerKept (K) from the optional interval-in-seconds
+        // request param. null → K=1 (no thinning).
+        int keyframesPerKept;
+        try {
+            keyframesPerKept = resolveKeyframesPerKept(
+                    request.keyframeIntervalSec(),
+                    timeStepUnit
+            );
+        } catch (IllegalArgumentException e) {
+            logger.warn("Rejecting /initialize with invalid keyframeIntervalSec: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
+        }
+
         // calling the service
         String sessionID = simulationSessionService.createSimulation(
                 celestialBodyNames,
                 frame,
                 integrator,
                 date,
-                timeStepUnit
+                timeStepUnit,
+                keyframesPerKept
         );
 
         // building response object
         SimulationResponseDTO responseDTO = simulationSessionService.returnSimulationResponseDTO(sessionID);
         return ResponseEntity.ok(responseDTO);
+    }
+
+    /**
+     * Computes {@code K = max(1, round(keyframeIntervalSec / stepDtSeconds))}
+     * and validates {@code 1 <= K <= MAX_KEYFRAMES_PER_KEPT}. Null input
+     * resolves to K=1 (no thinning).
+     *
+     * @throws IllegalArgumentException if the resolved K is out of range, or
+     *         if {@code timeStepUnit} is unrecognized.
+     */
+    private static int resolveKeyframesPerKept(Double keyframeIntervalSec, String timeStepUnit) {
+        if (keyframeIntervalSec == null) {
+            return 1;
+        }
+        if (keyframeIntervalSec <= 0 || !Double.isFinite(keyframeIntervalSec)) {
+            throw new IllegalArgumentException(
+                    "keyframeIntervalSec must be a finite positive number, got " + keyframeIntervalSec);
+        }
+        double stepDtSeconds = stepDtSeconds(timeStepUnit);
+        int k = (int) Math.max(1, Math.round(keyframeIntervalSec / stepDtSeconds));
+        if (k > SimulationLimits.MAX_KEYFRAMES_PER_KEPT) {
+            throw new IllegalArgumentException(
+                    "keyframeIntervalSec resolves to K=" + k
+                            + ", which exceeds the maximum " + SimulationLimits.MAX_KEYFRAMES_PER_KEPT);
+        }
+        return k;
+    }
+
+    private static double stepDtSeconds(String timeStepUnit) {
+        return switch (timeStepUnit.toLowerCase()) {
+            case "seconds" -> 1.0;
+            case "hours" -> PhysicsConstants.SECONDS_PER_HOUR;
+            case "days" -> PhysicsConstants.SECONDS_PER_DAY;
+            case "weeks" -> PhysicsConstants.SECONDS_PER_WEEK;
+            default -> throw new IllegalArgumentException("Unsupported time step unit: " + timeStepUnit);
+        };
     }
 
     /**

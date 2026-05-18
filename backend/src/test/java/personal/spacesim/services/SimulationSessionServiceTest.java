@@ -56,7 +56,8 @@ class SimulationSessionServiceTest {
                 "ICRF",
                 "EULER",
                 new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC()),
-                "days"
+                "days",
+                1
         );
 
         byte[] first = service.getNextChunkBytes(sessionID);
@@ -82,7 +83,8 @@ class SimulationSessionServiceTest {
                 "ICRF",
                 "EULER",
                 new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC()),
-                "days"
+                "days",
+                1
         );
 
         service.getNextChunkBytes(sessionID);
