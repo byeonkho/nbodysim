@@ -103,9 +103,10 @@ export function TopStatusStrip({
       const state = store.getState();
       const buffer = state.simulation.chunkBuffer;
       if (!buffer || !deltaERef.current) return;
-      const playIdx =
-        state.simulation.timeState.currentTimeStepIndex -
-        buffer.bufferStartTimestep;
+      // currentTimeStepIndex is buffer-relative — the slice decrements
+      // it on eviction (SimulationSlice.appendChunkToBuffer shifts the
+      // play head left by `shifted`). No need to subtract bufferStartTimestep.
+      const playIdx = state.simulation.timeState.currentTimeStepIndex;
       deltaERef.current.textContent = formatDeltaE(
         readDeltaERelativeAt(buffer, playIdx),
       );
