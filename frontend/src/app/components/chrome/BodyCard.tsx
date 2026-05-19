@@ -10,26 +10,31 @@ import {
   selectDisplayFrame,
   type Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
-import { readBodyStateInto } from "@/app/store/chunkBuffer";
+import { readBodyStateInto, readDeltaERelativeAt } from "@/app/store/chunkBuffer";
 import type { RootState } from "@/app/store/Store";
 import {
   calculateDistance,
   calculateMagnitude,
+  formatDeltaE,
+  formatStepDuration,
   formatToKM,
   subtractInto,
   toTitleCase,
 } from "@/app/utils/helpers";
 import { computeOrbitalElements } from "@/app/utils/orbitalElements";
 import { BODY_DISPLAY, toBodyKey } from "@/app/constants/BodyVisuals";
+import {
+  ACCEPT_RATE_COPY,
+  AVG_STEP_COPY,
+  RESIDUAL_CONCEPT_COPY,
+} from "@/app/constants/residualTooltipCopy";
 import { BodySphere } from "@/app/components/chrome/BodySphere";
+import { InfoTooltip } from "@/app/components/chrome/InfoTooltip";
 
 // Right-column body card. Identity (name, orbiting body) comes from
 // selectors and only changes on body switch. Numerics update at 5 Hz via
 // DOM refs — subscribing to Redux per frame would force a React rerender
 // of the whole card on every tick.
-//
-// Phase 5 (#60) will append integrator residuals as another section below
-// Keplerian elements.
 
 const REFRESH_HZ_MS = 200;
 const AU_METRES = 1.495978707e11;
@@ -87,6 +92,21 @@ export function BodyCard() {
   const inclinationRef = useRef<HTMLSpanElement>(null);
   const trueAnomalyRef = useRef<HTMLSpanElement>(null);
   const periodRef = useRef<HTMLSpanElement>(null);
+
+  // Integrator residual refs — ΔE/E₀ always visible; DP853 telemetry rows
+  // only render when the active integrator was adaptive.
+  const residualDeltaERef = useRef<HTMLSpanElement>(null);
+  const avgStepRef = useRef<HTMLSpanElement>(null);
+  const acceptRateRef = useRef<HTMLSpanElement>(null);
+
+  // Visibility flag for the DP853 rows. Sourced reactively — flips at
+  // chunk boundaries (not 5 Hz) so a normal useSelector is fine. The
+  // values *inside* those rows are written to refs (no React rerender
+  // when telemetry refreshes); only the show/hide flips trigger React.
+  const dp853TelemetryActive = useSelector(
+    (state: RootState) =>
+      state.simulation.chunkBuffer?.dp853AvgStepSeconds != null,
+  );
 
   const velocityScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
 
@@ -240,6 +260,27 @@ export function BodyCard() {
       } else {
         writeKeplerianDashes();
       }
+
+      // Integrator residual — same value as the top-strip cell. Read off
+      // the buffer-relative play index (idx is already that — no need to
+      // subtract bufferStartTimestep here because readBodyStateInto above
+      // also treats idx as buffer-relative).
+      if (residualDeltaERef.current) {
+        residualDeltaERef.current.textContent = formatDeltaE(
+          readDeltaERelativeAt(buffer, idx),
+        );
+      }
+      // DP853 telemetry rows — only populated when the row is visible
+      // (visibility itself flips via the useSelector above on chunk
+      // arrival, so the refs are guaranteed mounted when we write).
+      if (buffer.dp853AvgStepSeconds != null && avgStepRef.current) {
+        avgStepRef.current.textContent = formatStepDuration(
+          buffer.dp853AvgStepSeconds,
+        );
+      }
+      if (buffer.dp853AcceptRate != null && acceptRateRef.current) {
+        acceptRateRef.current.textContent = `${(buffer.dp853AcceptRate * 100).toFixed(1)}%`;
+      }
     };
 
     tick();
@@ -300,6 +341,42 @@ export function BodyCard() {
       <KvRow k="Inclination · i" valueRef={inclinationRef} />
       <KvRow k="True anomaly · ν" valueRef={trueAnomalyRef} />
       <KvRow k="Period · T" valueRef={periodRef} />
+
+      <SectionLabel>
+        <span className="inline-flex items-center gap-1">
+          Integrator residual
+          <InfoTooltip label="What is the integrator residual?">
+            {RESIDUAL_CONCEPT_COPY}
+          </InfoTooltip>
+        </span>
+      </SectionLabel>
+      <KvRow k="ΔE / E₀" valueRef={residualDeltaERef} />
+      {dp853TelemetryActive && (
+        <>
+          <KvRow
+            k={
+              <span className="inline-flex items-center gap-1">
+                Avg step
+                <InfoTooltip label="What is avg step?">
+                  {AVG_STEP_COPY}
+                </InfoTooltip>
+              </span>
+            }
+            valueRef={avgStepRef}
+          />
+          <KvRow
+            k={
+              <span className="inline-flex items-center gap-1">
+                Accept rate
+                <InfoTooltip label="What is accept rate?">
+                  {ACCEPT_RATE_COPY}
+                </InfoTooltip>
+              </span>
+            }
+            valueRef={acceptRateRef}
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -328,7 +405,7 @@ function KvRow({
   valueRef,
   accent,
 }: {
-  k: string;
+  k: React.ReactNode;
   valueRef: React.RefObject<HTMLSpanElement | null>;
   accent?: boolean;
 }) {
