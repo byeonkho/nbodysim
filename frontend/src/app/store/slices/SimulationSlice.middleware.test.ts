@@ -69,6 +69,9 @@ function seedSession(
       positions: new Float64Array(totalTimesteps * 6),
       timestamps: new BigInt64Array(totalTimesteps),
       mu: { Sun: 1 },
+      deltaERelative: new Float32Array(totalTimesteps),
+      dp853AvgStepSeconds: null,
+      dp853AcceptRate: null,
     }),
   );
 }

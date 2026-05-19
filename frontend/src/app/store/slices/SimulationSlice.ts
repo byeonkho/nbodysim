@@ -169,6 +169,11 @@ interface AppendChunkPayload {
   positions: Float64Array;
   timestamps: BigInt64Array;
   mu: Record<string, number>;
+  // Per-snapshot (E - E₀) / |E₀|. Length === timestepCount.
+  deltaERelative: Float32Array;
+  // null when the chunk was produced by a fixed-step integrator.
+  dp853AvgStepSeconds: number | null;
+  dp853AcceptRate: number | null;
 }
 
 export const simulationSlice = createSlice({
@@ -245,7 +250,10 @@ export const simulationSlice = createSlice({
         state.chunkBuffer,
         payload.positions,
         payload.timestamps,
+        payload.deltaERelative,
         payload.timestepCount,
+        payload.dp853AvgStepSeconds,
+        payload.dp853AcceptRate,
       );
 
       // If eviction occurred, slide the playback head left by the same amount

@@ -20,6 +20,9 @@ interface ChunkPayload {
   positions: Float64Array;
   timestamps: BigInt64Array;
   mu: Record<string, number>;
+  deltaERelative: Float32Array;
+  dp853AvgStepSeconds: number | null;
+  dp853AcceptRate: number | null;
 }
 
 // Decoder Worker — module singleton, kept alive for the page session.
@@ -117,6 +120,9 @@ export const requestRunSimulation = createAsyncThunk<
           positions: messageData.positions,
           timestamps: messageData.timestamps,
           mu: messageData.mu,
+          deltaERelative: messageData.deltaERelative,
+          dp853AvgStepSeconds: messageData.dp853AvgStepSeconds,
+          dp853AcceptRate: messageData.dp853AcceptRate,
         }),
       );
     } catch (err) {
