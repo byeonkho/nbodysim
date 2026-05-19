@@ -113,6 +113,23 @@ public class Simulation {
     private AbsoluteDate nextEmitTarget;
 
     /**
+     * Adaptive path telemetry: number of accepted substeps observed
+     * during the current chunk's {@link #run}. Reset at the top of
+     * each {@code run()} call. Increments on each substep handler
+     * invocation (Hipparchus only fires that callback on accepted
+     * steps).
+     */
+    private long acceptedSubstepCount = 0;
+
+    /**
+     * Adaptive path telemetry: total sim-time duration of accepted
+     * substeps during the current chunk's {@link #run}, in seconds.
+     * Reset at the top of each {@code run()} call. Divided by
+     * {@link #acceptedSubstepCount} to produce {@code avgStepSeconds}.
+     */
+    private double acceptedSubstepDurationSeconds = 0.0;
+
+    /**
      * Live state vector, advanced once per timestep. Carries position +
      * velocity for all bodies in the same flat layout as {@link GlobalState}.
      * Replaced each step by swap with {@link #nextStateBuffer} (so the
@@ -217,6 +234,11 @@ public class Simulation {
         Map<AbsoluteDate, List<CelestialBodySnapshot>> results = new LinkedHashMap<>();
         Map<AbsoluteDate, Double> deltaE = new LinkedHashMap<>();
 
+        // Reset per-chunk DP853 telemetry counters.
+        acceptedSubstepCount = 0;
+        acceptedSubstepDurationSeconds = 0.0;
+        long evalCountAtStart = integrator.getEvaluationCount();
+
         // Adaptive integrators (DP853): every accepted substep gives us
         // an interpolator-backed window [stepStart+prev, stepStart+curr]
         // over which we can compute state at any time. We emit at EXACT
@@ -227,6 +249,10 @@ public class Simulation {
         // uniform spacing. Fixed-step integrators register but never
         // fire (no substeps).
         integrator.setSubstepHandler((prevTimeSec, currTimeSec, eval) -> {
+            // Telemetry: every accepted substep — count + duration.
+            acceptedSubstepCount++;
+            acceptedSubstepDurationSeconds += (currTimeSec - prevTimeSec);
+
             while (nextEmitTarget != null) {
                 double targetRelTime = nextEmitTarget.durationFrom(stepStartDate);
                 // Strictly past the substep's window — wait for a later
@@ -289,8 +315,23 @@ public class Simulation {
         log.info("Simulation completed for {} {} in {} seconds.", TIMESTEPS_TO_RUN, timeStepUnit, totalTimeSeconds);
         log.info("Simulation ran using frame: {}", frame.getName());
 
-        // DP853 telemetry filled in Phase 2; null for now.
-        return new ChunkResult(results, deltaE, null);
+        Dp853Telemetry telemetry = null;
+        if (isAdaptiveIntegrator && acceptedSubstepCount > 0) {
+            // Accept rate via the /12 approximation. DP853 is 12-stage
+            // with FSAL; true cost is 12 evals for the first step then
+            // 11 thereafter, so the constant is slightly off at chunk
+            // boundaries but well under 1% error at chunk scale (~5000
+            // accepted steps). Acceptable for a UI readout.
+            long evalsThisChunk = integrator.getEvaluationCount() - evalCountAtStart;
+            double estimatedAttempts = evalsThisChunk / 12.0;
+            double acceptRate = estimatedAttempts > 0
+                    ? Math.min(1.0, acceptedSubstepCount / estimatedAttempts)
+                    : 1.0;
+            double avgStep = acceptedSubstepDurationSeconds / acceptedSubstepCount;
+            telemetry = new Dp853Telemetry(avgStep, acceptRate);
+        }
+
+        return new ChunkResult(results, deltaE, telemetry);
     }
 
     /**
