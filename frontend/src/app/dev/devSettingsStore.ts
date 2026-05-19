@@ -42,6 +42,25 @@ export interface DevSettings {
    * flash during the swap.
    */
   skyboxVariant: SkyboxVariant;
+  /**
+   * Log preset: overall stretch multiplier on the log curve. Bigger A =
+   * larger system in world space; ratios between planet positions are
+   * unchanged. See worldDistance() in scalePipeline.ts.
+   */
+  logScaleA: number;
+  /**
+   * Log preset: anchor distance (metres) for log1p. Sets where the
+   * curve transitions from linear-ish (r << r_ref) to logarithmic
+   * (r >> r_ref). Default is 1 AU; smaller values compress outer
+   * planets more aggressively.
+   */
+  logScaleRRef: number;
+  /**
+   * Log preset: minimum world-unit radius for any body. Real bodies
+   * smaller than this clamp up so they stay clickable + visible.
+   * Realistic preset ignores this (no floor).
+   */
+  logRadiusFloor: number;
 }
 
 const DEFAULTS: DevSettings = {
@@ -50,6 +69,9 @@ const DEFAULTS: DevSettings = {
   cameraZoomLerpRate: 0.1,
   trailLength: 1000,
   skyboxVariant: "full",
+  logScaleA: 60,
+  logScaleRRef: 149_597_870_700,
+  logRadiusFloor: 0.5,
 };
 
 let state: DevSettings = { ...DEFAULTS };
