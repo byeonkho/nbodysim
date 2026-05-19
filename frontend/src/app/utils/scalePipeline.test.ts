@@ -2,10 +2,12 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   worldDistance,
   worldRadius,
+  worldDistanceFromParent,
   REALISTIC_DIVISOR,
   DEFAULT_LOG_SCALE_A,
 } from "./scalePipeline";
 import { setDevSetting } from "@/app/dev/devSettingsStore";
+import type { Vector3Simple } from "@/app/store/slices/SimulationSlice";
 
 describe("worldDistance", () => {
   beforeEach(() => {
@@ -103,5 +105,76 @@ describe("worldRadius", () => {
       setDevSetting("logRadiusFloor", 1.0);
       expect(worldRadius(6.371e6, "log")).toBe(1.0);
     });
+  });
+});
+
+describe("worldDistanceFromParent", () => {
+  const AU = 149_597_870_700;
+  let out: Vector3Simple;
+
+  beforeEach(() => {
+    setDevSetting("logScaleA", DEFAULT_LOG_SCALE_A);
+    setDevSetting("logScaleRRef", 149_597_870_700);
+    setDevSetting("logRadiusFloor", 0.5);
+    out = { x: 0, y: 0, z: 0 };
+  });
+
+  it("passes through when child is comfortably outside parent", () => {
+    // Earth at 1 AU from Sun, log preset. Sun world radius ~7 wu,
+    // Earth world radius 0.5 (floor). Threshold = 7 + 0.5 + 1.0 = 8.5.
+    // Earth's worldDistance(1 AU) = ~18 wu > 8.5 → pass through.
+    const childPos = { x: AU, y: 0, z: 0 };
+    const parentPos = { x: 0, y: 0, z: 0 };
+    worldDistanceFromParent(childPos, parentPos, 7.0, 0.5, "log", out);
+    // Magnitude should equal worldDistance(AU, "log")
+    const expectedMag = DEFAULT_LOG_SCALE_A * Math.log10(2);
+    const actualMag = Math.sqrt(out.x ** 2 + out.y ** 2 + out.z ** 2);
+    expect(actualMag).toBeCloseTo(expectedMag, 5);
+  });
+
+  it("enforces minimum separation when child would merge with parent", () => {
+    // Moon at ~3.84e8 m from Earth, log preset. Earth world radius 0.5,
+    // Moon world radius 0.5. Threshold = 0.5 + 0.5 + 1.0 = 2.0.
+    // Moon's worldDistance(3.84e8) = 60 * log10(1 + 3.84e8/1.5e11) ≈ 0.067 wu
+    // Below threshold → clamp to 2.0 wu.
+    const moonR = 3.84e8;
+    const childPos = { x: moonR, y: 0, z: 0 };
+    const parentPos = { x: 0, y: 0, z: 0 };
+    worldDistanceFromParent(childPos, parentPos, 0.5, 0.5, "log", out);
+    const actualMag = Math.sqrt(out.x ** 2 + out.y ** 2 + out.z ** 2);
+    expect(actualMag).toBeCloseTo(2.0, 5);
+  });
+
+  it("preserves direction when clamping", () => {
+    // Pure-Y offset child; result should also be along Y.
+    const childPos = { x: 0, y: 3.84e8, z: 0 };
+    const parentPos = { x: 0, y: 0, z: 0 };
+    worldDistanceFromParent(childPos, parentPos, 0.5, 0.5, "log", out);
+    expect(out.x).toBe(0);
+    expect(out.z).toBe(0);
+    expect(out.y).toBeGreaterThan(0);
+  });
+
+  it("returns zero vector when child overlaps parent exactly", () => {
+    // Degenerate case: identical positions. Should not NaN.
+    const samePos = { x: 1e10, y: 0, z: 0 };
+    worldDistanceFromParent(samePos, samePos, 0.5, 0.5, "log", out);
+    expect(Number.isFinite(out.x)).toBe(true);
+    expect(Number.isFinite(out.y)).toBe(true);
+    expect(Number.isFinite(out.z)).toBe(true);
+    expect(out.x).toBe(0);
+    expect(out.y).toBe(0);
+    expect(out.z).toBe(0);
+  });
+
+  it("works in realistic preset too", () => {
+    // Earth at 1 AU from Sun, realistic preset. worldDistance(AU) = 1496 wu,
+    // way above any threshold → pass through.
+    const childPos = { x: AU, y: 0, z: 0 };
+    const parentPos = { x: 0, y: 0, z: 0 };
+    worldDistanceFromParent(childPos, parentPos, 6.96, 0.064, "realistic", out);
+    const expectedMag = AU / REALISTIC_DIVISOR;
+    const actualMag = Math.sqrt(out.x ** 2 + out.y ** 2 + out.z ** 2);
+    expect(actualMag).toBeCloseTo(expectedMag, 1);
   });
 });

@@ -60,3 +60,52 @@ export function worldRadius(R_m: number, preset: ScalePreset): number {
   const { logRadiusFloor } = getDevSettings();
   return Math.max(linear, logRadiusFloor);
 }
+
+/**
+ * Body-agnostic minimum-separation rule for child-of-parent bodies.
+ * Writes the rendered world-space delta (child relative to parent) into
+ * `out`. If the compressed child-parent distance is comfortably outside
+ * the parent's rendered radius, passes through unchanged. If the child
+ * would visually merge with its parent, pushes the child out to a
+ * comfortable visual gap.
+ *
+ * Threshold: parentWorldRadius + childWorldRadius + 2 * childWorldRadius.
+ * The 2× buffer keeps the child clearly separate from the parent's limb
+ * even at oblique camera angles.
+ *
+ * Direction is preserved by scaling the unit vector from parent → child.
+ * Degenerate input (identical positions) writes the zero vector — caller
+ * is responsible for handling that case if needed.
+ *
+ * Mutating-output convention matches helpers.tsx (allocation-free for
+ * hot-path useFrame consumers).
+ */
+export function worldDistanceFromParent(
+  childPos_m: Vector3Simple,
+  parentPos_m: Vector3Simple,
+  parentWorldRadius_wu: number,
+  childWorldRadius_wu: number,
+  preset: ScalePreset,
+  out: Vector3Simple,
+): void {
+  const dx = childPos_m.x - parentPos_m.x;
+  const dy = childPos_m.y - parentPos_m.y;
+  const dz = childPos_m.z - parentPos_m.z;
+  const r_m = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+  if (r_m === 0) {
+    out.x = 0;
+    out.y = 0;
+    out.z = 0;
+    return;
+  }
+
+  const compressed = worldDistance(r_m, preset);
+  const minGap = parentWorldRadius_wu + childWorldRadius_wu * 3; // child + 2× buffer
+  const finalDist = compressed > minGap ? compressed : minGap;
+
+  const scale = finalDist / r_m;
+  out.x = dx * scale;
+  out.y = dy * scale;
+  out.z = dz * scale;
+}
