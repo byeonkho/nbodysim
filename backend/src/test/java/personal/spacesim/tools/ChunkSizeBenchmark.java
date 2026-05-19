@@ -9,6 +9,7 @@ import org.orekit.time.AbsoluteDate;
 import org.orekit.time.TimeScalesFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import personal.spacesim.simulation.ChunkResult;
 import personal.spacesim.simulation.Simulation;
 import personal.spacesim.simulation.SimulationFactory;
 import personal.spacesim.simulation.body.CelestialBodySnapshot;
@@ -83,17 +84,17 @@ class ChunkSizeBenchmark {
                 s.k, s.n
             );
 
-            Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk = sim.run();
+            ChunkResult chunk = sim.run();
 
             LinkedHashMap<String, Double> muByName = new LinkedHashMap<>();
             for (CelestialBodyWrapper w : sim.getCelestialBodies()) {
                 muByName.put(w.getName(), w.getMu());
             }
 
-            byte[] raw = binaryResponseSerializer.serialize(chunk, muByName);
+            byte[] raw = binaryResponseSerializer.serialize(chunk.snapshots(), muByName);
             byte[] compressed = zstdCompressor.compress(raw);
 
-            int snapshots = chunk.size();
+            int snapshots = chunk.snapshots().size();
             int bodies = BODIES.size();
             double ratio = (double) raw.length / compressed.length;
             double bytesPerSnap = (double) compressed.length / snapshots;

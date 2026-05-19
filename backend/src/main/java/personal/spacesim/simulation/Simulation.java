@@ -128,6 +128,15 @@ public class Simulation {
      */
     private final int sunIndex;
 
+    /**
+     * Total mechanical energy of the system at {@link #simStartDate},
+     * computed once at construction. Used as the denominator in
+     * per-emission ΔE/E₀. Guard against |e0| ≈ 0 in readers (physically
+     * impossible for any bound system but worth defending against
+     * synthetic test inputs).
+     */
+    private final double e0;
+
     public Simulation(
             String sessionID,
             List<CelestialBodyWrapper> celestialBodies,
@@ -176,6 +185,11 @@ public class Simulation {
             }
         }
         this.sunIndex = sunIdx;
+
+        // E₀ captured from the initial state. Stored absolute so per-
+        // emission readers can compute (E - e0) / |e0| with the
+        // guard-against-zero rule at the call site.
+        this.e0 = derivatives.totalEnergy(currentStateBuffer);
     }
 
     /**
@@ -198,9 +212,10 @@ public class Simulation {
         nextStateBuffer = tmp;
     }
 
-    public Map<AbsoluteDate, List<CelestialBodySnapshot>> run() {
+    public ChunkResult run() {
         long startTime = System.nanoTime();
         Map<AbsoluteDate, List<CelestialBodySnapshot>> results = new LinkedHashMap<>();
+        Map<AbsoluteDate, Double> deltaE = new LinkedHashMap<>();
 
         // Adaptive integrators (DP853): every accepted substep gives us
         // an interpolator-backed window [stepStart+prev, stepStart+curr]
@@ -223,7 +238,9 @@ public class Simulation {
                 // slipped between substeps (shouldn't happen with
                 // correct accounting, but eval requires t in interval).
                 double evalT = Math.max(targetRelTime, prevTimeSec);
-                results.put(nextEmitTarget, snapshotFromState(eval.stateAt(evalT)));
+                double[] evaluatedState = eval.stateAt(evalT);
+                results.put(nextEmitTarget, snapshotFromState(evaluatedState));
+                deltaE.put(nextEmitTarget, computeDeltaE(evaluatedState));
                 adaptiveEmitCount++;
                 nextEmitTarget = simStartDate.shiftedBy(
                         adaptiveEmitCount * targetGapSeconds);
@@ -234,6 +251,7 @@ public class Simulation {
             // Initial frame is always kept (step 0). Only on the first chunk.
             if (!hasEmittedInitialFrame) {
                 results.put(simCurrentDate, snapshotFromState(currentStateBuffer));
+                deltaE.put(simCurrentDate, computeDeltaE(currentStateBuffer));
                 hasEmittedInitialFrame = true;
                 nextKeptAtStep = keyframesPerKept;
                 // Initial counts as emission #1; next target at #2's tick.
@@ -254,6 +272,7 @@ public class Simulation {
                 if (!isAdaptiveIntegrator
                         && globalStepCount >= nextKeptAtStep) {
                     results.put(simCurrentDate, snapshotFromState(currentStateBuffer));
+                    deltaE.put(simCurrentDate, computeDeltaE(currentStateBuffer));
                     nextKeptAtStep += keyframesPerKept;
                 }
                 currentTimeStep++;
@@ -270,7 +289,22 @@ public class Simulation {
         log.info("Simulation completed for {} {} in {} seconds.", TIMESTEPS_TO_RUN, timeStepUnit, totalTimeSeconds);
         log.info("Simulation ran using frame: {}", frame.getName());
 
-        return results;
+        // DP853 telemetry filled in Phase 2; null for now.
+        return new ChunkResult(results, deltaE, null);
+    }
+
+    /**
+     * Relative energy drift {@code (E - e0) / |e0|} at the given state.
+     * Guards against a degenerate |e0| ≈ 0 (would only occur in
+     * synthetic test inputs — any bound system has strictly negative
+     * E₀) by returning 0.0 to keep the wire format well-defined.
+     */
+    private double computeDeltaE(double[] state) {
+        double absE0 = Math.abs(e0);
+        if (absE0 < 1e-30) {
+            return 0.0;
+        }
+        return (derivatives.totalEnergy(state) - e0) / absE0;
     }
 
     /**
