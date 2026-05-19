@@ -107,6 +107,60 @@ public final class NBodyDerivatives {
     }
 
     /**
+     * Total mechanical energy {@code E = T + U} of the N-body system in
+     * the given flat state vector.
+     *
+     * <p>Returned in joules (SI). Sign convention: kinetic positive,
+     * potential negative for bound systems; the sum is negative for any
+     * gravitationally bound configuration.
+     *
+     * <p>Hot path: called once per emitted snapshot (~5000 times per
+     * DP853 chunk). Allocation-free; single indexed pair loop matching
+     * the {@link #derivativesInto} access pattern. {@code 1/G} is
+     * factored out so we reuse the existing {@code gm[]} array rather
+     * than carrying a parallel mass array.
+     *
+     * <p>Math:
+     * <pre>
+     * T = 0.5 / G · Σ_i gm[i] · |v_i|²
+     * U = -1.0 / G · Σ_{i&lt;j} gm[i] · gm[j] / r_ij
+     * </pre>
+     */
+    public double totalEnergy(double[] state) {
+        int n = state.length / GlobalState.COORDS_PER_BODY;
+        if (n != gm.length) {
+            throw new IllegalArgumentException(
+                "state bodyCount " + n + " does not match this derivatives' bodyCount " + gm.length);
+        }
+
+        double kineticSum = 0.0;
+        double potentialSum = 0.0;
+        for (int i = 0; i < n; i++) {
+            int baseI = i * GlobalState.COORDS_PER_BODY;
+            double xi = state[baseI];
+            double yi = state[baseI + 1];
+            double zi = state[baseI + 2];
+            double vxi = state[baseI + 3];
+            double vyi = state[baseI + 4];
+            double vzi = state[baseI + 5];
+
+            kineticSum += gm[i] * (vxi * vxi + vyi * vyi + vzi * vzi);
+
+            for (int j = i + 1; j < n; j++) {
+                int baseJ = j * GlobalState.COORDS_PER_BODY;
+                double dx = state[baseJ]     - xi;
+                double dy = state[baseJ + 1] - yi;
+                double dz = state[baseJ + 2] - zi;
+                double r = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                potentialSum += gm[i] * gm[j] / r;
+            }
+        }
+
+        double invG = 1.0 / PhysicsConstants.GRAVITATIONAL_CONSTANT;
+        return invG * (0.5 * kineticSum - potentialSum);
+    }
+
+    /**
      * Allocating wrapper around {@link #derivativesInto}. Convenient for tests
      * and one-shot calls; not for hot loops.
      */
