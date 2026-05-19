@@ -1,6 +1,7 @@
 "use client";
 
-import { useSelector } from "react-redux";
+import { useEffect, useRef } from "react";
+import { useSelector, useStore } from "react-redux";
 import {
   selectCurrentTimeStepIndex,
   selectCurrentTimeStepIsoString,
@@ -15,6 +16,11 @@ import {
 import { FpsValue } from "@/app/components/chrome/FpsValue";
 import { SimSetupButton } from "@/app/components/chrome/SimSetupButton";
 import { ConfigurationChip } from "@/app/components/chrome/ConfigurationChip";
+import { InfoTooltip } from "@/app/components/chrome/InfoTooltip";
+import { readDeltaERelativeAt } from "@/app/store/chunkBuffer";
+import { formatDeltaE } from "@/app/utils/helpers";
+import { RESIDUAL_CONCEPT_COPY } from "@/app/constants/residualTooltipCopy";
+import type { RootState } from "@/app/store/Store";
 
 // Top glass strip — the SimSetup CTA leads, followed by the
 // Configuration chip (collapsed Frame / Integrator / Δt / Bodies
@@ -86,6 +92,29 @@ export function TopStatusStrip({
   const buffered = Math.max(0, total - Math.floor(idx));
   const bufferedStr = buffered.toLocaleString("en-US");
 
+  // ΔE/E₀ cell — ref-based 5 Hz polling, not useSelector-per-frame.
+  // The other strip cells re-render every frame via useSelector on the
+  // current timestep; deliberately skipping that pattern here keeps a new
+  // per-frame React subscription off the strip for a glanceable readout.
+  const store = useStore<RootState>();
+  const deltaERef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const tick = () => {
+      const state = store.getState();
+      const buffer = state.simulation.chunkBuffer;
+      if (!buffer || !deltaERef.current) return;
+      const playIdx =
+        state.simulation.timeState.currentTimeStepIndex -
+        buffer.bufferStartTimestep;
+      deltaERef.current.textContent = formatDeltaE(
+        readDeltaERelativeAt(buffer, playIdx),
+      );
+    };
+    const id = window.setInterval(tick, 200);
+    tick();
+    return () => window.clearInterval(id);
+  }, [store]);
+
   // Pulse the Sim setup CTA only until the user has run their first sim.
   // lastRequest is the canonical "have they configured + Run yet?" signal —
   // set on submit, persisted across chunk fetches, never re-cleared.
@@ -108,6 +137,21 @@ export function TopStatusStrip({
       <StatusCell label="JD" value={jdStr} />
 
       <div className="flex-1" />
+
+      <div className="flex h-full items-baseline gap-1.5 border-r border-white/[0.06] px-3.5">
+        <span className="eyebrow inline-flex items-center gap-1 self-center">
+          ΔE/E₀
+          <InfoTooltip label="What is ΔE/E₀?">
+            {RESIDUAL_CONCEPT_COPY}
+          </InfoTooltip>
+        </span>
+        <span
+          ref={deltaERef}
+          className="tabular text-hi self-center font-mono text-[11px]"
+        >
+          —
+        </span>
+      </div>
 
       <StatusCell label="Buffer" value={bufferedStr} />
       <StatusCellWith label="FPS">
