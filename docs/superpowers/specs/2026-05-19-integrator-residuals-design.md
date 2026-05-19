@@ -28,6 +28,7 @@ DP853 is adaptive: each step it computes the answer twice (8th-order and 5th-ord
 1. **Energy sampling cadence:** **per snapshot.** Each emitted sample carries `ΔE/E₀`. Lets the top-strip number animate as the timeline plays. Cost is negligible (~0.4% backend overhead, ~20 KB/chunk wire).
 2. **DP853 telemetry depth:** **avg step + accept rate, per chunk.** Skip `lastStepError` — would require subclassing Hipparchus internals (`estimateError` is protected). Accept rate is approximated from public `getEvaluations()` and the step-handler call count.
 3. **UI placement:** **both top strip and body card detail.** Strip = always-visible ambient indicator; body card = detail subsection with the DP853 rows when applicable. Strip shows only `ΔE/E₀` (one cell, no per-body coupling). Body card subsection mirrors the strip value plus DP853 rows.
+5. **Explanatory tooltips:** the residual numbers are meaningless to non-technical users without context. Attach `InfoTooltip` (existing chrome primitive used in `SimSetupDrawer`) to: (a) the top-strip `ΔE/E₀` cell, (b) the body-card `Integrator residual` section header — shared concept text covering both, (c) the `Avg step` row, (d) the `Accept rate` row — DP853-specific mechanics. Copy is short (3-5 lines, fits the 256px tooltip width) and lives in a shared constants file so the strip and body-card section header don't drift.
 4. **`E₀` lifecycle:** computed once at `Simulation` construction from the initial state vector. Stored as a field. Sign convention: `(E - E₀) / |E₀|` — preserves the sign of the drift (positive = energy gained, negative = lost). No recomputation on integrator change (integrator swap mid-session isn't supported).
 
 ## Architecture
@@ -105,6 +106,7 @@ Layout cost: 12 bytes per chunk header (one-time) + 4 bytes per snapshot. For a 
   - `Avg step` — chunk-level value, formatted with units (`4.2 h`, `12 min`). Hidden if not DP853.
   - `Accept rate` — chunk-level value, formatted as `94.3%`. Hidden if not DP853.
 - Numeric rows use DOM refs, matching the established `BodyCard` pattern (no React rerender on per-frame ticks).
+- Tooltips via `InfoTooltip` on (a) the strip cell label, (b) the section header, (c) the `Avg step` row label, (d) the `Accept rate` row label. Copy strings live in a shared `residualTooltipCopy.ts` constants file so the two surfaces don't drift. The DP853-row tooltips render only when the rows themselves render (i.e. only when the active integrator was DP853).
 
 ## Data flow
 

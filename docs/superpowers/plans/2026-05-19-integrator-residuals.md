@@ -40,8 +40,9 @@
 | `frontend/src/app/store/chunkBuffer.ts` | Modify | Store `deltaERelative` typed array + chunk-level telemetry; add `readDeltaERelativeAt` |
 | `frontend/src/app/store/chunkBuffer.test.ts` | Modify | Test `readDeltaERelativeAt` |
 | `frontend/src/app/store/middleware/parseBinaryChunk.ts` (already listed) | — | — |
-| `frontend/src/app/components/chrome/TopStatusStrip.tsx` | Modify | Add `ΔE/E₀` `StatusCell` with ref-based 5 Hz tick |
-| `frontend/src/app/components/chrome/BodyCard.tsx` | Modify | Add `Integrator residual` subsection (one shared row + two DP853-only rows) |
+| `frontend/src/app/constants/residualTooltipCopy.ts` | Create | Shared tooltip copy strings (concept + DP853 avg step + accept rate) |
+| `frontend/src/app/components/chrome/TopStatusStrip.tsx` | Modify | Add `ΔE/E₀` `StatusCell` with ref-based 5 Hz tick + concept tooltip |
+| `frontend/src/app/components/chrome/BodyCard.tsx` | Modify | Add `Integrator residual` subsection + four tooltips (concept + DP853 rows) |
 
 ---
 
@@ -1896,9 +1897,53 @@ telemetry params; all call sites updated."
 
 ## Phase 5 — UI surfaces (top status strip + body card)
 
-Goal of phase: wire the buffered values into the UI. Top strip gets one new cell; body card gets a three-row subsection. Both use ref-based 5 Hz polling to match the existing `BodyCard` pattern.
+Goal of phase: wire the buffered values into the UI. Top strip gets one new cell; body card gets a three-row subsection. Both use ref-based 5 Hz polling to match the existing `BodyCard` pattern. Four `InfoTooltip`s explain the concept and DP853 mechanics to non-technical users — copy shared between strip and body card via a constants module.
 
 No automated tests in this phase — visual oracle is better. Each task ends with manual browser checks per the project's UI-changes rule.
+
+### Task 5.0 — Shared tooltip copy module
+
+**Files:**
+- Create: `frontend/src/app/constants/residualTooltipCopy.ts`
+
+The strip and body card both display the residual concept; their tooltips need to stay in sync. Stash the copy in a constants file, import in both surfaces.
+
+- [ ] **Step 1: Create `residualTooltipCopy.ts`**
+
+```ts
+// Tooltip copy for the integrator-residual UI. Shared between
+// TopStatusStrip (ΔE/E₀ cell) and BodyCard's Integrator residual
+// section header so the two surfaces don't drift. DP853-specific
+// strings are used only on the body card (those rows hide for
+// fixed-step integrators).
+
+export const RESIDUAL_CONCEPT_COPY = `Gravity conserves total energy — a planet trades kinetic ↔ potential, but the sum stays constant. Each integrator step adds tiny rounding errors that drift the total. This is the lie detector: (E − E₀) ÷ |E₀|. Near zero = trustworthy. Visibly nonzero = orbits silently spiralling out (positive) or in (negative). Typical: Euler ~1e-3, RK4 ~1e-7, DP853 ~1e-12.`;
+
+export const AVG_STEP_COPY = `DP853 picks its own step size — large strides on easy stretches, tiny ones near close approaches. This is the average sim-time per accepted step over the chunk. Smaller = integrator working harder.`;
+
+export const ACCEPT_RATE_COPY = `Each step DP853 also runs a cheaper backup estimate and compares. If they disagree it throws the step away and retries with smaller dt. This is the fraction of attempts that passed. ~95%+ on benign sims; drops near close encounters.`;
+```
+
+- [ ] **Step 2: Verify TS compile**
+
+```bash
+cd frontend && npx tsc --noEmit
+```
+
+Expected: PASS (just a new constants file).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add frontend/src/app/constants/residualTooltipCopy.ts
+git commit -m "feat(ui): shared tooltip copy for integrator residuals
+
+Three string constants — concept (used by strip + body card section
+header), DP853 avg-step, DP853 accept-rate — kept in one file so the
+strip and body card surfaces don't drift."
+```
+
+---
 
 ### Task 5.1 — `TopStatusStrip` ΔE/E₀ cell
 
@@ -1954,13 +1999,27 @@ function formatDeltaE(v: number): string {
 
 > **Note:** the exact `state.simulation.chunkBuffer` path needs to match the actual Redux shape — read `SimulationSlice.ts` to confirm. If the buffer lives somewhere else (it may be referenced via a selector), use the established selector.
 
-- [ ] **Step 3: Render the ref-backed cell**
+- [ ] **Step 3: Render the ref-backed cell with tooltip**
 
-In the JSX where the existing `StatusCell`s render, add a new one. Match the existing pattern (border + padding + label):
+In the JSX where the existing `StatusCell`s render, add a new one. Match the existing pattern (border + padding + label), and wrap the label with `InfoTooltip` carrying the shared concept copy.
+
+Add imports near the top:
+
+```tsx
+import { InfoTooltip } from "@/app/components/chrome/InfoTooltip";
+import { RESIDUAL_CONCEPT_COPY } from "@/app/constants/residualTooltipCopy";
+```
+
+Add the cell JSX:
 
 ```tsx
         <div className="flex h-full items-baseline gap-1.5 border-r border-white/[0.06] px-3.5">
-          <span className="eyebrow self-center">ΔE/E₀</span>
+          <span className="eyebrow self-center inline-flex items-center gap-1">
+            ΔE/E₀
+            <InfoTooltip label="What is ΔE/E₀?">
+              {RESIDUAL_CONCEPT_COPY}
+            </InfoTooltip>
+          </span>
           <span
             ref={deltaERef}
             className="tabular text-hi self-center font-mono text-[11px]"
@@ -1984,6 +2043,8 @@ Open `http://localhost:3000`, submit a sim with:
 
 Switch integrators between sims and confirm the cell updates accordingly. Switch timestep speed; confirm the cell ticks at 5 Hz, not 60 fps (you can verify by adding a `console.count` in the tick if needed; remove before commit).
 
+Hover the small `(i)` icon next to the label — tooltip should appear above-center with the residual concept copy. Tab to the icon (focus-visible) — tooltip should also appear via the `group-focus-within` CSS rule. Confirm no layout shift when the tooltip appears (it's absolute-positioned above).
+
 - [ ] **Step 5: Lint + build**
 
 ```bash
@@ -2000,7 +2061,8 @@ git commit -m "feat(ui): top-status-strip ΔE/E₀ cell
 
 Ref-based 5 Hz polling matches BodyCard's pattern — avoids re-rendering
 the strip 60×/sec for a number the user only needs to glance at.
-Scientific notation, 1-2 sig figs (formatDeltaE)."
+Scientific notation, 1-2 sig figs (formatDeltaE). InfoTooltip on the
+label explains the residual concept for non-technical users."
 ```
 
 ---
@@ -2022,22 +2084,60 @@ The DP853 rows hide when `chunkBuffer.dp853AvgStepSeconds === null`.
 
 `BodyCard.tsx` already has `REFRESH_HZ_MS = 200` and an existing polling pattern. Reuse that loop — add the new ref reads inside the same `setInterval`.
 
-- [ ] **Step 2: Add the residual subsection**
+- [ ] **Step 2: Add the residual subsection with tooltips**
+
+Add imports near the top:
+
+```tsx
+import { InfoTooltip } from "@/app/components/chrome/InfoTooltip";
+import {
+  RESIDUAL_CONCEPT_COPY,
+  AVG_STEP_COPY,
+  ACCEPT_RATE_COPY,
+} from "@/app/constants/residualTooltipCopy";
+```
 
 After the existing Keplerian-elements JSX (it's the last numeric block today), add:
 
 ```tsx
         <Separator />
-        <Section title="Integrator residual">
+        <Section
+          title={
+            <span className="inline-flex items-center gap-1">
+              Integrator residual
+              <InfoTooltip label="What is the integrator residual?">
+                {RESIDUAL_CONCEPT_COPY}
+              </InfoTooltip>
+            </span>
+          }
+        >
           <Row label="ΔE / E₀">
             <span ref={residualDeltaERef} className="tabular text-hi font-mono">—</span>
           </Row>
           {showDp853Telemetry && (
             <>
-              <Row label="Avg step">
+              <Row
+                label={
+                  <span className="inline-flex items-center gap-1">
+                    Avg step
+                    <InfoTooltip label="What is avg step?">
+                      {AVG_STEP_COPY}
+                    </InfoTooltip>
+                  </span>
+                }
+              >
                 <span ref={avgStepRef} className="tabular text-hi font-mono">—</span>
               </Row>
-              <Row label="Accept rate">
+              <Row
+                label={
+                  <span className="inline-flex items-center gap-1">
+                    Accept rate
+                    <InfoTooltip label="What is accept rate?">
+                      {ACCEPT_RATE_COPY}
+                    </InfoTooltip>
+                  </span>
+                }
+              >
                 <span ref={acceptRateRef} className="tabular text-hi font-mono">—</span>
               </Row>
             </>
@@ -2045,7 +2145,7 @@ After the existing Keplerian-elements JSX (it's the last numeric block today), a
         </Section>
 ```
 
-> The exact `Separator`, `Section`, `Row` component names depend on what's already in `BodyCard.tsx` — match the existing visual structure rather than introducing new primitives.
+> The exact `Separator`, `Section`, `Row` component names depend on what's already in `BodyCard.tsx` — match the existing visual structure rather than introducing new primitives. If the existing `Section` / `Row` only accept a string `title` / `label`, widen them to accept `React.ReactNode` (one-line type change). If that change is bigger than expected, an inline `<span>` mirroring the `Section`/`Row` markup is acceptable instead — keep the visual identical.
 
 Add the refs and the in-loop read inside the existing polling effect:
 
@@ -2098,6 +2198,9 @@ With dev server running:
 - Pick Euler → confirm `Avg step` and `Accept rate` rows are hidden.
 - Pick DP853 → confirm both rows appear with sensible values (avg step in hours, accept rate near 100% for a benign sim).
 - Switch active bodies; confirm the residual rows persist (they don't depend on the body) and DP853 visibility doesn't flicker.
+- Hover the `(i)` icon next to "Integrator residual" — concept tooltip should appear; copy should match the top-strip tooltip word-for-word (proves the shared constants import works).
+- With DP853 selected, hover the `(i)` next to "Avg step" and "Accept rate" — each shows its own tooltip with the respective copy.
+- With Euler/RK4 selected, confirm those two row tooltips don't exist (rows themselves are hidden).
 
 - [ ] **Step 5: Lint + build + test**
 
@@ -2119,7 +2222,9 @@ Three rows under Keplerian elements: ΔE/E₀ (always), Avg step + Accept
 rate (DP853 only — hidden for fixed-step integrators). Reuses the
 existing 5 Hz polling effect; formatStepDuration picks unit (s/min/h/d)
 based on magnitude. formatDeltaE moved to helpers.ts (shared with the
-top status strip)."
+top status strip). InfoTooltips on the section header + each DP853 row
+explain the concept to non-technical users; copy shared with the strip
+via residualTooltipCopy.ts."
 ```
 
 ---
@@ -2140,6 +2245,7 @@ top status strip)."
 - Hot-path discipline (allocation-free totalEnergy)? ✓ Task 1.1 explicitly
 - Top-strip cell? ✓ Task 5.1
 - Body card subsection? ✓ Task 5.2
+- Explanatory tooltips? ✓ Task 5.0 (shared copy), 5.1 (strip), 5.2 (body card)
 - E₀ at construction, ε guard? ✓ Task 1.3 (computeDeltaE)
 - Energy invariance test bounds? ✓ Task 1.4
 - Wire format pin on both sides? ✓ Tasks 3.1 + 3.2
