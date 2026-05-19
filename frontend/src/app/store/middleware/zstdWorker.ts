@@ -59,12 +59,16 @@ self.onmessage = async (event: MessageEvent<DecodeRequest>) => {
       positions: parsed.positions,
       timestamps: parsed.timestamps,
       mu: parsed.mu,
+      deltaERelative: parsed.deltaERelative,
+      dp853AvgStepSeconds: parsed.dp853AvgStepSeconds,
+      dp853AcceptRate: parsed.dp853AcceptRate,
     };
     const response: DecodeSuccess = { id, payload };
     // Transfer the typed-array buffers — zero-copy back to main thread.
     self.postMessage(response, [
       parsed.positions.buffer,
       parsed.timestamps.buffer,
+      parsed.deltaERelative.buffer,
     ]);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

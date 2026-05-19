@@ -14,6 +14,10 @@ export const BYTES_PER_TIMESTEP_PER_BODY = 6 * 8; // 6 doubles
 export interface ChunkBuffer {
   positions: Float64Array;
   timestamps: BigInt64Array;
+  // Parallel to timestamps. Per-snapshot (E - E₀) / |E₀| from the
+  // backend integrator. Stored as float32 to match the wire format —
+  // it's a UI readout, the extra precision wouldn't be used.
+  deltaERelative: Float32Array;
   bodyNames: string[];
   bodyNameToIndex: Map<string, number>;
   bodyCount: number;
@@ -23,6 +27,13 @@ export interface ChunkBuffer {
   // Where the kept window starts in the session's global timestep numbering.
   // Advances by CHUNK_SIZE every eviction.
   bufferStartTimestep: number;
+  // Chunk-level DP853 telemetry tracking the most-recently-appended
+  // chunk. null when the active integrator is fixed-step. Latest-write-
+  // wins: a fresh chunk overrides regardless of whether older chunks
+  // remain in the buffer — user-facing semantics are "telemetry for the
+  // latest chunk," which matches what they'd expect from a live readout.
+  dp853AvgStepSeconds: number | null;
+  dp853AcceptRate: number | null;
 }
 
 export const BUFFER_BYTE_BUDGETS = {
@@ -81,12 +92,15 @@ export function createChunkBuffer(
   return {
     positions: new Float64Array(capacity * bodyCount * 6),
     timestamps: new BigInt64Array(capacity),
+    deltaERelative: new Float32Array(capacity),
     bodyNames,
     bodyNameToIndex: map,
     bodyCount,
     capacity,
     totalTimesteps: 0,
     bufferStartTimestep: 0,
+    dp853AvgStepSeconds: null,
+    dp853AcceptRate: null,
   };
 }
 
@@ -103,7 +117,10 @@ export function appendChunk(
   buffer: ChunkBuffer,
   chunkPositions: Float64Array,
   chunkTimestamps: BigInt64Array,
+  chunkDeltaE: Float32Array,
   chunkLen: number,
+  dp853AvgStepSeconds: number | null = null,
+  dp853AcceptRate: number | null = null,
 ): number {
   const stride = buffer.bodyCount * 6;
   let shifted = 0;
@@ -114,14 +131,16 @@ export function appendChunk(
     const dropCount = chunkLen;
     const surviveCount = buffer.totalTimesteps - dropCount;
 
-    // Shift positions and timestamps left by dropCount slots in place.
-    // copyWithin is a single memmove call — fast even on large arrays.
+    // Shift positions, timestamps, and deltaERelative left by dropCount
+    // slots in place. copyWithin is a single memmove call — fast even
+    // on large arrays.
     buffer.positions.copyWithin(
       0,
       dropCount * stride,
       (dropCount + surviveCount) * stride,
     );
     buffer.timestamps.copyWithin(0, dropCount, dropCount + surviveCount);
+    buffer.deltaERelative.copyWithin(0, dropCount, dropCount + surviveCount);
 
     buffer.totalTimesteps = surviveCount;
     buffer.bufferStartTimestep += dropCount;
@@ -131,9 +150,37 @@ export function appendChunk(
   // Write the new chunk at the current cursor.
   buffer.positions.set(chunkPositions, buffer.totalTimesteps * stride);
   buffer.timestamps.set(chunkTimestamps, buffer.totalTimesteps);
+  buffer.deltaERelative.set(chunkDeltaE, buffer.totalTimesteps);
   buffer.totalTimesteps += chunkLen;
 
+  // Latest-write-wins: chunk telemetry tracks the freshly-appended chunk.
+  buffer.dp853AvgStepSeconds = dp853AvgStepSeconds;
+  buffer.dp853AcceptRate = dp853AcceptRate;
+
   return shifted;
+}
+
+/**
+ * Per-snapshot relative energy drift. Linear interpolation between
+ * keyframes (ΔE evolves slowly — cubic Hermite is overkill for a UI
+ * readout that displays 1-2 sig figs). Empty buffer returns 0.
+ *
+ * Designed for ref-based 5 Hz polling — imperative, no allocations.
+ */
+export function readDeltaERelativeAt(
+  buffer: ChunkBuffer,
+  floatIdx: number,
+): number {
+  if (buffer.totalTimesteps === 0) return 0;
+  if (floatIdx <= 0) return buffer.deltaERelative[0];
+  if (floatIdx >= buffer.totalTimesteps - 1) {
+    return buffer.deltaERelative[buffer.totalTimesteps - 1];
+  }
+  const i0 = Math.floor(floatIdx);
+  const s = floatIdx - i0;
+  const a = buffer.deltaERelative[i0];
+  const b = buffer.deltaERelative[i0 + 1];
+  return a + (b - a) * s;
 }
 
 // Caller provides the output Vector3 — never allocates per call. Designed

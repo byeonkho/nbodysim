@@ -63,4 +63,19 @@ public sealed interface Integrator
     default void setSubstepHandler(SubstepHandler handler) {
         // no-op for fixed-step integrators
     }
+
+    /**
+     * Total number of derivative evaluations performed across all
+     * {@code stepInto} calls on this instance. Used by
+     * {@link personal.spacesim.simulation.Simulation} to estimate
+     * DP853's attempted-step count (and thus accept rate) without
+     * subclassing Hipparchus internals.
+     *
+     * <p>Default 0 for fixed-step integrators (Euler, RK4) — they don't
+     * track this and their accept rate is unconditionally 1.0 by
+     * construction. Only {@link DP853Integrator} overrides.
+     */
+    default long getEvaluationCount() {
+        return 0;
+    }
 }

@@ -62,6 +62,15 @@ public final class DP853Integrator implements Integrator {
     private SubstepHandler substepHandler;
 
     /**
+     * Cumulative derivative-evaluation count across all {@link #stepInto}
+     * calls on this instance. Hipparchus's {@code getEvaluations()} is
+     * per-{@code integrate()}-call (it resets each call), so we accumulate
+     * ourselves. Used downstream by {@code Simulation} to estimate the
+     * attempted-step count for DP853's accept-rate readout.
+     */
+    private long cumulativeEvaluations = 0;
+
+    /**
      * Reused across steps. Holds {@link #currentDerivatives} and
      * {@link #derivScratch} via closure over the outer instance.
      */
@@ -113,8 +122,14 @@ public final class DP853Integrator implements Integrator {
 
         ODEState start = new ODEState(0.0, state);
         ODEState end = hipparchusIntegrator.integrate(ode, start, dt);
+        cumulativeEvaluations += hipparchusIntegrator.getEvaluations();
 
         // Hipparchus returns an internal array; copy into caller's buffer.
         System.arraycopy(end.getCompleteState(), 0, out, 0, out.length);
+    }
+
+    @Override
+    public long getEvaluationCount() {
+        return cumulativeEvaluations;
     }
 }

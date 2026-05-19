@@ -71,6 +71,30 @@ export const roundToTwoDecimals = (value: number): number => {
   return Math.round(value * 10) / 10;
 };
 
+// Scientific notation, 1 sig fig in the mantissa (e.g. "2.3e-12"). Used for
+// the integrator-residual ΔE/E₀ readout — values span ~1e-3 (Euler) to
+// ~1e-15 (DP853 at fresh start), so a fixed-format approach would either
+// truncate small values to 0 or waste space on Euler.
+export const formatDeltaE = (v: number): string => {
+  if (v === 0 || !Number.isFinite(v)) return "0";
+  const abs = Math.abs(v);
+  const exp = Math.floor(Math.log10(abs));
+  const mantissa = v / Math.pow(10, exp);
+  const sign = exp >= 0 ? "+" : "";
+  return `${mantissa.toFixed(1)}e${sign}${exp}`;
+};
+
+// Picks a unit (s / min / h / d) based on magnitude. Used for the DP853
+// avg-step-size readout — values span ~60s (close encounters) to ~86400s
+// (cruise). Single decimal place keeps the readout tight at all scales.
+export const formatStepDuration = (seconds: number): string => {
+  if (!Number.isFinite(seconds)) return "—";
+  if (seconds < 60) return `${seconds.toFixed(0)} s`;
+  if (seconds < 3600) return `${(seconds / 60).toFixed(1)} min`;
+  if (seconds < 86_400) return `${(seconds / 3600).toFixed(1)} h`;
+  return `${(seconds / 86_400).toFixed(1)} d`;
+};
+
 // Mutating-output variant: writes the scaled position into `out`.
 // `out = orbiting + (primary - orbiting) * scaleFactor`. Used to render
 // non-1 positionScale bodies (e.g. Moon) at exaggerated parent-relative

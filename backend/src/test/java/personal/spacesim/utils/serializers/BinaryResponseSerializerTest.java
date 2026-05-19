@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 import org.orekit.time.AbsoluteDate;
 import org.orekit.time.TimeScale;
 import org.orekit.time.TimeScalesFactory;
+import personal.spacesim.simulation.ChunkResult;
+import personal.spacesim.simulation.Dp853Telemetry;
 import personal.spacesim.simulation.body.CelestialBodySnapshot;
 
 import java.io.IOException;
@@ -22,6 +24,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+
+import java.util.HashMap;
 
 /**
  * Pins the on-the-wire binary layout. The frontend has a mirror test
@@ -49,13 +53,17 @@ class BinaryResponseSerializerTest {
 
     @Test
     void emptyDataProducesHeaderOnly() {
-        // Empty/null inputs serialise to a 6-byte header: bodyCount=0, timestepCount=0.
-        // No per-body section, no per-timestep section.
+        // Empty/null inputs serialise to an 18-byte header:
+        //   bodyCount(2) + dp853AvgStep(8) + dp853AcceptRate(4) + timestepCount(4) = 18
+        // DP853 telemetry fields are NaN-encoded when not applicable, kept
+        // always-present so the parser can stay branchless.
         BinaryResponseSerializer ser = new BinaryResponseSerializer();
-        byte[] empty = ser.serialize(null, null);
-        assertEquals(6, empty.length);
+        byte[] empty = ser.serialize((ChunkResult) null, null);
+        assertEquals(18, empty.length);
         ByteBuffer buf = ByteBuffer.wrap(empty).order(ByteOrder.LITTLE_ENDIAN);
         assertEquals(0, buf.getShort());
+        assertTrue(Double.isNaN(buf.getDouble()), "avgStepSeconds must be NaN for empty data");
+        assertTrue(Float.isNaN(buf.getFloat()),   "acceptRate must be NaN for empty data");
         assertEquals(0, buf.getInt());
     }
 
@@ -80,8 +88,14 @@ class BinaryResponseSerializerTest {
                 new Vector3D(10.0, 11.0, 12.0)
         );
 
-        Map<AbsoluteDate, List<CelestialBodySnapshot>> data = new LinkedHashMap<>();
-        data.put(date, List.of(earth, moon));
+        Map<AbsoluteDate, List<CelestialBodySnapshot>> snapshots = new LinkedHashMap<>();
+        snapshots.put(date, List.of(earth, moon));
+
+        Map<AbsoluteDate, Double> deltaE = new LinkedHashMap<>();
+        deltaE.put(date, 1.5e-12);
+
+        Dp853Telemetry telemetry = new Dp853Telemetry(3600.0, 0.94);
+        ChunkResult chunk = new ChunkResult(snapshots, deltaE, telemetry);
 
         // Made-up µ values — the serializer just shuttles bytes; we only
         // need to confirm they round-trip through the header in the right
@@ -91,7 +105,7 @@ class BinaryResponseSerializerTest {
         mu.put("Earth", 3.986004418e14);
         mu.put("Moon", 4.9028000661e12);
 
-        byte[] bytes = new BinaryResponseSerializer().serialize(data, mu);
+        byte[] bytes = new BinaryResponseSerializer().serialize(chunk, mu);
         ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
 
         // Header
@@ -111,13 +125,20 @@ class BinaryResponseSerializerTest {
         assertEquals("Moon", new String(moonName, StandardCharsets.UTF_8));
         assertEquals(4.9028000661e12, buf.getDouble(), "Moon µ");
 
+        // DP853 telemetry — fixture is the canonical pin shared with the
+        // frontend parser test. If either side drifts, one fails first.
+        assertEquals(3600.0, buf.getDouble(), 1e-12, "dp853AvgStepSeconds");
+        assertEquals(0.94f, buf.getFloat(), 1e-6f, "dp853AcceptRate");
+
         assertEquals(1, buf.getInt(), "timestepCount");
 
         // Per-timestep — positions are float64 (precision matters for outer
         // planet orbit-plane rendering), velocities are float32 (their
         // precision-loss path damps by ~5 orders of magnitude before
-        // anything visible).
+        // anything visible). Per-snapshot ΔE/E₀ is float32 (1-2 sig figs
+        // displayed in UI; extra precision wouldn't be used).
         assertEquals(expectedMillis, buf.getLong(), "timestamp millis");
+        assertEquals(1.5e-12f, buf.getFloat(), 1e-18f, "per-snapshot ΔE/E₀");
         // Earth — position float64, velocity float32.
         assertEquals(1.0, buf.getDouble()); assertEquals(2.0, buf.getDouble()); assertEquals(3.0, buf.getDouble());
         assertEquals(4.0f, buf.getFloat()); assertEquals(5.0f, buf.getFloat()); assertEquals(6.0f, buf.getFloat());
@@ -127,6 +148,38 @@ class BinaryResponseSerializerTest {
 
         // Buffer should be exactly consumed
         assertEquals(0, buf.remaining(), "no trailing bytes");
+    }
+
+    @Test
+    void fixedStepIntegratorWritesNaNTelemetry() {
+        // ChunkResult.telemetry() == null → header DP853 fields encoded
+        // as NaN. Parser branchlessly maps NaN → null for the
+        // chunk-level fields downstream.
+        TimeScale utc = TimeScalesFactory.getUTC();
+        AbsoluteDate date = new AbsoluteDate(2024, 6, 5, 0, 0, 0.0, utc);
+
+        Map<AbsoluteDate, List<CelestialBodySnapshot>> snapshots = new LinkedHashMap<>();
+        snapshots.put(date, List.of(new CelestialBodySnapshot(
+                "Earth",
+                new Vector3D(0.0, 0.0, 0.0),
+                new Vector3D(0.0, 0.0, 0.0))));
+        Map<AbsoluteDate, Double> deltaE = new LinkedHashMap<>();
+        deltaE.put(date, 0.0);
+        ChunkResult chunk = new ChunkResult(snapshots, deltaE, null);
+
+        Map<String, Double> mu = new HashMap<>();
+        mu.put("Earth", 3.986004418e14);
+
+        byte[] bytes = new BinaryResponseSerializer().serialize(chunk, mu);
+        ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
+
+        buf.getShort();                          // bodyCount
+        int nameLen = buf.getShort();
+        buf.position(buf.position() + nameLen);  // skip name bytes
+        buf.getDouble();                         // mu
+
+        assertTrue(Double.isNaN(buf.getDouble()), "avgStepSeconds must be NaN for non-DP853");
+        assertTrue(Float.isNaN(buf.getFloat()),   "acceptRate must be NaN for non-DP853");
     }
 
     @Test
@@ -140,12 +193,14 @@ class BinaryResponseSerializerTest {
         CelestialBodySnapshot body = new CelestialBodySnapshot(
                 "Earth", new Vector3D(1.0, 2.0, 3.0), new Vector3D(4.0, 5.0, 6.0)
         );
-        Map<AbsoluteDate, List<CelestialBodySnapshot>> data =
+        Map<AbsoluteDate, List<CelestialBodySnapshot>> snapshots =
                 Collections.singletonMap(date, List.of(body));
+        Map<AbsoluteDate, Double> deltaE = Collections.singletonMap(date, 0.0);
+        ChunkResult chunk = new ChunkResult(snapshots, deltaE, null);
 
         // Empty µ map — no entry for Earth.
         byte[] bytes = new BinaryResponseSerializer()
-                .serialize(data, Collections.emptyMap());
+                .serialize(chunk, Collections.emptyMap());
         ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
 
         assertEquals(1, buf.getShort()); // bodyCount
@@ -165,11 +220,13 @@ class BinaryResponseSerializerTest {
 
         CelestialBodySnapshot body = new CelestialBodySnapshot("Α", Vector3D.ZERO, Vector3D.ZERO);
 
-        Map<AbsoluteDate, List<CelestialBodySnapshot>> data =
+        Map<AbsoluteDate, List<CelestialBodySnapshot>> snapshots =
                 Collections.singletonMap(date, List.of(body));
+        Map<AbsoluteDate, Double> deltaE = Collections.singletonMap(date, 0.0);
+        ChunkResult chunk = new ChunkResult(snapshots, deltaE, null);
 
         Map<String, Double> mu = Collections.singletonMap("Α", 1.0);
-        byte[] bytes = new BinaryResponseSerializer().serialize(data, mu);
+        byte[] bytes = new BinaryResponseSerializer().serialize(chunk, mu);
         ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
 
         assertEquals(1, buf.getShort()); // bodyCount

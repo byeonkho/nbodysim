@@ -113,6 +113,23 @@ public class Simulation {
     private AbsoluteDate nextEmitTarget;
 
     /**
+     * Adaptive path telemetry: number of accepted substeps observed
+     * during the current chunk's {@link #run}. Reset at the top of
+     * each {@code run()} call. Increments on each substep handler
+     * invocation (Hipparchus only fires that callback on accepted
+     * steps).
+     */
+    private long acceptedSubstepCount = 0;
+
+    /**
+     * Adaptive path telemetry: total sim-time duration of accepted
+     * substeps during the current chunk's {@link #run}, in seconds.
+     * Reset at the top of each {@code run()} call. Divided by
+     * {@link #acceptedSubstepCount} to produce {@code avgStepSeconds}.
+     */
+    private double acceptedSubstepDurationSeconds = 0.0;
+
+    /**
      * Live state vector, advanced once per timestep. Carries position +
      * velocity for all bodies in the same flat layout as {@link GlobalState}.
      * Replaced each step by swap with {@link #nextStateBuffer} (so the
@@ -127,6 +144,15 @@ public class Simulation {
      * Sun-relative shifting; -1 if no Sun is in the system.
      */
     private final int sunIndex;
+
+    /**
+     * Total mechanical energy of the system at {@link #simStartDate},
+     * computed once at construction. Used as the denominator in
+     * per-emission ΔE/E₀. Guard against |e0| ≈ 0 in readers (physically
+     * impossible for any bound system but worth defending against
+     * synthetic test inputs).
+     */
+    private final double e0;
 
     public Simulation(
             String sessionID,
@@ -176,6 +202,11 @@ public class Simulation {
             }
         }
         this.sunIndex = sunIdx;
+
+        // E₀ captured from the initial state. Stored absolute so per-
+        // emission readers can compute (E - e0) / |e0| with the
+        // guard-against-zero rule at the call site.
+        this.e0 = derivatives.totalEnergy(currentStateBuffer);
     }
 
     /**
@@ -198,9 +229,15 @@ public class Simulation {
         nextStateBuffer = tmp;
     }
 
-    public Map<AbsoluteDate, List<CelestialBodySnapshot>> run() {
+    public ChunkResult run() {
         long startTime = System.nanoTime();
         Map<AbsoluteDate, List<CelestialBodySnapshot>> results = new LinkedHashMap<>();
+        Map<AbsoluteDate, Double> deltaE = new LinkedHashMap<>();
+
+        // Reset per-chunk DP853 telemetry counters.
+        acceptedSubstepCount = 0;
+        acceptedSubstepDurationSeconds = 0.0;
+        long evalCountAtStart = integrator.getEvaluationCount();
 
         // Adaptive integrators (DP853): every accepted substep gives us
         // an interpolator-backed window [stepStart+prev, stepStart+curr]
@@ -212,6 +249,10 @@ public class Simulation {
         // uniform spacing. Fixed-step integrators register but never
         // fire (no substeps).
         integrator.setSubstepHandler((prevTimeSec, currTimeSec, eval) -> {
+            // Telemetry: every accepted substep — count + duration.
+            acceptedSubstepCount++;
+            acceptedSubstepDurationSeconds += (currTimeSec - prevTimeSec);
+
             while (nextEmitTarget != null) {
                 double targetRelTime = nextEmitTarget.durationFrom(stepStartDate);
                 // Strictly past the substep's window — wait for a later
@@ -223,7 +264,9 @@ public class Simulation {
                 // slipped between substeps (shouldn't happen with
                 // correct accounting, but eval requires t in interval).
                 double evalT = Math.max(targetRelTime, prevTimeSec);
-                results.put(nextEmitTarget, snapshotFromState(eval.stateAt(evalT)));
+                double[] evaluatedState = eval.stateAt(evalT);
+                results.put(nextEmitTarget, snapshotFromState(evaluatedState));
+                deltaE.put(nextEmitTarget, computeDeltaE(evaluatedState));
                 adaptiveEmitCount++;
                 nextEmitTarget = simStartDate.shiftedBy(
                         adaptiveEmitCount * targetGapSeconds);
@@ -234,6 +277,7 @@ public class Simulation {
             // Initial frame is always kept (step 0). Only on the first chunk.
             if (!hasEmittedInitialFrame) {
                 results.put(simCurrentDate, snapshotFromState(currentStateBuffer));
+                deltaE.put(simCurrentDate, computeDeltaE(currentStateBuffer));
                 hasEmittedInitialFrame = true;
                 nextKeptAtStep = keyframesPerKept;
                 // Initial counts as emission #1; next target at #2's tick.
@@ -254,6 +298,7 @@ public class Simulation {
                 if (!isAdaptiveIntegrator
                         && globalStepCount >= nextKeptAtStep) {
                     results.put(simCurrentDate, snapshotFromState(currentStateBuffer));
+                    deltaE.put(simCurrentDate, computeDeltaE(currentStateBuffer));
                     nextKeptAtStep += keyframesPerKept;
                 }
                 currentTimeStep++;
@@ -270,7 +315,37 @@ public class Simulation {
         log.info("Simulation completed for {} {} in {} seconds.", TIMESTEPS_TO_RUN, timeStepUnit, totalTimeSeconds);
         log.info("Simulation ran using frame: {}", frame.getName());
 
-        return results;
+        Dp853Telemetry telemetry = null;
+        if (isAdaptiveIntegrator && acceptedSubstepCount > 0) {
+            // Accept rate via the /12 approximation. DP853 is 12-stage
+            // with FSAL; true cost is 12 evals for the first step then
+            // 11 thereafter, so the constant is slightly off at chunk
+            // boundaries but well under 1% error at chunk scale (~5000
+            // accepted steps). Acceptable for a UI readout.
+            long evalsThisChunk = integrator.getEvaluationCount() - evalCountAtStart;
+            double estimatedAttempts = evalsThisChunk / 12.0;
+            double acceptRate = estimatedAttempts > 0
+                    ? Math.min(1.0, acceptedSubstepCount / estimatedAttempts)
+                    : 1.0;
+            double avgStep = acceptedSubstepDurationSeconds / acceptedSubstepCount;
+            telemetry = new Dp853Telemetry(avgStep, acceptRate);
+        }
+
+        return new ChunkResult(results, deltaE, telemetry);
+    }
+
+    /**
+     * Relative energy drift {@code (E - e0) / |e0|} at the given state.
+     * Guards against a degenerate |e0| ≈ 0 (would only occur in
+     * synthetic test inputs — any bound system has strictly negative
+     * E₀) by returning 0.0 to keep the wire format well-defined.
+     */
+    private double computeDeltaE(double[] state) {
+        double absE0 = Math.abs(e0);
+        if (absE0 < 1e-30) {
+            return 0.0;
+        }
+        return (derivatives.totalEnergy(state) - e0) / absE0;
     }
 
     /**

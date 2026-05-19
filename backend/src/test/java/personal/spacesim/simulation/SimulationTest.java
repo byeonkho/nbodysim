@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import personal.spacesim.simulation.body.CelestialBodySnapshot;
+import personal.spacesim.simulation.ChunkResult;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -93,10 +94,10 @@ class SimulationTest {
     void kEquals4FirstChunkEmits2501Frames() {
         Simulation sim = newSim(4);
 
-        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk = sim.run();
+        ChunkResult chunk = sim.run();
 
         // 1 initial + 2500 kept steps (steps 4, 8, ..., 10000)
-        assertEquals(2501, chunk.size(),
+        assertEquals(2501, chunk.snapshots().size(),
                 "K=4 first chunk should emit 1 initial + 2500 thinned keyframes");
     }
 
@@ -104,10 +105,10 @@ class SimulationTest {
     void kEquals1FirstChunkEmits10001Frames() {
         Simulation sim = newSim(1);
 
-        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk = sim.run();
+        ChunkResult chunk = sim.run();
 
         // 1 initial + 10000 kept steps (every step kept)
-        assertEquals(10001, chunk.size(),
+        assertEquals(10001, chunk.snapshots().size(),
                 "K=1 first chunk should emit every integration step");
     }
 
@@ -115,10 +116,10 @@ class SimulationTest {
     void kEquals8FirstChunkEmits1251Frames() {
         Simulation sim = newSim(8);
 
-        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk = sim.run();
+        ChunkResult chunk = sim.run();
 
         // 1 initial + 1250 kept steps (steps 8, 16, ..., 10000)
-        assertEquals(1251, chunk.size(),
+        assertEquals(1251, chunk.snapshots().size(),
                 "K=8 first chunk should emit 1 initial + 1250 thinned keyframes");
     }
 
@@ -126,14 +127,14 @@ class SimulationTest {
     void kEquals4CrossChunkContinuityHoldsAtBoundary() {
         Simulation sim = newSim(4);
 
-        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk1 = sim.run();
-        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk2 = sim.run();
+        ChunkResult chunk1 = sim.run();
+        ChunkResult chunk2 = sim.run();
 
         // chunk1 last kept = global step 10000
         // chunk2 first kept = global step 10004 (4 steps later)
         // At timeStepUnit="seconds", that's 4.0 seconds apart.
-        AbsoluteDate lastOfChunk1 = lastKey(chunk1);
-        AbsoluteDate firstOfChunk2 = firstKey(chunk2);
+        AbsoluteDate lastOfChunk1 = lastKey(chunk1.snapshots());
+        AbsoluteDate firstOfChunk2 = firstKey(chunk2.snapshots());
         double dtSeconds = firstOfChunk2.durationFrom(lastOfChunk1);
 
         assertEquals(4.0, dtSeconds, 1e-9,
@@ -142,7 +143,7 @@ class SimulationTest {
 
         // Chunk 2 has no initial-frame emission, so it should have one fewer
         // entry than Chunk 1 at the same K.
-        assertEquals(2500, chunk2.size(),
+        assertEquals(2500, chunk2.snapshots().size(),
                 "Second chunk should emit only thinned keyframes, no initial");
     }
 
@@ -157,11 +158,11 @@ class SimulationTest {
     void dp853EmitsExactlyTargetSnapshotsAtN5000() {
         Simulation sim = newDP853Sim("n5000", 5000);
 
-        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk = sim.run();
+        ChunkResult chunk = sim.run();
 
         // Exact count = initial frame (at simStart) + N-1 scheduled emissions
         // at simStart + k*gap for k=1..N-1. Equals N.
-        assertEquals(5000, chunk.size(),
+        assertEquals(5000, chunk.snapshots().size(),
                 "DP853 N=5000 should emit exactly 5000 snapshots (uniform schedule)");
     }
 
@@ -169,9 +170,9 @@ class SimulationTest {
     void dp853EmitsExactlyTargetSnapshotsAtN10000() {
         Simulation sim = newDP853Sim("n10000", 10000);
 
-        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk = sim.run();
+        ChunkResult chunk = sim.run();
 
-        assertEquals(10000, chunk.size(),
+        assertEquals(10000, chunk.snapshots().size(),
                 "DP853 N=10000 should emit exactly 10000 snapshots");
     }
 
@@ -179,9 +180,9 @@ class SimulationTest {
     void dp853EmitsExactlyTargetSnapshotsAtN15000() {
         Simulation sim = newDP853Sim("n15000", 15000);
 
-        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk = sim.run();
+        ChunkResult chunk = sim.run();
 
-        assertEquals(15000, chunk.size(),
+        assertEquals(15000, chunk.snapshots().size(),
                 "DP853 N=15000 should emit exactly 15000 snapshots");
     }
 
@@ -200,13 +201,13 @@ class SimulationTest {
     void dp853TimestampsAreUniformlySpaced() {
         Simulation sim = newDP853Sim("uniform", 5000);
 
-        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk = sim.run();
+        ChunkResult chunk = sim.run();
 
         // chunk_duration = 10000 weeks; gap = chunk_duration / (N-1)
         double expectedGapSeconds = (10000.0 * 7 * 86400.0) / (5000 - 1);
 
         AbsoluteDate prev = null;
-        for (AbsoluteDate d : chunk.keySet()) {
+        for (AbsoluteDate d : chunk.snapshots().keySet()) {
             if (prev != null) {
                 double dt = d.durationFrom(prev);
                 assertEquals(expectedGapSeconds, dt, 1e-6,
@@ -230,15 +231,15 @@ class SimulationTest {
     void dp853CrossChunkContinuityPreservesEmissionCadence() {
         Simulation sim = newDP853Sim("continuity", 5000);
 
-        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk1 = sim.run();
-        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunk2 = sim.run();
+        ChunkResult chunk1 = sim.run();
+        ChunkResult chunk2 = sim.run();
 
-        assertEquals(5000, chunk1.size(),
+        assertEquals(5000, chunk1.snapshots().size(),
                 "Chunk 1 should emit initial + 4999 scheduled = 5000");
-        assertEquals(4999, chunk2.size(),
+        assertEquals(4999, chunk2.snapshots().size(),
                 "Chunk 2 should continue the schedule (no initial re-emit) = 4999");
         // Combined: 2N-1, not 2N — chunk 2 doesn't double-count the boundary.
-        assertEquals(9999, chunk1.size() + chunk2.size());
+        assertEquals(9999, chunk1.snapshots().size() + chunk2.snapshots().size());
     }
 
     private static AbsoluteDate firstKey(Map<AbsoluteDate, List<CelestialBodySnapshot>> m) {

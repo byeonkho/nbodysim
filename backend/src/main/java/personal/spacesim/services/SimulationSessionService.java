@@ -8,9 +8,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import personal.spacesim.dtos.SimulationResponseDTO;
 import personal.spacesim.dtos.SimulationResponseMetadata;
+import personal.spacesim.simulation.ChunkResult;
 import personal.spacesim.simulation.Simulation;
 import personal.spacesim.simulation.SimulationFactory;
-import personal.spacesim.simulation.body.CelestialBodySnapshot;
 import personal.spacesim.simulation.body.CelestialBodyWrapper;
 import personal.spacesim.utils.compressor.ZstdCompressor;
 import personal.spacesim.utils.serializers.BinaryResponseSerializer;
@@ -119,20 +119,6 @@ public class SimulationSessionService {
         }
     }
 
-    public Map<AbsoluteDate, List<CelestialBodySnapshot>> runSimulation(String sessionID) {
-        Simulation simulation = getSimulation(sessionID);
-        if (simulation == null) {
-            throw new IllegalArgumentException("Simulation not found for session ID: " + sessionID);
-        }
-        try {
-            lastAccessedAt.put(sessionID, System.currentTimeMillis());
-            return simulation.run();
-        } catch (Exception e) {
-            e.printStackTrace();
-            throw new RuntimeException("Error running simulation", e);
-        }
-    }
-
     /**
      * Returns the next zstd-compressed chunk byte[] for the session, taking
      * it from the precompute cache when available. Always kicks off the next
@@ -185,7 +171,7 @@ public class SimulationSessionService {
             throw new IllegalArgumentException("Simulation not found for session ID: " + sessionID);
         }
 
-        Map<AbsoluteDate, List<CelestialBodySnapshot>> chunkData = simulation.run();
+        ChunkResult chunkResult = simulation.run();
 
         // µ map built fresh each chunk; constant per session but cheap (~9 entries).
         LinkedHashMap<String, Double> muByName = new LinkedHashMap<>();
@@ -193,7 +179,7 @@ public class SimulationSessionService {
             muByName.put(w.getName(), w.getMu());
         }
 
-        byte[] binary = binaryResponseSerializer.serialize(chunkData, muByName);
+        byte[] binary = binaryResponseSerializer.serialize(chunkResult, muByName);
         return zstdCompressor.compress(binary);
     }
 

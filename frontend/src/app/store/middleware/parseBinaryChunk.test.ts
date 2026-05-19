@@ -10,18 +10,22 @@ function buildChunkBytes(
   bodies: Array<{ name: string; mu: number }>,
   timesteps: Array<{
     millis: number;
+    deltaERelative: number;
     bodies: Array<{ pos: [number, number, number]; vel: [number, number, number] }>;
   }>,
+  dp853AvgStepSeconds: number = Number.NaN,
+  dp853AcceptRate: number = Number.NaN,
 ): Uint8Array {
   const encoder = new TextEncoder();
   const encodedNames = bodies.map((b) => encoder.encode(b.name));
   const headerSize =
     2 +
-    // Each body: 2 (nameLen) + name bytes + 8 (µ).
     encodedNames.reduce((sum, b) => sum + 2 + b.length + 8, 0) +
-    4;
-  // Positions float64 (3 × 8B), velocities float32 (3 × 4B); timestamp int64, µ float64.
-  const perTimestep = 8 + bodies.length * (3 * 8 + 3 * 4);
+    8 + // dp853AvgStepSeconds (float64)
+    4 + // dp853AcceptRate (float32)
+    4;  // timestepCount
+  // timestamp(8) + deltaERelative(4) + per-body (3*8 + 3*4).
+  const perTimestep = 8 + 4 + bodies.length * (3 * 8 + 3 * 4);
   const total = headerSize + timesteps.length * perTimestep;
 
   const buf = new ArrayBuffer(total);
@@ -40,12 +44,18 @@ function buildChunkBytes(
     view.setFloat64(offset, bodies[i].mu, true);
     offset += 8;
   }
+  view.setFloat64(offset, dp853AvgStepSeconds, true);
+  offset += 8;
+  view.setFloat32(offset, dp853AcceptRate, true);
+  offset += 4;
   view.setUint32(offset, timesteps.length, true);
   offset += 4;
 
   for (const t of timesteps) {
     view.setBigInt64(offset, BigInt(t.millis), true);
     offset += 8;
+    view.setFloat32(offset, t.deltaERelative, true);
+    offset += 4;
     for (const body of t.bodies) {
       view.setFloat64(offset, body.pos[0], true); offset += 8;
       view.setFloat64(offset, body.pos[1], true); offset += 8;
@@ -68,6 +78,7 @@ describe("parseBinaryChunk", () => {
       [
         {
           millis: Date.UTC(2024, 5, 5),
+          deltaERelative: 0,
           bodies: [
             { pos: [1, 2, 3], vel: [4, 5, 6] },
             { pos: [7, 8, 9], vel: [10, 11, 12] },
@@ -98,6 +109,7 @@ describe("parseBinaryChunk", () => {
       [
         {
           millis: 0,
+          deltaERelative: 0,
           bodies: [{ pos: [0, 0, 0], vel: [0, 0, 0] }],
         },
       ],
@@ -118,6 +130,7 @@ describe("parseBinaryChunk", () => {
       [
         {
           millis: 1000,
+          deltaERelative: 0,
           bodies: [
             { pos: [1, 0, 0], vel: [0, 0, 0] },
             { pos: [2, 0, 0], vel: [0, 0, 0] },
@@ -125,6 +138,7 @@ describe("parseBinaryChunk", () => {
         },
         {
           millis: 2000,
+          deltaERelative: 0,
           bodies: [
             { pos: [3, 0, 0], vel: [0, 0, 0] },
             { pos: [4, 0, 0], vel: [0, 0, 0] },
@@ -139,6 +153,55 @@ describe("parseBinaryChunk", () => {
     expect(result.mu).toEqual({ A: 100, B: 200 });
   });
 
+  it("parses DP853 telemetry + per-snapshot ΔE/E₀ at the canonical fixture", () => {
+    // Same fixture values as backend BinaryResponseSerializerTest's
+    // serialisesNewIntegratorResidualFields — if either side drifts,
+    // one of the two tests fails first.
+    const bytes = buildChunkBytes(
+      [
+        { name: "Earth", mu: 3.986004418e14 },
+        { name: "Moon", mu: 4.9028000661e12 },
+      ],
+      [
+        {
+          millis: Date.UTC(2024, 5, 5),
+          deltaERelative: 1.5e-12,
+          bodies: [
+            { pos: [1, 2, 3], vel: [4, 5, 6] },
+            { pos: [7, 8, 9], vel: [10, 11, 12] },
+          ],
+        },
+      ],
+      3600.0,
+      0.94,
+    );
+
+    const result = parseBinaryChunk(bytes);
+    expect(result.dp853AvgStepSeconds).toBeCloseTo(3600.0, 6);
+    expect(result.dp853AcceptRate).toBeCloseTo(0.94, 5);
+
+    const key = "2024-06-05T00:00:00.000Z";
+    expect(result.deltaERelative[key]).toBeCloseTo(1.5e-12, 18);
+  });
+
+  it("maps NaN dp853 telemetry to null", () => {
+    const bytes = buildChunkBytes(
+      [{ name: "Earth", mu: 3.986004418e14 }],
+      [
+        {
+          millis: Date.UTC(2024, 5, 5),
+          deltaERelative: 0,
+          bodies: [{ pos: [0, 0, 0], vel: [0, 0, 0] }],
+        },
+      ],
+      Number.NaN,
+      Number.NaN,
+    );
+    const result = parseBinaryChunk(bytes);
+    expect(result.dp853AvgStepSeconds).toBeNull();
+    expect(result.dp853AcceptRate).toBeNull();
+  });
+
   it("propagates µ=0 for backend missing-entry fallback", () => {
     // Backend writes 0.0 when the µ map is missing an entry. Parser surfaces
     // it as-is — downstream Keplerian-element code treats µ=0 as "unknown"
@@ -148,6 +211,7 @@ describe("parseBinaryChunk", () => {
       [
         {
           millis: 0,
+          deltaERelative: 0,
           bodies: [{ pos: [0, 0, 0], vel: [0, 0, 0] }],
         },
       ],
@@ -168,6 +232,7 @@ describe("parseBinaryChunkToTypedArrays", () => {
       [
         {
           millis: Date.UTC(2024, 5, 5),
+          deltaERelative: 0,
           bodies: [
             { pos: [1, 2, 3], vel: [4, 5, 6] },
             { pos: [7, 8, 9], vel: [10, 11, 12] },
@@ -175,6 +240,7 @@ describe("parseBinaryChunkToTypedArrays", () => {
         },
         {
           millis: Date.UTC(2024, 5, 6),
+          deltaERelative: 0,
           bodies: [
             { pos: [13, 14, 15], vel: [16, 17, 18] },
             { pos: [19, 20, 21], vel: [22, 23, 24] },
@@ -200,5 +266,31 @@ describe("parseBinaryChunkToTypedArrays", () => {
     expect(Array.from(result.positions.slice(6, 12))).toEqual([7, 8, 9, 10, 11, 12]);
     expect(Array.from(result.positions.slice(12, 18))).toEqual([13, 14, 15, 16, 17, 18]);
     expect(Array.from(result.positions.slice(18, 24))).toEqual([19, 20, 21, 22, 23, 24]);
+  });
+
+  it("parses DP853 telemetry + deltaERelative typed array", () => {
+    const bytes = buildChunkBytes(
+      [{ name: "Earth", mu: 3.986004418e14 }],
+      [
+        {
+          millis: 1000,
+          deltaERelative: 1e-12,
+          bodies: [{ pos: [0, 0, 0], vel: [0, 0, 0] }],
+        },
+        {
+          millis: 2000,
+          deltaERelative: 2e-12,
+          bodies: [{ pos: [0, 0, 0], vel: [0, 0, 0] }],
+        },
+      ],
+      7200.0,
+      0.97,
+    );
+    const result = parseBinaryChunkToTypedArrays(bytes);
+    expect(result.dp853AvgStepSeconds).toBeCloseTo(7200.0, 6);
+    expect(result.dp853AcceptRate).toBeCloseTo(0.97, 5);
+    expect(result.deltaERelative.length).toBe(2);
+    expect(result.deltaERelative[0]).toBeCloseTo(1e-12, 18);
+    expect(result.deltaERelative[1]).toBeCloseTo(2e-12, 18);
   });
 });
