@@ -91,7 +91,7 @@ class ChunkSizeBenchmark {
                 muByName.put(w.getName(), w.getMu());
             }
 
-            byte[] raw = binaryResponseSerializer.serialize(chunk.snapshots(), muByName);
+            byte[] raw = binaryResponseSerializer.serialize(chunk, muByName);
             byte[] compressed = zstdCompressor.compress(raw);
 
             int snapshots = chunk.snapshots().size();

@@ -179,7 +179,7 @@ public class SimulationSessionService {
             muByName.put(w.getName(), w.getMu());
         }
 
-        byte[] binary = binaryResponseSerializer.serialize(chunkResult.snapshots(), muByName);
+        byte[] binary = binaryResponseSerializer.serialize(chunkResult, muByName);
         return zstdCompressor.compress(binary);
     }
 
