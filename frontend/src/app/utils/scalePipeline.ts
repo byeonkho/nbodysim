@@ -31,3 +31,17 @@ export const REALISTIC_DIVISOR = 1e8;
 export const DEFAULT_LOG_SCALE_A = 60;
 export const DEFAULT_LOG_R_REF_M = 149_597_870_700; // 1 AU
 export const DEFAULT_LOG_RADIUS_FLOOR_WU = 0.5;
+
+/**
+ * Convert a real heliocentric distance in metres to world units, per
+ * preset. Realistic: linear divide by REALISTIC_DIVISOR. Log: log1p
+ * compression with live-tunable A and r_ref from devSettingsStore.
+ */
+export function worldDistance(r_m: number, preset: ScalePreset): number {
+  if (preset === "realistic") {
+    return r_m / REALISTIC_DIVISOR;
+  }
+  // Log preset: A * log10(1 + r / r_ref).
+  const { logScaleA, logScaleRRef } = getDevSettings();
+  return logScaleA * Math.log10(1 + r_m / logScaleRRef);
+}
