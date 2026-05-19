@@ -140,17 +140,17 @@ export function TopStatusStrip({
       <div className="flex-1" />
 
       <div className="flex h-full items-baseline gap-1.5 border-r border-white/[0.06] px-3.5">
-        <span className="eyebrow inline-flex items-center gap-1 self-center">
-          ΔE/E₀
-          <InfoTooltip label="What is ΔE/E₀?">
-            {RESIDUAL_CONCEPT_COPY}
-          </InfoTooltip>
-        </span>
+        <span className="eyebrow self-center">ΔE/E₀</span>
         <span
           ref={deltaERef}
-          className="tabular text-hi self-center font-mono text-[11px]"
+          className="tabular text-hi self-center font-mono text-[11px] whitespace-nowrap"
         >
           —
+        </span>
+        <span className="self-center">
+          <InfoTooltip label="What is ΔE/E₀?" placement="below">
+            {RESIDUAL_CONCEPT_COPY}
+          </InfoTooltip>
         </span>
       </div>
 

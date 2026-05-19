@@ -3,20 +3,31 @@
 /**
  * Small info-icon button with a hover/focus tooltip. CSS-only visibility
  * via Tailwind group-hover / group-focus-within — no JS state, no portal.
- * Desktop-focused; mobile touch UX is a Phase 8 (#35) concern. Tooltip
- * appears above-right of the icon; if the field is near the right edge of
- * the drawer the tooltip may clip — acceptable for the SimSetupDrawer's
- * fixed-width left-rail layout.
+ * Desktop-focused; mobile touch UX is a Phase 8 (#35) concern.
+ *
+ * `placement="above"` (default) opens the tooltip upward; suits drawers
+ * and panels with vertical space above the icon. `placement="below"`
+ * opens it downward — required when the icon sits inside an
+ * `overflow:hidden` container that would clip the upward tooltip
+ * (e.g. the top status strip).
  */
 export function InfoTooltip({
   label,
   children,
+  placement = "above",
 }: {
   /** Screen-reader label for the icon button. */
   label: string;
   /** Tooltip body (text or rich content). */
   children: React.ReactNode;
+  /** Open direction. Default "above". */
+  placement?: "above" | "below";
 }) {
+  const tooltipPositionClasses =
+    placement === "below"
+      ? "top-full left-1/2 mt-2 -translate-x-1/2"
+      : "bottom-full left-1/2 mb-2 -translate-x-1/2";
+
   return (
     <span className="group relative inline-flex items-center">
       <button
@@ -36,7 +47,7 @@ export function InfoTooltip({
       </button>
       <span
         role="tooltip"
-        className="text-hi pointer-events-none invisible absolute bottom-full left-1/2 z-50 mb-2 w-64 -translate-x-1/2 rounded-md border border-white/[0.08] px-3 py-2 text-[11px] leading-[1.5] opacity-0 shadow-lg transition-opacity duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+        className={`text-hi pointer-events-none invisible absolute z-50 w-64 rounded-md border border-white/[0.08] px-3 py-2 text-[11px] leading-[1.5] opacity-0 shadow-lg transition-opacity duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 ${tooltipPositionClasses}`}
         style={{ background: "rgba(10, 12, 20, 0.96)" }}
       >
         {children}
