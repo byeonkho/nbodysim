@@ -45,3 +45,18 @@ export function worldDistance(r_m: number, preset: ScalePreset): number {
   const { logScaleA, logScaleRRef } = getDevSettings();
   return logScaleA * Math.log10(1 + r_m / logScaleRRef);
 }
+
+/**
+ * Convert a real body radius in metres to world units, per preset.
+ * Realistic: linear divide, no floor — bodies stay at their truth ratio,
+ * which makes most planets dots at default zoom. Log: linear divide
+ * clamped to logRadiusFloor so bodies stay visible + clickable.
+ */
+export function worldRadius(R_m: number, preset: ScalePreset): number {
+  const linear = R_m / REALISTIC_DIVISOR;
+  if (preset === "realistic") {
+    return linear;
+  }
+  const { logRadiusFloor } = getDevSettings();
+  return Math.max(linear, logRadiusFloor);
+}
