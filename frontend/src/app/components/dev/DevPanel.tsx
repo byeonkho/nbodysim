@@ -153,6 +153,34 @@ function Tunables() {
         ]}
         onChange={(v) => setDevSetting("skyboxVariant", v)}
       />
+      {/* Scale pipeline (log preset) — tunable for the visible-system view. */}
+      <DevSlider
+        label="Log A"
+        valueKey="logScaleA"
+        value={settings.logScaleA}
+        min={10}
+        max={200}
+        step={1}
+        format={(v) => v.toFixed(0)}
+      />
+      <DevSlider
+        label="Log r_ref"
+        valueKey="logScaleRRef"
+        value={settings.logScaleRRef}
+        min={0.1 * 149_597_870_700}
+        max={10 * 149_597_870_700}
+        step={0.1 * 149_597_870_700}
+        format={(v) => `${(v / 149_597_870_700).toFixed(2)} AU`}
+      />
+      <DevSlider
+        label="R floor"
+        valueKey="logRadiusFloor"
+        value={settings.logRadiusFloor}
+        min={0}
+        max={2}
+        step={0.05}
+        format={(v) => `${v.toFixed(2)} wu`}
+      />
     </section>
   );
 }
