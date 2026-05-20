@@ -280,10 +280,11 @@ function ViewToggles() {
   // candidates: master toggle for the right column, or in-scene labels.
   const [info, setInfo] = useState(true);
 
-  // UI label cycles LIN/LOG; backing logic cycles LOG ↔ REALISTIC.
-  // Real logarithmic radial compression is queued (#61); once it lands
-  // the labels become literally accurate.
-  const scaleLabel = scale.name === "Realistic" ? "LIN" : "LOG";
+  // Real = physically accurate ratios (bodies are dots, outer system
+  // far off-screen at default zoom). Stylized = log1p radial compression
+  // + power-law body radii so the whole solar system fits in one view
+  // with every planet visibly distinct.
+  const scaleLabel = scale.name === "Realistic" ? "Real" : "Stylized";
 
   return (
     <div className="grid grid-cols-3 gap-[5px]">

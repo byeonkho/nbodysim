@@ -25,9 +25,6 @@ export type ScalePreset = "realistic" | "log";
 // real_size / 1e8, distances at real_distance / 1e8.
 export const REALISTIC_DIVISOR = 1e8;
 
-// Log preset defaults — these are tuning starting points. Final values
-// get picked at the post-Phase-3 tuning gate and baked into
-// `devSettingsStore.DEFAULTS`. Until then, sliders override these.
 // Log preset production defaults. Picked at the 2026-05-20 tuning gate
 // after live dev-mode tuning of the visible-system view. Live-overridable
 // in dev mode via devSettingsStore (?dev=1 unlocks the slider panel).

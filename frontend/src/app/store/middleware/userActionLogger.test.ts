@@ -154,12 +154,12 @@ describe("userActionLogger — message map", () => {
   });
 
   it("cycleSimulationScale → Scale → name", () => {
-    state.simulation.simulationParameters.simulationScale.name = "Semi-Realistic";
+    state.simulation.simulationParameters.simulationScale.name = "Log";
     const { dispatch } = runMiddleware(
       { type: "simulation/cycleSimulationScale" },
       state,
     );
-    expectMessage(dispatch, "Scale → Semi-Realistic");
+    expectMessage(dispatch, "Scale → Log");
   });
 
   it("toggleShowGrid → Grid: on/off", () => {
