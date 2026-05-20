@@ -73,7 +73,7 @@ const DEFAULTS: DevSettings = {
   skyboxVariant: "full",
   logScaleA: 60,
   logScaleRRef: 149_597_870_700,
-  logRadiusExponent: 0.55,
+  logRadiusExponent: 0.5,
 };
 
 let state: DevSettings = { ...DEFAULTS };

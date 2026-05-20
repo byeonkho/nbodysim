@@ -28,6 +28,9 @@ export const REALISTIC_DIVISOR = 1e8;
 // Log preset defaults — these are tuning starting points. Final values
 // get picked at the post-Phase-3 tuning gate and baked into
 // `devSettingsStore.DEFAULTS`. Until then, sliders override these.
+// Log preset production defaults. Picked at the 2026-05-20 tuning gate
+// after live dev-mode tuning of the visible-system view. Live-overridable
+// in dev mode via devSettingsStore (?dev=1 unlocks the slider panel).
 export const DEFAULT_LOG_SCALE_A = 60;
 export const DEFAULT_LOG_R_REF_M = 149_597_870_700; // 1 AU
 // Power-law exponent for body-radius compression in Log preset.
@@ -35,7 +38,7 @@ export const DEFAULT_LOG_R_REF_M = 149_597_870_700; // 1 AU
 // k = 0.5 is sqrt — pleasant compression where Sun stays dominant but Moon /
 // Mercury / Mars remain visibly distinct. No floor: the power-law itself
 // raises tiny bodies to visible sizes without flattening them together.
-export const DEFAULT_LOG_RADIUS_EXPONENT = 0.55;
+export const DEFAULT_LOG_RADIUS_EXPONENT = 0.5;
 
 /**
  * Convert a real heliocentric distance in metres to world units, per

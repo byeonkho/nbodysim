@@ -5,6 +5,7 @@ import {
   worldDistanceFromParent,
   REALISTIC_DIVISOR,
   DEFAULT_LOG_SCALE_A,
+  DEFAULT_LOG_RADIUS_EXPONENT,
 } from "./scalePipeline";
 import { setDevSetting } from "@/app/dev/devSettingsStore";
 import type { Vector3Simple } from "@/app/store/slices/SimulationSlice";
@@ -14,7 +15,7 @@ describe("worldDistance", () => {
     // Reset log params to defaults so tests are deterministic.
     setDevSetting("logScaleA", DEFAULT_LOG_SCALE_A);
     setDevSetting("logScaleRRef", 149_597_870_700);
-    setDevSetting("logRadiusExponent", 0.55);
+    setDevSetting("logRadiusExponent", DEFAULT_LOG_RADIUS_EXPONENT);
   });
 
   describe("realistic preset", () => {
@@ -72,7 +73,7 @@ describe("worldRadius", () => {
   beforeEach(() => {
     setDevSetting("logScaleA", DEFAULT_LOG_SCALE_A);
     setDevSetting("logScaleRRef", 149_597_870_700);
-    setDevSetting("logRadiusExponent", 0.55);
+    setDevSetting("logRadiusExponent", DEFAULT_LOG_RADIUS_EXPONENT);
   });
 
   describe("realistic preset", () => {
@@ -89,21 +90,27 @@ describe("worldRadius", () => {
   });
 
   describe("log preset", () => {
-    it("applies power-law compression: Sun (6.96e8 m) → 6.96^0.55 ≈ 2.91 wu", () => {
-      // Sun: (6.96e8 / 1e8) ^ 0.55 = 6.96 ^ 0.55
+    it("applies power-law compression to Sun radius", () => {
+      // Sun: (6.96e8 / 1e8) ^ k = 6.96 ^ k. At default k=0.5: ≈ 2.638 wu.
       expect(worldRadius(6.96e8, "log")).toBeCloseTo(
-        Math.pow(6.96, 0.55),
+        Math.pow(6.96, DEFAULT_LOG_RADIUS_EXPONENT),
         5,
       );
     });
 
     it("raises small bodies to visible sizes (Moon distinct from Earth)", () => {
-      // Earth: (6.371e6 / 1e8) ^ 0.55 = 0.06371 ^ 0.55 ≈ 0.220
+      // Earth: 0.06371 ^ k. Moon: 0.0174 ^ k. At default k=0.5:
+      //   Earth ≈ 0.252, Moon ≈ 0.132 (~half of Earth, matches real ratio).
       const earth = worldRadius(6.371e6, "log");
-      // Moon: (1.74e6 / 1e8) ^ 0.55 = 0.0174 ^ 0.55 ≈ 0.108
       const moon = worldRadius(1.74e6, "log");
-      expect(earth).toBeCloseTo(Math.pow(0.06371, 0.55), 5);
-      expect(moon).toBeCloseTo(Math.pow(0.0174, 0.55), 5);
+      expect(earth).toBeCloseTo(
+        Math.pow(0.06371, DEFAULT_LOG_RADIUS_EXPONENT),
+        5,
+      );
+      expect(moon).toBeCloseTo(
+        Math.pow(0.0174, DEFAULT_LOG_RADIUS_EXPONENT),
+        5,
+      );
       // The key property: Moon is distinctly smaller than Earth, not equal.
       // (Old floor-based design clamped both to the floor, making them equal.)
       expect(moon).toBeLessThan(earth);
@@ -119,8 +126,9 @@ describe("worldRadius", () => {
     });
 
     it("smaller k means stronger compression (range collapses)", () => {
-      // At k=0.55, Sun:Moon ratio is much smaller than the real ~400x.
-      setDevSetting("logRadiusExponent", 0.55);
+      // At the default k, the Sun:Moon ratio is much smaller than the
+      // real ~400x. Driving k lower compresses the range further.
+      setDevSetting("logRadiusExponent", DEFAULT_LOG_RADIUS_EXPONENT);
       const sunMild = worldRadius(6.96e8, "log");
       const moonMild = worldRadius(1.74e6, "log");
       const ratioMild = sunMild / moonMild;
@@ -147,7 +155,7 @@ describe("worldDistanceFromParent", () => {
   beforeEach(() => {
     setDevSetting("logScaleA", DEFAULT_LOG_SCALE_A);
     setDevSetting("logScaleRRef", 149_597_870_700);
-    setDevSetting("logRadiusExponent", 0.55);
+    setDevSetting("logRadiusExponent", DEFAULT_LOG_RADIUS_EXPONENT);
     out = { x: 0, y: 0, z: 0 };
   });
 
