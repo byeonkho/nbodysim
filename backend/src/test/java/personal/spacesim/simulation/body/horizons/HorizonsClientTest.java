@@ -9,6 +9,7 @@ import org.orekit.time.AbsoluteDate;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.RequestMatcher;
 import org.springframework.web.client.RestClient;
@@ -20,6 +21,14 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.*;
@@ -92,6 +101,74 @@ class HorizonsClientTest {
 
         assertThrows(HorizonsClient.HorizonsFetchException.class,
             () -> client.fetchState("2000433", AbsoluteDate.J2000_EPOCH));
+    }
+
+    @Test
+    void serializesRequestsAcrossThreads() throws Exception {
+        // JPL Horizons explicitly asks clients to submit "only one API
+        // request at a time" — see API docs. Our cache serializes per-key
+        // fetches (computeIfAbsent), but distinct keys would otherwise race
+        // when multiple users submit cold sims simultaneously. The
+        // semaphore around the HTTP call enforces the rule globally.
+        //
+        // Test: N threads call fetchState concurrently. The mock response
+        // handler observes how many threads are inside the HTTP call at
+        // once; with serialization in place, peak concurrency must be 1.
+        final int N = 8;
+        AtomicInteger inFlight = new AtomicInteger();
+        AtomicInteger peak = new AtomicInteger();
+
+        // Rebuild client + mock with ignoreExpectOrder(true) so the mock
+        // server accepts overlapping requests from different threads.
+        RestClient.Builder builder = RestClient.builder();
+        server = MockRestServiceServer.bindTo(builder).ignoreExpectOrder(true).build();
+        client = new HorizonsClient(builder);
+
+        server.expect(ExpectedCount.times(N), requestUrlContains("COMMAND="))
+              .andRespond(request -> {
+                  int now = inFlight.incrementAndGet();
+                  peak.accumulateAndGet(now, Math::max);
+                  try {
+                      // Sleep long enough that overlapping calls would be
+                      // detectable; short enough that the test stays quick.
+                      Thread.sleep(50);
+                  } catch (InterruptedException e) {
+                      Thread.currentThread().interrupt();
+                  } finally {
+                      inFlight.decrementAndGet();
+                  }
+                  org.springframework.mock.http.client.MockClientHttpResponse resp =
+                      new org.springframework.mock.http.client.MockClientHttpResponse(
+                          capturedResponse.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                          org.springframework.http.HttpStatus.OK);
+                  resp.getHeaders().setContentType(MediaType.TEXT_PLAIN);
+                  return resp;
+              });
+
+        ExecutorService exec = Executors.newFixedThreadPool(N);
+        CountDownLatch ready = new CountDownLatch(N);
+        CountDownLatch go = new CountDownLatch(1);
+        List<Future<?>> futures = new ArrayList<>();
+        for (int i = 0; i < N; i++) {
+            final int idx = i;
+            futures.add(exec.submit(() -> {
+                ready.countDown();
+                go.await();
+                // Distinct epochs so each call misses the (per-key) cache.
+                client.fetchState("2000433",
+                    AbsoluteDate.J2000_EPOCH.shiftedBy(idx * 86400.0));
+                return null;
+            }));
+        }
+        ready.await(5, TimeUnit.SECONDS);
+        go.countDown();
+        exec.shutdown();
+        assertTrue(exec.awaitTermination(30, TimeUnit.SECONDS),
+            "Threads did not finish in time");
+        for (Future<?> f : futures) f.get();  // surface any thread-side failure
+
+        assertEquals(1, peak.get(),
+            "Peak concurrent JPL requests must be 1; got " + peak.get());
     }
 
     @Test

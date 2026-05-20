@@ -11,6 +11,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.concurrent.Semaphore;
 
 /**
  * Thin HTTP client over the JPL Horizons CGI API. Fetches a single-epoch
@@ -32,6 +33,18 @@ public class HorizonsClient {
     private static final String API_BASE = "https://ssd.jpl.nasa.gov/api/horizons.api";
     private static final DateTimeFormatter HORIZONS_DT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+
+    /**
+     * Global single-permit, fair semaphore: JPL Horizons explicitly asks
+     * clients to submit "only one API request at a time" (per the API
+     * documentation). The {@link HorizonsStateCache} already serializes
+     * per-key fetches via {@code computeIfAbsent}, but distinct keys
+     * (e.g. EROS and BENNU) would otherwise race when multiple users
+     * submit cold sims simultaneously. This permit enforces the rule
+     * globally across all threads in the process. Fair = FIFO ordering
+     * so no submission gets perpetually starved.
+     */
+    private static final Semaphore JPL_PERMIT = new Semaphore(1, true);
 
     private final RestClient http;
 
@@ -76,10 +89,23 @@ public class HorizonsClient {
         URI uri = URI.create(url);
         String body;
         try {
+            // Block until the global JPL permit is available. With one
+            // permit and fair queueing, at most one HTTP call is in
+            // flight to JPL across the entire process.
+            JPL_PERMIT.acquire();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new HorizonsFetchException(
+                "Interrupted waiting for JPL Horizons permit (SPK " + spkId
+                    + " at " + epoch + ")", e);
+        }
+        try {
             body = http.get().uri(uri).retrieve().body(String.class);
         } catch (RestClientException ex) {
             throw new HorizonsFetchException(
                 "Failed to fetch state for SPK " + spkId + " at " + epoch, ex);
+        } finally {
+            JPL_PERMIT.release();
         }
         if (body == null || body.isEmpty()) {
             throw new HorizonsFetchException(
