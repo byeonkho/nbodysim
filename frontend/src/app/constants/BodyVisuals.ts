@@ -22,10 +22,48 @@ export type BodyKey =
   | "SATURN"
   | "URANUS"
   | "NEPTUNE"
-  | "MOON";
+  | "MOON"
+  // Minor bodies — dwarf planets, large main-belt asteroids, named NEAs.
+  | "PLUTO"
+  | "CERES"
+  | "VESTA"
+  | "PALLAS"
+  | "HYGIEA"
+  | "EROS"
+  | "APOPHIS"
+  | "BENNU"
+  | "RYUGU";
 
-// Canonical pill-row order. All 10 bodies surfaced — N-body framing is
-// a feature, not a footnote.
+export type BodyCategory = "planet" | "dwarfPlanet" | "asteroid";
+
+// Grouping for SimSetupDrawer sectioning. SUN and MOON ride with the planets
+// for selector grouping purposes (they're "always-on" components of the
+// inner system, not standalone categories worth their own section).
+export const BODY_CATEGORY: Record<BodyKey, BodyCategory> = {
+  SUN: "planet",
+  MERCURY: "planet",
+  VENUS: "planet",
+  EARTH: "planet",
+  MARS: "planet",
+  JUPITER: "planet",
+  SATURN: "planet",
+  URANUS: "planet",
+  NEPTUNE: "planet",
+  MOON: "planet",
+  PLUTO: "dwarfPlanet",
+  CERES: "dwarfPlanet",
+  VESTA: "dwarfPlanet",
+  PALLAS: "dwarfPlanet",
+  HYGIEA: "dwarfPlanet",
+  EROS: "asteroid",
+  APOPHIS: "asteroid",
+  BENNU: "asteroid",
+  RYUGU: "asteroid",
+};
+
+// Canonical pill-row / body-list order. Planets first, then dwarf planets,
+// then near-Earth asteroids — same partitioning the backend's
+// SimulationFactory uses to sort the integrator state buffer.
 export const BODY_ORDER: readonly BodyKey[] = [
   "SUN",
   "MERCURY",
@@ -37,11 +75,22 @@ export const BODY_ORDER: readonly BodyKey[] = [
   "URANUS",
   "NEPTUNE",
   "MOON",
+  "PLUTO",
+  "CERES",
+  "VESTA",
+  "PALLAS",
+  "HYGIEA",
+  "EROS",
+  "APOPHIS",
+  "BENNU",
+  "RYUGU",
 ];
 
 // Mirrors --color-body-* CSS tokens (globals.css). Held as raw hex here so
 // shadeColor can darken at runtime; @theme vars aren't directly readable
 // inside inline `style` props without var() indirection.
+//
+// Minor-body palette: muted earth tones (rocky asteroid aesthetic).
 export const BODY_COLOR: Record<BodyKey, string> = {
   SUN: "#ffb554",
   MERCURY: "#a59387",
@@ -53,9 +102,19 @@ export const BODY_COLOR: Record<BodyKey, string> = {
   URANUS: "#7fc7c5",
   NEPTUNE: "#4a78c0",
   MOON: "#bfc4cc",
+  PLUTO: "#c8b8a6",
+  CERES: "#b8a890",
+  VESTA: "#a89880",
+  PALLAS: "#9c8c74",
+  HYGIEA: "#8c7c68",
+  EROS: "#a09080",
+  APOPHIS: "#8a7c6c",
+  BENNU: "#544a40",
+  RYUGU: "#3c352e",
 };
 
 // NAIF integer ids — same identifiers used by Orekit / JPL Horizons.
+// Minor-body ids are SPK numbers (Horizons CGI accepts the same values).
 export const BODY_NAIF: Record<BodyKey, string> = {
   SUN: "10",
   MERCURY: "199",
@@ -67,6 +126,15 @@ export const BODY_NAIF: Record<BodyKey, string> = {
   URANUS: "799",
   NEPTUNE: "899",
   MOON: "301",
+  PLUTO: "999",
+  CERES: "2000001",
+  VESTA: "2000004",
+  PALLAS: "2000002",
+  HYGIEA: "2000010",
+  EROS: "2000433",
+  APOPHIS: "2099942",
+  BENNU: "2101955",
+  RYUGU: "2162173",
 };
 
 export const BODY_DISPLAY: Record<BodyKey, string> = {
@@ -80,13 +148,28 @@ export const BODY_DISPLAY: Record<BodyKey, string> = {
   URANUS: "Uranus",
   NEPTUNE: "Neptune",
   MOON: "Moon",
+  PLUTO: "Pluto",
+  CERES: "Ceres",
+  VESTA: "Vesta",
+  PALLAS: "Pallas",
+  HYGIEA: "Hygiea",
+  EROS: "Eros",
+  APOPHIS: "Apophis",
+  BENNU: "Bennu",
+  RYUGU: "Ryugu",
 };
 
 // Re-export the texture map keyed by BodyKey for ergonomic typed access.
-// Source of truth for textures stays in SimConstants.
+// Source of truth for textures stays in SimConstants. Bodies without a
+// dedicated texture yet (minor bodies pre-Phase-4 textures) fall back to
+// the FALLBACK entry so the module loads cleanly.
 export const BODY_TEXTURE: Record<BodyKey, StaticImageData> = (
   Object.fromEntries(
-    BODY_ORDER.map((key) => [key, (TEXTURE_PROPERTIES[key] as BodyProperties).texture]),
+    BODY_ORDER.map((key) => {
+      const props = TEXTURE_PROPERTIES[key] as BodyProperties | undefined;
+      const fallback = TEXTURE_PROPERTIES["FALLBACK"] as BodyProperties;
+      return [key, (props ?? fallback).texture];
+    }),
   ) as Record<BodyKey, StaticImageData>
 );
 
