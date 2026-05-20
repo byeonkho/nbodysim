@@ -4,6 +4,7 @@ import {
   Middleware,
   PayloadAction,
 } from "@reduxjs/toolkit";
+import type { ScalePreset } from "@/app/utils/scalePipeline";
 import { AppDispatch, RootState } from "@/app/store/Store";
 import { dispatchChunkRequest } from "@/app/store/middleware/simulationRequestThunk";
 import {
@@ -74,6 +75,9 @@ interface ActiveBodyState {
 export interface SimulationScale {
   // set in SimConstants
   name: string;
+  preset: ScalePreset;
+  // Deprecated — kept for Phase 2 transition. Removed in Phase 3 once
+  // all scene consumers are migrated to scalePipeline functions.
   positionScale: number;
   radiusScale: number;
   EXCEPTION_BODIES_POSITION_SCALE: { [bodyName: string]: number };

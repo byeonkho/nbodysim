@@ -19,6 +19,7 @@ const SimConstants = {
   SCALE: {
     SEMI_REALISTIC: {
       name: "Semi-Realistic",
+      preset: "log" as const,
       positionScale: 4_000_000_000, // larger values scale the system down
       radiusScale: 100_000_000, // larger values scale radius down
       EXCEPTION_BODIES_POSITION_SCALE: {
@@ -30,6 +31,7 @@ const SimConstants = {
     },
     REALISTIC: {
       name: "Realistic",
+      preset: "realistic" as const,
       positionScale: 100_000_000, // larger values scale the system down
       radiusScale: 100_000_000, // larger values scale radius down,
       EXCEPTION_BODIES_POSITION_SCALE: {
