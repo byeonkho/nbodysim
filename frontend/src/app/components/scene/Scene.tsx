@@ -28,6 +28,7 @@ import {
 import { Reticle } from "@/app/components/scene/Reticle";
 import { GhostLabel } from "@/app/components/scene/GhostLabel";
 import { bodyColorRgb01, toBodyKey } from "@/app/constants/BodyVisuals";
+import { worldDistance, worldRadius } from "@/app/utils/scalePipeline";
 
 // Background is rendered in CSS on the parent container (Layout.tsx), not
 // as a three.js scene.background. The canvas is transparent (`alpha: true`),
@@ -56,7 +57,7 @@ const Scene = () => {
   const showOrbitPaths: boolean = useSelector(selectShowOrbitPaths);
   const simulationScale: SimulationScale = useSelector(selectSimulationScale);
 
-  // Per-body radius derived from current scale's radiusScale, indexed by name.
+  // Per-body world radius via the scale pipeline, indexed by name.
   // Stable across animation frames because both inputs are stable across
   // frames — only changes when celestialBodyPropertiesList or scale changes.
   const celestialBodyRadiusMap = useMemo(() => {
@@ -64,7 +65,7 @@ const Scene = () => {
     if (!celestialBodyPropertiesList) return map;
     for (const props of celestialBodyPropertiesList) {
       if (props.name && props.radius !== undefined) {
-        map.set(props.name, props.radius / simulationScale.radiusScale);
+        map.set(props.name, worldRadius(props.radius, simulationScale.preset));
       }
     }
     return map;
@@ -118,7 +119,7 @@ const Scene = () => {
         // to ~8 billion wu, where float32 has ~0 decimal digits of
         // precision and per-fragment derivatives become nondeterministic
         // noise (visible as the grid shaking on any camera motion).
-        const auInWu = SimConstants.AU_M / simulationScale.positionScale;
+        const auInWu = worldDistance(SimConstants.AU_M, simulationScale.preset);
         const fadeDistance = Math.min(
           simulationScale.AXES.SIZE * SimConstants.CAMERA_MAX_DISTANCE_MULTIPLIER,
           SimConstants.STARS_RADIUS * 0.9,
