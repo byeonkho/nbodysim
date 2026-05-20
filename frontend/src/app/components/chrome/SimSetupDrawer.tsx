@@ -109,6 +109,20 @@ export function SimSetupDrawer({ open, onOpenChange }: SimSetupDrawerProps) {
     });
   };
 
+  // Bulk enable/disable for a whole category, driven by the master toggle
+  // on each section header. Mixed state clicks always go to "all on" —
+  // matches the macOS convention.
+  const setCategoryEnabled = (category: BodyCategory, enable: boolean) => {
+    setSelectedBodies((prev) => {
+      const next = new Set(prev);
+      for (const key of BODIES_BY_CATEGORY[category]) {
+        if (enable) next.add(key);
+        else next.delete(key);
+      }
+      return next;
+    });
+  };
+
   const handleSubmit = async () => {
     const celestialBodyNames = Array.from(selectedBodies).map(
       (k) => BODY_DISPLAY[k],
@@ -275,11 +289,35 @@ export function SimSetupDrawer({ open, onOpenChange }: SimSetupDrawerProps) {
             {CATEGORY_ORDER.map((category) => {
               const bodies = BODIES_BY_CATEGORY[category];
               if (bodies.length === 0) return null;
+              const enabledInCategory = bodies.filter((k) =>
+                selectedBodies.has(k),
+              ).length;
+              const masterState: ToggleState =
+                enabledInCategory === 0
+                  ? "off"
+                  : enabledInCategory === bodies.length
+                    ? "on"
+                    : "mixed";
               return (
                 <div key={category} className="mb-3 last:mb-0">
-                  <p className="eyebrow mb-1.5 px-1 text-dim">
-                    {CATEGORY_LABEL[category]}
-                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setCategoryEnabled(category, masterState !== "on")}
+                    aria-label={
+                      masterState === "on"
+                        ? `Deselect all ${CATEGORY_LABEL[category]}`
+                        : `Select all ${CATEGORY_LABEL[category]}`
+                    }
+                    className="mb-1.5 flex w-full items-center px-1"
+                  >
+                    <span className="eyebrow text-dim flex-1 text-left">
+                      {CATEGORY_LABEL[category]}{" "}
+                      <span className="text-dim/70 normal-case tracking-normal">
+                        ({enabledInCategory}/{bodies.length})
+                      </span>
+                    </span>
+                    <ToggleSwitch state={masterState} />
+                  </button>
                   <div
                     className="overflow-hidden rounded-xl border border-white/[0.05]"
                     style={{ background: "rgba(255,255,255,0.03)" }}
@@ -309,7 +347,7 @@ export function SimSetupDrawer({ open, onOpenChange }: SimSetupDrawerProps) {
                           >
                             {BODY_DISPLAY[key]}
                           </span>
-                          <ToggleSwitch on={enabled} />
+                          <ToggleSwitch state={enabled ? "on" : "off"} />
                         </button>
                       );
                     })}
@@ -382,21 +420,41 @@ function Field({
   );
 }
 
-function ToggleSwitch({ on }: { on: boolean }) {
+type ToggleState = "off" | "on" | "mixed";
+
+function ToggleSwitch({ state }: { state: ToggleState }) {
+  // Mixed = knob centered + accent-tinted background + a dash indicator
+  // on the knob so the state is visually distinct from both off and on.
+  // Click semantics (mixed → on) live in the parent; this is presentation
+  // only.
+  const knobLeft = state === "on" ? 20 : state === "mixed" ? 11 : 2;
+  const bg =
+    state === "on"
+      ? "var(--color-accent)"
+      : state === "mixed"
+        ? "rgba(164, 168, 255, 0.32)"
+        : "rgba(255,255,255,0.10)";
   return (
     <span
       className="relative inline-block h-[26px] w-[44px] rounded-full transition-colors"
-      style={{
-        background: on ? "var(--color-accent)" : "rgba(255,255,255,0.10)",
-      }}
+      style={{ background: bg }}
     >
       <span
-        className="absolute top-0.5 h-[22px] w-[22px] rounded-full bg-white transition-[left]"
-        style={{
-          left: on ? 20 : 2,
-          boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
-        }}
-      />
+        className="absolute top-0.5 flex h-[22px] w-[22px] items-center justify-center rounded-full bg-white transition-[left]"
+        style={{ left: knobLeft, boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }}
+      >
+        {state === "mixed" && (
+          <span
+            className="block"
+            style={{
+              width: 8,
+              height: 2,
+              borderRadius: 1,
+              background: "rgba(146, 152, 238, 0.95)",
+            }}
+          />
+        )}
+      </span>
     </span>
   );
 }
