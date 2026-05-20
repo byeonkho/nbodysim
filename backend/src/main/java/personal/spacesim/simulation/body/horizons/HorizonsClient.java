@@ -6,6 +6,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
@@ -40,26 +43,40 @@ public class HorizonsClient {
         String startTime = formatEpoch(epoch);
         String stopTime  = formatEpoch(epoch.shiftedBy(60.0));  // 1-minute window
 
+        // Assembled manually rather than via Spring's URI builder because
+        // JPL's parser breaks on a literal ';' in the query string and
+        // Spring's default UriBuilderFactory encoding modes leave ';'
+        // unescaped per RFC 3986 (where ';' is a "sub-delim" allowed in
+        // query components). URLEncoder.encode() (form-encoded) does
+        // encode ';' to %3B, which is what JPL accepts.
+        String url = API_BASE
+            + "?format=text"
+            // Horizons resolves a bare numeric COMMAND as an IAU asteroid
+            // number (range 1..887103). SPK IDs for numbered asteroids start
+            // at 2_000_001 (= 2_000_000 + IAU number), well outside that
+            // range, so the bare form fails with "out of bounds". Wrapping
+            // as DES=<spkId>; forces the small-body designation lookup —
+            // JPL's own error message documents this fallback.
+            + "&COMMAND=" + encodeQueryValue("'DES=" + spkId + ";'")
+            + "&OBJ_DATA=" + encodeQueryValue("'NO'")
+            + "&MAKE_EPHEM=" + encodeQueryValue("'YES'")
+            + "&EPHEM_TYPE=" + encodeQueryValue("'VECTORS'")
+            + "&CENTER=" + encodeQueryValue("'@10'")
+            + "&START_TIME=" + encodeQueryValue("'" + startTime + "'")
+            + "&STOP_TIME=" + encodeQueryValue("'" + stopTime + "'")
+            + "&STEP_SIZE=" + encodeQueryValue("'1'")
+            + "&OUT_UNITS=" + encodeQueryValue("'KM-S'")
+            + "&REF_PLANE=" + encodeQueryValue("'FRAME'")
+            + "&REF_SYSTEM=" + encodeQueryValue("'ICRF'")
+            + "&VEC_TABLE=" + encodeQueryValue("'2'");
+
+        // URI.create() takes a pre-encoded string verbatim; passing the
+        // String form to RestClient.uri() would re-encode our '%' characters
+        // (to '%25'), corrupting the manually-encoded ';' and '='.
+        URI uri = URI.create(url);
         String body;
         try {
-            body = http.get()
-                .uri(uriBuilder -> uriBuilder
-                    .queryParam("format", "text")
-                    .queryParam("COMMAND", "'" + spkId + "'")
-                    .queryParam("OBJ_DATA", "'NO'")
-                    .queryParam("MAKE_EPHEM", "'YES'")
-                    .queryParam("EPHEM_TYPE", "'VECTORS'")
-                    .queryParam("CENTER", "'@10'")
-                    .queryParam("START_TIME", "'" + startTime + "'")
-                    .queryParam("STOP_TIME",  "'" + stopTime + "'")
-                    .queryParam("STEP_SIZE", "'1'")
-                    .queryParam("OUT_UNITS", "'KM-S'")
-                    .queryParam("REF_PLANE", "'FRAME'")
-                    .queryParam("REF_SYSTEM", "'ICRF'")
-                    .queryParam("VEC_TABLE", "'2'")
-                    .build())
-                .retrieve()
-                .body(String.class);
+            body = http.get().uri(uri).retrieve().body(String.class);
         } catch (RestClientException ex) {
             throw new HorizonsFetchException(
                 "Failed to fetch state for SPK " + spkId + " at " + epoch, ex);
@@ -69,6 +86,15 @@ public class HorizonsClient {
                 "Empty Horizons response for SPK " + spkId);
         }
         return HorizonsResponseParser.parseFirstRecord(body);
+    }
+
+    /**
+     * Form-encode a query parameter value and switch '+' (the form
+     * encoding for space) to '%20' so spaces match JPL's expected
+     * canonical encoding.
+     */
+    private static String encodeQueryValue(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     private String formatEpoch(AbsoluteDate date) {

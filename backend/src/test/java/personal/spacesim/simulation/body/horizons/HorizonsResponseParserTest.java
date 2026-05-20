@@ -61,4 +61,32 @@ class HorizonsResponseParserTest {
         assertThrows(IllegalArgumentException.class,
             () -> HorizonsResponseParser.parseFirstRecord(text));
     }
+
+    @Test
+    void exceptionMessageIncludesResponseBodyForJplErrors() {
+        // JPL's "no ephemeris" response is short — its full body should
+        // appear in the exception message so logs show the actual JPL
+        // error instead of a generic "missing markers" message.
+        String jplError =
+            "API VERSION: 1.2\nAPI SOURCE: NASA/JPL Horizons API\n\n" +
+            "No ephemeris for target \"\" after A.D. 2009-DEC-31 00:00:00.0000 TDB";
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+            () -> HorizonsResponseParser.parseFirstRecord(jplError));
+        assertTrue(ex.getMessage().contains("No ephemeris"),
+            "Expected JPL error body in exception message; got: " + ex.getMessage());
+    }
+
+    @Test
+    void exceptionMessageTruncatesOversizedResponseBodies() {
+        // For oversized non-ephemeris responses (e.g. HTML error page),
+        // truncate so the exception doesn't blow up logs.
+        StringBuilder huge = new StringBuilder();
+        for (int i = 0; i < 1000; i++) huge.append("garbage-garbage-garbage ");
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+            () -> HorizonsResponseParser.parseFirstRecord(huge.toString()));
+        assertTrue(ex.getMessage().length() < 1000,
+            "Exception message must be bounded; got " + ex.getMessage().length() + " chars");
+        assertTrue(ex.getMessage().contains("truncated"),
+            "Expected truncation indicator in: " + ex.getMessage());
+    }
 }
