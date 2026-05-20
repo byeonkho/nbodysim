@@ -2,11 +2,12 @@
 
 import React, { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { useStore } from "react-redux";
+import { useSelector, useStore } from "react-redux";
 import * as THREE from "three";
 import { RootState } from "@/app/store/Store";
 import {
   CelestialBodyProperties,
+  selectCelestialBodyPropertiesList,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
 import { readBodyStateInto } from "@/app/store/chunkBuffer";
@@ -16,6 +17,11 @@ import {
   type OrbitScratch,
   writeOsculatingEllipsePoints,
 } from "@/app/utils/osculatingOrbit";
+import {
+  worldDistance,
+  worldDistanceFromParent,
+  worldRadius,
+} from "@/app/utils/scalePipeline";
 
 interface OrbitPathProps {
   bodyName: string;
@@ -40,6 +46,26 @@ const OrbitPath: React.FC<OrbitPathProps> = ({
   color = [1, 1, 1],
 }) => {
   const store = useStore<RootState>();
+  const propsList = useSelector(selectCelestialBodyPropertiesList);
+
+  const { ownRadiusM, parentBodyName } = useMemo(() => {
+    const nameUpper = bodyName.toUpperCase();
+    const bp = propsList?.find(
+      (p: CelestialBodyProperties) => p.name?.toUpperCase() === nameUpper,
+    );
+    return {
+      ownRadiusM: bp?.radius ?? 0,
+      parentBodyName: bp?.orbitingBody?.toUpperCase(),
+    };
+  }, [bodyName, propsList]);
+
+  const parentRadiusM = useMemo(() => {
+    if (!parentBodyName) return 0;
+    const p = propsList?.find(
+      (bp: CelestialBodyProperties) => bp.name?.toUpperCase() === parentBodyName,
+    );
+    return p?.radius ?? 0;
+  }, [parentBodyName, propsList]);
 
   const lineObject = useMemo(() => {
     const geom = new THREE.BufferGeometry();
@@ -86,6 +112,9 @@ const OrbitPath: React.FC<OrbitPathProps> = ({
   const rRel = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const vRel = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const pivot = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const parentMetresScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const vertexMetresScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const deltaScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
 
   useEffect(() => {
     bodyIndexRef.current = -1;
@@ -200,22 +229,59 @@ const OrbitPath: React.FC<OrbitPathProps> = ({
     const pivX = pivot.current.x;
     const pivY = pivot.current.y;
     const pivZ = pivot.current.z;
-    const scale = simulationScale.positionScale;
+    // Parent's pivot-subtracted metres position (shared across every vertex).
+    parentMetresScratch.current.x = px - pivX;
+    parentMetresScratch.current.y = py - pivY;
+    parentMetresScratch.current.z = pz - pivZ;
 
-    // Local ellipse (parent-relative) → heliocentric (add parent position) →
-    // frame (subtract pivot) → world (axis swap + positionScale division).
+    // Parent's world-unit position via the pipeline (Y/Z swap applied).
+    const parentR_m = Math.sqrt(
+      parentMetresScratch.current.x * parentMetresScratch.current.x +
+        parentMetresScratch.current.y * parentMetresScratch.current.y +
+        parentMetresScratch.current.z * parentMetresScratch.current.z,
+    );
+    const parentLinearScale =
+      parentR_m === 0
+        ? 0
+        : worldDistance(parentR_m, simulationScale.preset) / parentR_m;
+    const parentWX = parentMetresScratch.current.x * parentLinearScale;
+    const parentWY_threejs = parentMetresScratch.current.z * parentLinearScale; // Y/Z swap
+    const parentWZ_threejs = parentMetresScratch.current.y * parentLinearScale;
+
+    const parentR_wu = worldRadius(parentRadiusM, simulationScale.preset);
+    const ownR_wu = worldRadius(ownRadiusM, simulationScale.preset);
+    const preset = simulationScale.preset;
+
+    // Local ellipse (parent-relative) → heliocentric (add parent metres) →
+    // frame (subtract pivot) → world via worldDistanceFromParent with the same
+    // min-separation rule as the body, so the orbit sits where the body renders.
     for (let i = 0; i < ORBIT_SEGMENTS; i++) {
       const idx = i * 3;
       const lx = ellipseLocal.current[idx];
       const ly = ellipseLocal.current[idx + 1];
       const lz = ellipseLocal.current[idx + 2];
-      const wx = (lx + px - pivX) / scale;
-      const wy = (ly + py - pivY) / scale;
-      const wz = (lz + pz - pivZ) / scale;
+
+      // Vertex's absolute pivot-subtracted metres position.
+      vertexMetresScratch.current.x = lx + parentMetresScratch.current.x;
+      vertexMetresScratch.current.y = ly + parentMetresScratch.current.y;
+      vertexMetresScratch.current.z = lz + parentMetresScratch.current.z;
+
+      // Parent-relative world delta with min-separation rule applied.
+      worldDistanceFromParent(
+        vertexMetresScratch.current,
+        parentMetresScratch.current,
+        parentR_wu,
+        ownR_wu,
+        preset,
+        deltaScratch.current,
+      );
+
+      // Sum parent world + delta. Delta is in ICRF axes — apply Y/Z swap
+      // to delta before summing so both terms are in three.js world space.
       // ICRF (X, Y, Z) → three.js (X, Z, Y) — same swap as coordinates.ts.
-      positions[idx] = wx;
-      positions[idx + 1] = wz;
-      positions[idx + 2] = wy;
+      positions[idx] = parentWX + deltaScratch.current.x;
+      positions[idx + 1] = parentWY_threejs + deltaScratch.current.z; // swap
+      positions[idx + 2] = parentWZ_threejs + deltaScratch.current.y;
     }
 
     lineObject.geometry.attributes.position.needsUpdate = true;
