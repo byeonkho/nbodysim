@@ -73,11 +73,19 @@ The user picks a "Playback quality" bucket in SimSetupDrawer (5 buckets, per-int
 
 **Wire compactness.** Positions float64, velocities float32 (timestamp int64, µ float64). Float32 on positions was the original Phase 1 lever but caused visible orbit-plane jitter on outer planets at high fidelity — float32's ~540 km quantization at Neptune's 4.5×10¹² m radius dominated per-sample Z motion. Velocities are quantization-safe: their downstream uses (Hermite tangent over one gap-interval; Keplerian v² → semi-major axis) damp precision loss far below visible. Net wire is 75% of full float64. Combined with Mode C, DP853 default chunks dropped from ~16 MB compressed (the old "emit every accepted substep + throw at MAX_SNAPSHOTS_PER_CHUNK" model) to ~1.5 MB compressed.
 
+### Minor-body initial state via JPL Horizons HTTP (cached, serialized)
+
+Bodies outside Orekit's bundled DE-440 (dwarf planets like Ceres, named near-Earth asteroids like Eros / Apophis / Bennu / Ryugu) source their initial state vectors from JPL Horizons at sim-submit time, keyed by SPK ID and the user's chosen epoch. The factory wraps the HTTP call in a process-local `ConcurrentHashMap` cache keyed by `(SPK_ID, epochSecondsFromJ2000)` — state vectors at any (body, epoch) are deterministic from JPL's orbit fits, so once fetched they never need to re-query in the same process. All outbound HTTP serializes through a single global fair `Semaphore` to honor JPL's published "one API request at a time" rule, which the per-key cache locks don't enforce across distinct bodies. Horizons returns Sun-relative positions in ICRF orientation; the factory adds Orekit's Sun PV in the user's chosen frame so the resulting state is consistent with Orekit-sourced major-planet states whether the frame is Heliocentric, ICRF (SSB-centered), or GCRF. **Trade-offs:** adds a network dependency at sim-submit time (~500 ms per cold body, ≤9 minor bodies → ~4.5 s worst case for a fully-cold submission). Cache is in-process only — Fly.io redeploys wipe it, so the first sim after each deploy pays the full latency. JPL's query syntax has a quirk worth flagging: SPK IDs for IAU-numbered small bodies (range 2_000_001+) need the `COMMAND='DES=<spkId>;'` form because bare numeric values are interpreted as IAU asteroid numbers (max 887103); major-body codes 1..999 (future moons) use the bare form. Orekit doesn't natively read SPICE SPK kernels, so HTTP was the only path without reimplementing kernel readers.
+
+### Massive / test-particle dispatch in NBodyDerivatives
+
+The N-body force kernel partitions bodies into a `[massive | test]` prefix layout and bounds every body's force sum to the massive prefix. Massive bodies feel gravity from other massives; test particles feel gravity from the massive prefix but exert none. State buffer layout `[massive | test]` lets `NBodyDerivatives` take a single `massiveCount` and switch the inner-loop bound with one hoisted local read — no per-pair branch in the hot path. Cost is `M·(M−1) + T·M` per integrator substep instead of `(M+T)·(M+T−1)` for a full N². At the current 19-body catalog this is small (~200 force ops/step vs. ~340), but the scaling matters once the catalog grows: a future asteroid-belt expansion at T=1000 test particles would cost ~9k ops/step instead of ~1.0M. Asteroid masses are 10⁻⁴ to 10⁻⁹ Earth — their pull on planets is well below numerical noise, so the test-particle approximation is physically faithful at the current scale. **Trade-offs:** test particles exert no force on the system, so the `ΔE/E₀` energy readout has to be computed over the massive subsystem only — otherwise test-particle kinetic + potential terms would couple the integrator-quality metric to noise. Test particles also can't form bound pairs with each other (e.g. the Pluto-Charon barycenter dance needs both bodies massive). Newton's 3rd law is preserved on the massive subsystem; the asymmetric "massive feels test but test doesn't feel massive" variant would non-conserve momentum.
+
 ## Resolved design decisions (UI redesign)
 
 Decisions made during the Tailwind + Radix + shadcn migration that shape what's on screen now:
 
-1. **Body selector composition.** Keep all 10 (Sun + 8 planets + Moon). N-body framing is a feature, not a footnote.
+1. **Body selector composition.** Catalog expanded to 19 — Sun + 8 planets + Moon + 5 dwarf planets / large main-belt asteroids (Pluto, Ceres, Vesta, Pallas, Hygiea) + 4 named near-Earth asteroids (Eros, Apophis, Bennu, Ryugu). The configure drawer groups bodies into three sections (Planets / Dwarf planets / Near-Earth asteroids). Default selection is planets-only (10 bodies) so a first-run sim doesn't fan out 9 Horizons fetches on submit; minor bodies are explicitly opt-in via the drawer. N-body framing remains a feature, not a footnote.
 2. **Camera.** Free 3D orbit retained; "Top-down" preset is the default for newcomers (and the angle the design's compass / ghost labels assume).
 3. **Scale terminology.** UI says `LIN / LOG` rather than `SEMI / REAL`. The `LOG` setting will eventually be backed by real logarithmic distance compression.
 4. **Display frame is render-time, not a session parameter.** Backend always emits heliocentric snapshots (see "Sun-relative emission" above); client applies per-frame frame transform before render. Tap-compass-to-switch is free, no buffer drop. Helio + geo currently shipped; bary deferred (needs a shared per-timestep pivot cache to not blow up trail render cost).
@@ -129,7 +137,7 @@ Currently a working local prototype on the `redesign-ui` branch. The simulation 
 - OpenAPI generation with shared types between backend and frontend (eliminates DTO drift, which we've already paid for once via Redux-key typos).
 - Mobile responsive review — touch interactions for camera, sheet behaviour on narrow viewports.
 
-> Already in place: ESLint + Prettier on CI; test architecture rule documented in `CLAUDE.md` (silent-failure modes, two-sided boundaries); Vitest + JUnit running in both CIs; force model, all three integrators, and binary wire-format round-trip pinned by tests.
+> Already in place: ESLint + Prettier on CI; test-scope rule followed in both stacks (write tests where failures would be silent, where correctness contracts are non-obvious, or at two-sided boundaries; skip the rest); Vitest + JUnit running in both CIs; force model, all three integrators, and binary wire-format round-trip pinned by tests.
 
 ## Beyond v1: collaborative / classroom direction
 
@@ -163,7 +171,7 @@ This split lets each protocol do what it's actually good at: HTTP for bulk + cac
 
 | Layer | Choice | Why |
 |---|---|---|
-| Backend framework | Spring Boot 3 (Java 21) | Familiar, batteries-included; HTTP/2 chunk delivery scales naturally and stays cacheable |
+| Backend framework | Spring Boot 3 (Java 25 LTS) | Familiar, batteries-included; HTTP/2 chunk delivery scales naturally and stays cacheable |
 | Astrodynamics | Orekit 12 | JPL ephemerides, ICRF/GCRF reference frames, validated propagators — avoids reinventing physics |
 | Wire compression | Zstd | Good ratio on the binary trajectory format; small WASM decoder client-side |
 | Frontend framework | Next.js (CSR) | Project is interactive; SSR not relevant here |
