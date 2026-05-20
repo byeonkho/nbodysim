@@ -28,6 +28,8 @@ import {
 import { Reticle } from "@/app/components/scene/Reticle";
 import { GhostLabel } from "@/app/components/scene/GhostLabel";
 import { bodyColorRgb01, toBodyKey } from "@/app/constants/BodyVisuals";
+import { worldDistance, worldRadius } from "@/app/utils/scalePipeline";
+import { useDevSettings } from "@/app/dev/devSettingsStore";
 
 // Background is rendered in CSS on the parent container (Layout.tsx), not
 // as a three.js scene.background. The canvas is transparent (`alpha: true`),
@@ -56,19 +58,35 @@ const Scene = () => {
   const showOrbitPaths: boolean = useSelector(selectShowOrbitPaths);
   const simulationScale: SimulationScale = useSelector(selectSimulationScale);
 
-  // Per-body radius derived from current scale's radiusScale, indexed by name.
-  // Stable across animation frames because both inputs are stable across
-  // frames — only changes when celestialBodyPropertiesList or scale changes.
-  const celestialBodyRadiusMap = useMemo(() => {
-    const map = new Map<string, number>();
-    if (!celestialBodyPropertiesList) return map;
-    for (const props of celestialBodyPropertiesList) {
-      if (props.name && props.radius !== undefined) {
-        map.set(props.name, props.radius / simulationScale.radiusScale);
+  // Subscribe to dev settings so the radius map re-computes when Log-preset
+  // tunables (specifically logRadiusExponent) change. worldRadius reads from
+  // devSettings internally; without this subscription the useMemo below
+  // doesn't know to invalidate when the dev slider moves.
+  const devSettings = useDevSettings();
+
+  // Per-body world radius via the scale pipeline, indexed by name.
+  // Re-computes when celestialBodyPropertiesList, the active preset, or the
+  // Log-preset body-radius exponent changes. worldRadius reads the exponent
+  // from devSettings internally; the explicit dep below is the invalidation
+  // trigger for slider drags. ESLint's static analysis can't see through to
+  // the devSettings read inside worldRadius, hence the disable.
+  const celestialBodyRadiusMap = useMemo(
+    () => {
+      const map = new Map<string, number>();
+      if (!celestialBodyPropertiesList) return map;
+      for (const props of celestialBodyPropertiesList) {
+        if (props.name && props.radius !== undefined) {
+          map.set(
+            props.name,
+            worldRadius(props.radius, simulationScale.preset),
+          );
+        }
       }
-    }
-    return map;
-  }, [celestialBodyPropertiesList, simulationScale]);
+      return map;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [celestialBodyPropertiesList, simulationScale, devSettings.logRadiusExponent],
+  );
 
   return (
     <Canvas
@@ -105,7 +123,13 @@ const Scene = () => {
           Visible mostly as subtle silhouette detail on the dark side. */}
       <hemisphereLight args={[0xb0c4ff, 0x2a2118, 0.08]} />
       {showAxes && <axesHelper args={[simulationScale.AXES.SIZE]} />}
-      {showGrid && (() => {
+      {/* Grid only renders in Real preset. Its "1 cell = 1 AU" semantics
+          rely on linear distance scaling. In Stylized preset world distance
+          is log1p-compressed, so a uniform Cartesian grid would silently
+          lie (Neptune at 30 AU sits at world cell ~5, not cell 30). Hiding
+          the grid there is the honest call. The toggle stays interactive
+          so users can pre-set their preference before flipping to Real. */}
+      {showGrid && simulationScale.preset === "realistic" && (() => {
         // 1 cell = 1 AU, by construction. Major lines every 10 AU
         // (Jupiter sits ~5.2 AU; Neptune ~30 AU — so a 10 AU section
         // gives the user a meaningful "outer-system" landmark).
@@ -118,7 +142,7 @@ const Scene = () => {
         // to ~8 billion wu, where float32 has ~0 decimal digits of
         // precision and per-fragment derivatives become nondeterministic
         // noise (visible as the grid shaking on any camera motion).
-        const auInWu = SimConstants.AU_M / simulationScale.positionScale;
+        const auInWu = worldDistance(SimConstants.AU_M, simulationScale.preset);
         const fadeDistance = Math.min(
           simulationScale.AXES.SIZE * SimConstants.CAMERA_MAX_DISTANCE_MULTIPLIER,
           SimConstants.STARS_RADIUS * 0.9,

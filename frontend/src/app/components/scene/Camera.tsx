@@ -17,8 +17,9 @@ import { readBodyPositionInto } from "@/app/store/chunkBuffer";
 import * as THREE from "three";
 import { RootState } from "@/app/store/Store";
 import { useDevSettings } from "@/app/dev/devSettingsStore";
-import { setBodyWorldPosition } from "@/app/utils/coordinates";
+import { setBodyWorldPositionWithPreset } from "@/app/utils/coordinates";
 import { writePivotInto } from "@/app/utils/framePivot";
+import { worldRadius, worldDistanceFromParent, ScalePreset } from "@/app/utils/scalePipeline";
 import SimConstants from "@/app/constants/SimConstants";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -38,8 +39,12 @@ interface TweenState {
   capturedOffset: THREE.Vector3;
 }
 
-// Module-level scratch for reading the body's position from the buffer.
+// Module-level scratches — allocated once, mutated in place. Never new'd per call.
 const bodyReadScratch = new THREE.Vector3();
+const parentReadScratch: Vector3Simple = { x: 0, y: 0, z: 0 };
+const parentShiftedScratch: Vector3Simple = { x: 0, y: 0, z: 0 };
+const parentWorldScratchVec3 = new THREE.Vector3();
+const childDeltaScratch: Vector3Simple = { x: 0, y: 0, z: 0 };
 
 function writeBodyRenderedPositionInto(
   out: THREE.Vector3,
@@ -47,10 +52,10 @@ function writeBodyRenderedPositionInto(
   state: RootState,
   pivotScratch: Vector3Simple,
   shiftedScratch: Vector3Simple,
+  preset: ScalePreset,
 ): boolean {
   const buffer = state.simulation.chunkBuffer;
   const idx = state.simulation.timeState.currentTimeStepIndex;
-  const scale = state.simulation.simulationParameters.simulationScale;
   if (!buffer || idx >= buffer.totalTimesteps) return false;
 
   const upperActiveName = activeBodyName.toUpperCase();
@@ -71,7 +76,64 @@ function writeBodyRenderedPositionInto(
   shiftedScratch.y = bodyReadScratch.y - pivotScratch.y;
   shiftedScratch.z = bodyReadScratch.z - pivotScratch.z;
 
-  setBodyWorldPosition(out, shiftedScratch, scale.positionScale);
+  const propsList =
+    state.simulation.simulationParameters.celestialBodyPropertiesList;
+  const bodyProps = propsList?.find(
+    (bp: CelestialBodyProperties) =>
+      bp.name?.toUpperCase() === upperActiveName,
+  );
+  const orbitingBodyNameUpper = bodyProps?.orbitingBody?.toUpperCase();
+  const ownRadiusM = bodyProps?.radius ?? 0;
+
+  if (orbitingBodyNameUpper) {
+    let parentIdx = -1;
+    for (const [bn, i] of buffer.bodyNameToIndex.entries()) {
+      if (bn.toUpperCase() === orbitingBodyNameUpper) {
+        parentIdx = i;
+        break;
+      }
+    }
+
+    if (parentIdx >= 0) {
+      // Read and pivot-subtract parent position.
+      readBodyPositionInto(bodyReadScratch, buffer, idx, parentIdx);
+      parentReadScratch.x = bodyReadScratch.x;
+      parentReadScratch.y = bodyReadScratch.y;
+      parentReadScratch.z = bodyReadScratch.z;
+      parentShiftedScratch.x = parentReadScratch.x - pivotScratch.x;
+      parentShiftedScratch.y = parentReadScratch.y - pivotScratch.y;
+      parentShiftedScratch.z = parentReadScratch.z - pivotScratch.z;
+
+      const parentProps = propsList?.find(
+        (bp: CelestialBodyProperties) =>
+          bp.name?.toUpperCase() === orbitingBodyNameUpper,
+      );
+      const parentRadiusM = parentProps?.radius ?? 0;
+
+      // Parent's world-unit position via the pipeline.
+      setBodyWorldPositionWithPreset(parentWorldScratchVec3, parentShiftedScratch, preset);
+
+      // Child world-relative-to-parent delta with min-separation rule.
+      worldDistanceFromParent(
+        shiftedScratch,
+        parentShiftedScratch,
+        worldRadius(parentRadiusM, preset),
+        worldRadius(ownRadiusM, preset),
+        preset,
+        childDeltaScratch,
+      );
+
+      // Apply Y/Z swap to delta (matches Sphere pattern).
+      out.set(
+        parentWorldScratchVec3.x + childDeltaScratch.x,
+        parentWorldScratchVec3.y + childDeltaScratch.z,
+        parentWorldScratchVec3.z + childDeltaScratch.y,
+      );
+      return true;
+    }
+  }
+
+  setBodyWorldPositionWithPreset(out, shiftedScratch, preset);
   return true;
 }
 
@@ -128,12 +190,14 @@ const Camera: React.FC = () => {
     }
 
     const state = store.getState();
+    const preset = simulationScale.preset;
     const ok = writeBodyRenderedPositionInto(
       bodyPosScratch.current,
       activeBodyName,
       state,
       pivotScratch.current,
       shiftedScratch.current,
+      preset,
     );
     if (!ok) return;
 
@@ -146,7 +210,7 @@ const Camera: React.FC = () => {
     const bodyRadius = bodyProps?.radius;
     const min =
       bodyRadius != null
-        ? (bodyRadius / simulationScale.radiusScale) *
+        ? worldRadius(bodyRadius, preset) *
           SimConstants.CAMERA_MIN_DISTANCE_MULTIPLIER
         : 0;
     minDistanceRef.current = min;
@@ -181,12 +245,14 @@ const Camera: React.FC = () => {
       return;
     }
 
+    const frameState = store.getState();
     const ok = writeBodyRenderedPositionInto(
       bodyPosScratch.current,
       activeBodyName,
-      store.getState(),
+      frameState,
       pivotScratch.current,
       shiftedScratch.current,
+      frameState.simulation.simulationParameters.simulationScale.preset,
     );
     if (!ok) {
       controls.update();

@@ -280,13 +280,21 @@ function ViewToggles() {
   // candidates: master toggle for the right column, or in-scene labels.
   const [info, setInfo] = useState(true);
 
-  // UI label cycles LIN/LOG; backing logic still cycles
-  // SEMI_REALISTIC ↔ REALISTIC. Real logarithmic radial compression is
-  // queued (#61); once it lands the labels become literally accurate.
-  const scaleLabel = scale.name === "Realistic" ? "LIN" : "LOG";
+  // Real = physically accurate ratios (bodies are dots, outer system
+  // far off-screen at default zoom). Stylized = log1p radial compression
+  // + power-law body radii so the whole solar system fits in one view
+  // with every planet visibly distinct.
+  const scaleLabel = scale.name === "Realistic" ? "Real" : "Stylized";
 
   return (
-    <div className="grid grid-cols-3 gap-[5px]">
+    // Fixed width so the chip grid doesn't grow when the Scale chip's
+    // value changes length (e.g. "Real" vs "Stylized"). Without this,
+    // the flex-1 Scrubber sibling shifts in response to chip content
+    // length, which reads as the whole panel jittering. 348px is sized
+    // so the longest chip content ("Scale" + "Stylized") fits naturally
+    // in its 1/3 cell with no truncation — short-value chips get extra
+    // breathing room between label and dot, which is acceptable.
+    <div className="grid grid-cols-3 gap-[5px] w-[348px] shrink-0">
       <ToggleChip label="Grid" on={grid} onClick={() => dispatch(toggleShowGrid())} />
       <ToggleChip label="Trails" on={trails} onClick={() => dispatch(toggleShowTrails())} />
       <ToggleChip
@@ -333,7 +341,11 @@ function ToggleChip({
       onClick={onClick}
       aria-pressed={hasValue ? undefined : Boolean(on)}
       className={[
-        "flex items-center gap-1.5 rounded-[7px] border px-[9px] py-[5px] text-[10px] font-medium transition-colors",
+        // w-full + justify-between: chip fills its grid cell; label sticks
+        // to the left, value sticks to the right. Stable column widths
+        // regardless of value text length. min-w-0 lets the spans truncate
+        // if absolutely needed rather than blowing out the cell.
+        "flex w-full min-w-0 items-center justify-between gap-1.5 rounded-[7px] border px-[9px] py-[5px] text-[10px] font-medium transition-colors",
         lit
           ? "bg-[rgba(164,168,255,0.12)] border-[rgba(164,168,255,0.28)] text-accent"
           : "bg-white/[0.04] border-white/[0.06] text-[#9b9ea9] hover:bg-white/[0.06]",

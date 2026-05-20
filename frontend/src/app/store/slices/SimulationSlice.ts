@@ -4,6 +4,7 @@ import {
   Middleware,
   PayloadAction,
 } from "@reduxjs/toolkit";
+import type { ScalePreset } from "@/app/utils/scalePipeline";
 import { AppDispatch, RootState } from "@/app/store/Store";
 import { dispatchChunkRequest } from "@/app/store/middleware/simulationRequestThunk";
 import {
@@ -43,7 +44,6 @@ export interface CelestialBodyProperties {
   radius?: number;
   name?: string;
   orbitingBody?: string;
-  positionScale?: number;
   texture?: StaticImageData;
 }
 
@@ -72,11 +72,8 @@ interface ActiveBodyState {
 }
 
 export interface SimulationScale {
-  // set in SimConstants
   name: string;
-  positionScale: number;
-  radiusScale: number;
-  EXCEPTION_BODIES_POSITION_SCALE: { [bodyName: string]: number };
+  preset: ScalePreset;
   AXES: {
     SIZE: number;
   };
@@ -149,7 +146,7 @@ const initialState: SimulationState = {
     showPlanetInfoOverlay: true,
     showTrails: true,
     showOrbitPaths: true,
-    simulationScale: SimConstants.SCALE.SEMI_REALISTIC,
+    simulationScale: SimConstants.SCALE.LOG,
     cameraPreset: "top-down",
     displayFrame: "helio",
   },
@@ -206,27 +203,15 @@ export const simulationSlice = createSlice({
       };
 
       if (state.simulationParameters?.celestialBodyPropertiesList) {
-        const exceptionMap =
-          state.simulationParameters.simulationScale
-            ?.EXCEPTION_BODIES_POSITION_SCALE || {};
-
         state.simulationParameters.celestialBodyPropertiesList =
           state.simulationParameters.celestialBodyPropertiesList.map(
             (body: CelestialBodyProperties): CelestialBodyProperties => {
               if (body.name) {
                 const upperName = body.name.trim().toUpperCase();
-                const newPositionScale =
-                  exceptionMap[upperName] !== undefined
-                    ? exceptionMap[upperName]
-                    : 1;
                 const defaults: BodyProperties = bodyProperties[upperName];
-                return {
-                  ...body,
-                  ...defaults,
-                  positionScale: newPositionScale,
-                };
+                return { ...body, ...defaults };
               }
-              return { ...body, positionScale: 1 };
+              return body;
             },
           );
       }
@@ -412,10 +397,7 @@ export const simulationSlice = createSlice({
         const currentIndex = scaleOptions.findIndex((key) => {
           const preset =
             SimConstants.SCALE[key as keyof typeof SimConstants.SCALE];
-          return (
-            preset.positionScale === currentScale.positionScale &&
-            preset.radiusScale === currentScale.radiusScale
-          );
+          return preset.preset === currentScale.preset;
         });
 
         const nextIndex: number = (currentIndex + 1) % scaleOptions.length;
@@ -425,31 +407,6 @@ export const simulationSlice = createSlice({
 
         state.simulationParameters.simulationScale =
           SimConstants.SCALE[nextKey];
-
-        const exceptions =
-          state.simulationParameters.simulationScale
-            .EXCEPTION_BODIES_POSITION_SCALE;
-
-        if (
-          exceptions &&
-          state.simulationParameters.celestialBodyPropertiesList
-        ) {
-          state.simulationParameters.celestialBodyPropertiesList =
-            state.simulationParameters.celestialBodyPropertiesList.map(
-              (bodyProps) => {
-                if (
-                  bodyProps.name &&
-                  exceptions[bodyProps.name.toUpperCase()] !== undefined
-                ) {
-                  return {
-                    ...bodyProps,
-                    positionScale: exceptions[bodyProps.name.toUpperCase()],
-                  };
-                }
-                return bodyProps;
-              },
-            );
-        }
       }
     },
   },

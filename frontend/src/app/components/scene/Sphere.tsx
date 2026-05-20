@@ -9,9 +9,9 @@ import {
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
 import { readBodyPositionInto } from "@/app/store/chunkBuffer";
-import { setBodyWorldPosition } from "@/app/utils/coordinates";
+import { setBodyWorldPositionWithPreset } from "@/app/utils/coordinates";
 import { writePivotInto } from "@/app/utils/framePivot";
-import { scaleDistanceInto } from "@/app/utils/helpers";
+import { worldRadius, worldDistanceFromParent } from "@/app/utils/scalePipeline";
 import * as THREE from "three";
 
 interface SphereProps {
@@ -57,16 +57,25 @@ const Sphere: React.FC<SphereProps> = ({
   const store = useStore<RootState>();
   const propsList = useSelector(selectCelestialBodyPropertiesList);
 
-  const { positionScale, orbitingBodyNameUpper } = useMemo(() => {
+  const { orbitingBodyNameUpper, ownRadiusM } = useMemo(() => {
     const nameUpper = name.toUpperCase();
     const bodyProps: CelestialBodyProperties | undefined = propsList?.find(
       (bp: CelestialBodyProperties) => bp.name?.toUpperCase() === nameUpper,
     );
     return {
-      positionScale: bodyProps?.positionScale ?? 1,
       orbitingBodyNameUpper: bodyProps?.orbitingBody?.toUpperCase(),
+      ownRadiusM: bodyProps?.radius ?? 0,
     };
   }, [name, propsList]);
+
+  const parentRadiusM = useMemo(() => {
+    if (!orbitingBodyNameUpper) return 0;
+    const parent = propsList?.find(
+      (bp: CelestialBodyProperties) =>
+        bp.name?.toUpperCase() === orbitingBodyNameUpper,
+    );
+    return parent?.radius ?? 0;
+  }, [orbitingBodyNameUpper, propsList]);
 
   const texture = useLoader(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -82,6 +91,8 @@ const Sphere: React.FC<SphereProps> = ({
   const pivotScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const posSimple = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const orbitingSimple = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const parentWorldScratch = useRef(new THREE.Vector3());
+  const childDeltaScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const bodyIdxRef = useRef<number>(-1);
   const orbitingIdxRef = useRef<number>(-1);
 
@@ -121,40 +132,73 @@ const Sphere: React.FC<SphereProps> = ({
         posSimple.current.y = posScratchVec.current.y;
         posSimple.current.z = posScratchVec.current.z;
 
-        if (positionScale !== 1 && orbitingIdxRef.current >= 0) {
+        // Display-frame pivot. Helio writes zero, so no branch needed.
+        writePivotInto(pivotScratch.current, buffer, idx, displayFrame);
+        posSimple.current.x -= pivotScratch.current.x;
+        posSimple.current.y -= pivotScratch.current.y;
+        posSimple.current.z -= pivotScratch.current.z;
+
+        if (orbitingBodyNameUpper && orbitingIdxRef.current >= 0) {
+          // Body has a parent — apply the body-agnostic minimum-separation
+          // rule. Generalizes the Moon ×15 hack to work for any future
+          // small satellite (Phobos/Deimos, Europa, Titan, etc.) without
+          // per-body hardcoding.
           readBodyPositionInto(
             orbitingScratchVec.current,
             buffer,
             idx,
             orbitingIdxRef.current,
           );
-          orbitingSimple.current.x = orbitingScratchVec.current.x;
-          orbitingSimple.current.y = orbitingScratchVec.current.y;
-          orbitingSimple.current.z = orbitingScratchVec.current.z;
-          scaleDistanceInto(
-            posSimple.current,
+          orbitingSimple.current.x =
+            orbitingScratchVec.current.x - pivotScratch.current.x;
+          orbitingSimple.current.y =
+            orbitingScratchVec.current.y - pivotScratch.current.y;
+          orbitingSimple.current.z =
+            orbitingScratchVec.current.z - pivotScratch.current.z;
+
+          // Parent's world-unit position via the pipeline.
+          setBodyWorldPositionWithPreset(
+            parentWorldScratch.current,
+            orbitingSimple.current,
+            simulationScale.preset,
+          );
+
+          // Child world-relative-to-parent delta with min-separation rule.
+          // Child + parent world radii derived from real metres via worldRadius.
+          worldDistanceFromParent(
             posSimple.current,
             orbitingSimple.current,
-            positionScale,
+            worldRadius(parentRadiusM, simulationScale.preset),
+            worldRadius(ownRadiusM, simulationScale.preset),
+            simulationScale.preset,
+            childDeltaScratch.current,
+          );
+
+          // worldDistanceFromParent returns the delta in input ICRF axes —
+          // Y/Z swap NOT applied. The parent world position above came through
+          // setBodyWorldPositionWithPreset which DID apply the swap. Apply the
+          // swap to the delta (delta.y → world Z, delta.z → world Y) before
+          // summing so both terms are in three.js world space.
+          meshRef.current.position.set(
+            parentWorldScratch.current.x + childDeltaScratch.current.x,
+            parentWorldScratch.current.y + childDeltaScratch.current.z,
+            parentWorldScratch.current.z + childDeltaScratch.current.y,
+          );
+        } else {
+          // No parent — straight pipeline transform. setBodyWorldPositionWithPreset
+          // applies the Y/Z swap internally.
+          setBodyWorldPositionWithPreset(
+            meshRef.current.position,
+            posSimple.current,
+            simulationScale.preset,
           );
         }
 
-        // Display-frame pivot. Helio writes zero, so no branch needed below.
-        writePivotInto(pivotScratch.current, buffer, idx, displayFrame);
-        posSimple.current.x -= pivotScratch.current.x;
-        posSimple.current.y -= pivotScratch.current.y;
-        posSimple.current.z -= pivotScratch.current.z;
-
-        setBodyWorldPosition(
-          meshRef.current.position,
-          posSimple.current,
-          simulationScale.positionScale,
-        );
         if (lightRef.current) {
-          setBodyWorldPosition(
+          setBodyWorldPositionWithPreset(
             lightRef.current.position,
             posSimple.current,
-            simulationScale.positionScale,
+            simulationScale.preset,
           );
         }
       }

@@ -56,7 +56,7 @@ function seedSession(
     showPlanetInfoOverlay: true,
     showTrails: true,
     showOrbitPaths: true,
-    simulationScale: SimConstants.SCALE.SEMI_REALISTIC,
+    simulationScale: SimConstants.SCALE.LOG,
     cameraPreset: "top-down",
     displayFrame: "helio",
   };

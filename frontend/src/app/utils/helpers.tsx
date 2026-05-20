@@ -95,17 +95,3 @@ export const formatStepDuration = (seconds: number): string => {
   return `${(seconds / 86_400).toFixed(1)} d`;
 };
 
-// Mutating-output variant: writes the scaled position into `out`.
-// `out = orbiting + (primary - orbiting) * scaleFactor`. Used to render
-// non-1 positionScale bodies (e.g. Moon) at exaggerated parent-relative
-// distance without losing rotational alignment with the parent.
-export function scaleDistanceInto(
-  out: Vector3Simple,
-  primary: Vector3Simple,
-  orbiting: Vector3Simple,
-  scaleFactor: number,
-): void {
-  out.x = orbiting.x + (primary.x - orbiting.x) * scaleFactor;
-  out.y = orbiting.y + (primary.y - orbiting.y) * scaleFactor;
-  out.z = orbiting.z + (primary.z - orbiting.z) * scaleFactor;
-}
