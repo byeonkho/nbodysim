@@ -24,6 +24,17 @@ public class PhysicsConstants {
         RADIUS_MAP.put("SATURN",  58_232_000.0);
         RADIUS_MAP.put("URANUS",  25_362_000.0);
         RADIUS_MAP.put("NEPTUNE", 24_622_000.0);
+
+        // Minor bodies — dwarf planets and named near-Earth asteroids.
+        RADIUS_MAP.put("PLUTO",    1_188_300.0);
+        RADIUS_MAP.put("CERES",      469_700.0);
+        RADIUS_MAP.put("VESTA",      262_700.0);
+        RADIUS_MAP.put("PALLAS",     256_000.0);
+        RADIUS_MAP.put("HYGIEA",     215_000.0);
+        RADIUS_MAP.put("EROS",         8_420.0);
+        RADIUS_MAP.put("APOPHIS",        185.0);
+        RADIUS_MAP.put("BENNU",          245.0);
+        RADIUS_MAP.put("RYUGU",          435.0);
     }
 
     private PhysicsConstants() {

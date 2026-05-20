@@ -9,8 +9,10 @@ import { store } from "@/app/store/Store";
 import { dispatchChunkRequest } from "@/app/store/middleware/simulationRequestThunk";
 import { setLastSimRequest } from "@/app/store/slices/SimulationSlice";
 import {
+  BODY_CATEGORY,
   BODY_DISPLAY,
   BODY_ORDER,
+  type BodyCategory,
   type BodyKey,
 } from "@/app/constants/BodyVisuals";
 import { BodySphere } from "@/app/components/chrome/BodySphere";
@@ -37,7 +39,31 @@ const INTEGRATORS = [
   ["dp853", "DormandPrince853"],
 ] as const;
 
-const ALL_BODIES = [...BODY_ORDER];
+// Body picker is sectioned by category. Order mirrors the backend body
+// classification (planets feel and exert gravity on each other; dwarf
+// planets are massive minor bodies; near-Earth asteroids are tracked as
+// test particles).
+const CATEGORY_ORDER: readonly BodyCategory[] = ["planet", "dwarfPlanet", "asteroid"];
+
+const CATEGORY_LABEL: Record<BodyCategory, string> = {
+  planet: "Planets",
+  dwarfPlanet: "Dwarf planets",
+  asteroid: "Near-Earth asteroids",
+};
+
+const BODIES_BY_CATEGORY: Record<BodyCategory, BodyKey[]> = {
+  planet: [],
+  dwarfPlanet: [],
+  asteroid: [],
+};
+for (const key of BODY_ORDER) {
+  BODIES_BY_CATEGORY[BODY_CATEGORY[key]].push(key);
+}
+
+// Default selection on first open: planets only. Preserves the pre-Phase-3
+// behavior (10 bodies selected) so existing users don't get a surprise
+// 19-body sim that fans out minor-body queries to JPL Horizons.
+const DEFAULT_SELECTED: BodyKey[] = BODIES_BY_CATEGORY.planet;
 
 interface SimSetupDrawerProps {
   open: boolean;
@@ -48,7 +74,7 @@ export function SimSetupDrawer({ open, onOpenChange }: SimSetupDrawerProps) {
   const dispatch = useDispatch<AppDispatch>();
 
   const [selectedBodies, setSelectedBodies] = useState<Set<BodyKey>>(
-    new Set(ALL_BODIES),
+    new Set(DEFAULT_SELECTED),
   );
   const [date, setDate] = useState("2024-06-05T00:00:00.000");
   const [frame, setFrame] = useState("Heliocentric");
@@ -246,40 +272,51 @@ export function SimSetupDrawer({ open, onOpenChange }: SimSetupDrawerProps) {
             <p className="eyebrow mt-5 mb-2 px-1">
               BODIES · {selectedBodies.size} ENABLED
             </p>
-            <div
-              className="overflow-hidden rounded-xl border border-white/[0.05]"
-              style={{ background: "rgba(255,255,255,0.03)" }}
-            >
-              {ALL_BODIES.map((key, i) => {
-                const enabled = selectedBodies.has(key);
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => toggleBody(key)}
-                    className={[
-                      "flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-white/[0.02]",
-                      i < ALL_BODIES.length - 1 &&
-                        "border-b border-white/[0.04]",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
+            {CATEGORY_ORDER.map((category) => {
+              const bodies = BODIES_BY_CATEGORY[category];
+              if (bodies.length === 0) return null;
+              return (
+                <div key={category} className="mb-3 last:mb-0">
+                  <p className="eyebrow mb-1.5 px-1 text-dim">
+                    {CATEGORY_LABEL[category]}
+                  </p>
+                  <div
+                    className="overflow-hidden rounded-xl border border-white/[0.05]"
+                    style={{ background: "rgba(255,255,255,0.03)" }}
                   >
-                    <BodySphere body={key} size={14} />
-                    <span
-                      className={
-                        enabled
-                          ? "text-hi flex-1 text-[14px]"
-                          : "text-dim flex-1 text-[14px]"
-                      }
-                    >
-                      {BODY_DISPLAY[key]}
-                    </span>
-                    <ToggleSwitch on={enabled} />
-                  </button>
-                );
-              })}
-            </div>
+                    {bodies.map((key, i) => {
+                      const enabled = selectedBodies.has(key);
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => toggleBody(key)}
+                          className={[
+                            "flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-white/[0.02]",
+                            i < bodies.length - 1 &&
+                              "border-b border-white/[0.04]",
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                        >
+                          <BodySphere body={key} size={14} />
+                          <span
+                            className={
+                              enabled
+                                ? "text-hi flex-1 text-[14px]"
+                                : "text-dim flex-1 text-[14px]"
+                            }
+                          >
+                            {BODY_DISPLAY[key]}
+                          </span>
+                          <ToggleSwitch on={enabled} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           {/* Footer — primary Run is full-width per handoff (Save preset

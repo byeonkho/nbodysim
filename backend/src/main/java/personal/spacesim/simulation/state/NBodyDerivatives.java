@@ -7,7 +7,8 @@ import java.util.List;
 
 /**
  * Computes the time-derivative {@code dy/dt} of an N-body system's state
- * under mutual gravitational attraction.
+ * under mutual gravitational attraction, with optional test-particle
+ * dispatch.
  *
  * <p>Given a state {@code y = [r_0, v_0, r_1, v_1, ...]}, returns the
  * derivative where:
@@ -15,9 +16,17 @@ import java.util.List;
  *   <li>position derivative for body i is its velocity:
  *       {@code dr_i/dt = v_i}</li>
  *   <li>velocity derivative for body i is the gravitational acceleration
- *       summed over all other bodies:
- *       {@code dv_i/dt = sum_{j != i} G * m_j * (r_j - r_i) / |r_j - r_i|^3}</li>
+ *       summed over each massive body j (excluding self):
+ *       {@code dv_i/dt = sum_{j massive, j != i} G * m_j * (r_j - r_i) / |r_j - r_i|^3}</li>
  * </ul>
+ *
+ * <p><b>Test-particle dispatch.</b> State buffer layout is
+ * {@code [massive | test]}: the first {@code massiveCount} bodies are
+ * massive (mutually gravitating); the remaining bodies are test particles
+ * (feel gravity from the massive prefix but exert none — their mass
+ * doesn't enter any force sum). This preserves Newton's 3rd law on the
+ * massive subsystem while letting the catalog grow with small bodies at
+ * cost {@code M*(M-1) + T*M} per step instead of {@code (M+T)*(M+T-1)}.
  *
  * <p>Masses are captured at construction; the bodies in the system are
  * assumed not to gain or lose mass during simulation.
@@ -28,26 +37,58 @@ public final class NBodyDerivatives {
     private final double[] gm;
 
     /**
-     * Build a derivatives function for the given masses. Order of the array
-     * must match the body ordering used in the {@link GlobalState} this is
-     * applied to.
+     * Count of leading massive bodies in the state buffer. Force sums
+     * over the {@code [0, massiveCount)} prefix only. Equals
+     * {@code gm.length} when no test particles are present.
      */
-    public NBodyDerivatives(double[] masses) {
+    private final int massiveCount;
+
+    /**
+     * Build a derivatives function for the given masses and massive-body
+     * count. The first {@code massiveCount} entries are massive
+     * (mutually gravitating); the rest are test particles. Order of the
+     * array must match the body ordering used in the {@link GlobalState}
+     * this is applied to.
+     */
+    public NBodyDerivatives(double[] masses, int massiveCount) {
+        if (massiveCount < 0 || massiveCount > masses.length) {
+            throw new IllegalArgumentException(
+                "massiveCount " + massiveCount + " out of [0, " + masses.length + "]");
+        }
         this.gm = new double[masses.length];
         for (int i = 0; i < masses.length; i++) {
             this.gm[i] = PhysicsConstants.GRAVITATIONAL_CONSTANT * masses[i];
         }
+        this.massiveCount = massiveCount;
+    }
+
+    /**
+     * Backwards-compatible constructor: all bodies treated as massive
+     * (equivalent to {@code massiveCount = masses.length}).
+     */
+    public NBodyDerivatives(double[] masses) {
+        this(masses, masses.length);
     }
 
     /**
      * Convenience constructor: extract masses from a list of celestial bodies.
+     * All bodies treated as massive.
      */
     public static NBodyDerivatives forBodies(List<CelestialBodyWrapper> bodies) {
+        return forBodies(bodies, bodies.size());
+    }
+
+    /**
+     * Convenience constructor with explicit massive-body count.
+     */
+    public static NBodyDerivatives forBodies(
+            List<CelestialBodyWrapper> bodies, int massiveCount
+    ) {
         double[] masses = new double[bodies.size()];
         for (int i = 0; i < bodies.size(); i++) {
             masses[i] = bodies.get(i).getMass();
         }
-        return new NBodyDerivatives(masses);
+        return new NBodyDerivatives(masses, massiveCount);
     }
 
     /**
@@ -59,6 +100,10 @@ public final class NBodyDerivatives {
      * RK4, ~13× per step for DP853 via Hipparchus substeps). Avoiding the
      * per-call {@code new double[6N]} + {@code new GlobalState} allocations
      * is the primary goal of this API.
+     *
+     * <p>Inner loop is bounded by {@code massiveCount} for every body i,
+     * regardless of i's class — see class javadoc for why this preserves
+     * test-particle physics.
      */
     public void derivativesInto(double[] out, double[] state) {
         int n = state.length / GlobalState.COORDS_PER_BODY;
@@ -70,6 +115,10 @@ public final class NBodyDerivatives {
             throw new IllegalArgumentException(
                 "out length " + out.length + " does not match state length " + state.length);
         }
+
+        // Hoisted out of the inner loop — single read into a local primitive,
+        // no per-iteration bound switch.
+        final int sumBound = massiveCount;
 
         for (int i = 0; i < n; i++) {
             int baseI = i * GlobalState.COORDS_PER_BODY;
@@ -85,9 +134,9 @@ public final class NBodyDerivatives {
             out[baseI + 1] = vyi;
             out[baseI + 2] = vzi;
 
-            // dv_i / dt = sum over j != i of gm[j] * (r_j - r_i) / |r_j - r_i|^3
+            // dv_i / dt = sum over massive j != i of gm[j] * (r_j - r_i) / |r_j - r_i|^3
             double ax = 0, ay = 0, az = 0;
-            for (int j = 0; j < n; j++) {
+            for (int j = 0; j < sumBound; j++) {
                 if (i == j) continue;
                 int baseJ = j * GlobalState.COORDS_PER_BODY;
                 double dx = state[baseJ]     - xi;
@@ -107,23 +156,25 @@ public final class NBodyDerivatives {
     }
 
     /**
-     * Total mechanical energy {@code E = T + U} of the N-body system in
-     * the given flat state vector.
+     * Total mechanical energy {@code E = T + U} of the massive subsystem
+     * in the given flat state vector. Test particles contribute nothing —
+     * their kinetic and potential terms are physically negligible and
+     * would couple the {@code ΔE/E_0} integrator-quality readout to noise.
      *
      * <p>Returned in joules (SI). Sign convention: kinetic positive,
      * potential negative for bound systems; the sum is negative for any
      * gravitationally bound configuration.
      *
      * <p>Hot path: called once per emitted snapshot (~5000 times per
-     * DP853 chunk). Allocation-free; single indexed pair loop matching
-     * the {@link #derivativesInto} access pattern. {@code 1/G} is
-     * factored out so we reuse the existing {@code gm[]} array rather
-     * than carrying a parallel mass array.
+     * DP853 chunk). Allocation-free; single indexed pair loop over the
+     * massive prefix. {@code 1/G} is factored out so we reuse the
+     * existing {@code gm[]} array rather than carrying a parallel mass
+     * array.
      *
      * <p>Math:
      * <pre>
-     * T = 0.5 / G · Σ_i gm[i] · |v_i|²
-     * U = -1.0 / G · Σ_{i&lt;j} gm[i] · gm[j] / r_ij
+     * T = 0.5 / G · Σ_{i massive} gm[i] · |v_i|²
+     * U = -1.0 / G · Σ_{i&lt;j, both massive} gm[i] · gm[j] / r_ij
      * </pre>
      */
     public double totalEnergy(double[] state) {
@@ -135,7 +186,7 @@ public final class NBodyDerivatives {
 
         double kineticSum = 0.0;
         double potentialSum = 0.0;
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < massiveCount; i++) {
             int baseI = i * GlobalState.COORDS_PER_BODY;
             double xi = state[baseI];
             double yi = state[baseI + 1];
@@ -146,7 +197,7 @@ public final class NBodyDerivatives {
 
             kineticSum += gm[i] * (vxi * vxi + vyi * vyi + vzi * vzi);
 
-            for (int j = i + 1; j < n; j++) {
+            for (int j = i + 1; j < massiveCount; j++) {
                 int baseJ = j * GlobalState.COORDS_PER_BODY;
                 double dx = state[baseJ]     - xi;
                 double dy = state[baseJ + 1] - yi;

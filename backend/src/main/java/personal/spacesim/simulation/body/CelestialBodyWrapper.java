@@ -61,5 +61,29 @@ public class CelestialBodyWrapper {
                 frame
         ).getVelocity();
     }
+
+    /**
+     * Construct from explicit state, bypassing Orekit's CelestialBodyFactory.
+     * Used for minor bodies whose state comes from JPL Horizons (e.g. Ceres,
+     * Eros) — Orekit's bundled DE-440 doesn't cover them, and Orekit doesn't
+     * natively read SPK files.
+     *
+     * <p>{@code mass} is derived from {@code mu / G} for backwards-compat with
+     * downstream code that uses {@link #getMass()}.
+     */
+    public CelestialBodyWrapper(
+            String name,
+            double mu,
+            double radius,
+            Vector3D position,
+            Vector3D velocity
+    ) {
+        this.name = name;
+        this.mu = mu;
+        this.mass = mu / PhysicsConstants.GRAVITATIONAL_CONSTANT;
+        this.radius = radius;
+        this.position = position;
+        this.velocity = velocity;
+    }
 }
 
