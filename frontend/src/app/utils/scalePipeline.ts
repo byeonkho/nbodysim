@@ -3,15 +3,15 @@
 // Scale pipeline — real metres → world units, per preset. Two presets:
 //   - "realistic": linear divide. Bodies are dots, ratios are physically
 //     accurate. Truth reference.
-//   - "log":      log1p-compressed radial distance + clickability floor on
+//   - "log":      log1p-compressed radial distance + power-law compressed
 //     body radii. Whole solar system fits in one viewport with every
-//     planet visibly separated.
+//     planet visibly separated and distinguishable.
 //
 // Both presets go through the same `worldDistance` / `worldRadius` calls;
 // the preset arg picks which internal config applies. Realistic is a
-// degenerate case (identity-divide, no floor) of the same plumbing.
+// degenerate case (linear-divide, no compression) of the same plumbing.
 //
-// Log-preset params (A, r_ref, R_floor) are tunable at runtime via the
+// Log-preset params (A, r_ref, body k) are tunable at runtime via the
 // dev panel — they live in `devSettingsStore` so the sliders, the
 // pipeline, and the test setup all share one source of truth.
 
@@ -30,7 +30,12 @@ export const REALISTIC_DIVISOR = 1e8;
 // `devSettingsStore.DEFAULTS`. Until then, sliders override these.
 export const DEFAULT_LOG_SCALE_A = 60;
 export const DEFAULT_LOG_R_REF_M = 149_597_870_700; // 1 AU
-export const DEFAULT_LOG_RADIUS_FLOOR_WU = 0.5;
+// Power-law exponent for body-radius compression in Log preset.
+// (R / 1e8) ^ k. k = 1 collapses to linear (real ratios, tiny inner planets);
+// k = 0.5 is sqrt — pleasant compression where Sun stays dominant but Moon /
+// Mercury / Mars remain visibly distinct. No floor: the power-law itself
+// raises tiny bodies to visible sizes without flattening them together.
+export const DEFAULT_LOG_RADIUS_EXPONENT = 0.55;
 
 /**
  * Convert a real heliocentric distance in metres to world units, per
@@ -48,17 +53,19 @@ export function worldDistance(r_m: number, preset: ScalePreset): number {
 
 /**
  * Convert a real body radius in metres to world units, per preset.
- * Realistic: linear divide, no floor — bodies stay at their truth ratio,
- * which makes most planets dots at default zoom. Log: linear divide
- * clamped to logRadiusFloor so bodies stay visible + clickable.
+ * Realistic: linear divide, no compression — bodies stay at their truth
+ * ratio, which makes most planets dots at default zoom. Log: power-law
+ * compression `(R / 1e8) ^ k` so the ~400× real spread (Sun vs Moon)
+ * collapses to a usable ~30× spread where every body is visible AND
+ * visibly distinct.
  */
 export function worldRadius(R_m: number, preset: ScalePreset): number {
   const linear = R_m / REALISTIC_DIVISOR;
   if (preset === "realistic") {
     return linear;
   }
-  const { logRadiusFloor } = getDevSettings();
-  return Math.max(linear, logRadiusFloor);
+  const { logRadiusExponent } = getDevSettings();
+  return Math.pow(linear, logRadiusExponent);
 }
 
 /**

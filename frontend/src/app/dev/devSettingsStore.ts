@@ -56,11 +56,13 @@ export interface DevSettings {
    */
   logScaleRRef: number;
   /**
-   * Log preset: minimum world-unit radius for any body. Real bodies
-   * smaller than this clamp up so they stay clickable + visible.
-   * Realistic preset ignores this (no floor).
+   * Log preset: power-law exponent for body-radius compression.
+   * `(R / 1e8) ^ k`. k = 1 collapses to linear (real ratios, tiny inner
+   * planets); k = 0.5 is sqrt (pleasant compression — Sun stays dominant
+   * but Moon / Mercury remain visibly distinct from Earth).
+   * Realistic preset ignores this.
    */
-  logRadiusFloor: number;
+  logRadiusExponent: number;
 }
 
 const DEFAULTS: DevSettings = {
@@ -71,7 +73,7 @@ const DEFAULTS: DevSettings = {
   skyboxVariant: "full",
   logScaleA: 60,
   logScaleRRef: 149_597_870_700,
-  logRadiusFloor: 0.5,
+  logRadiusExponent: 0.55,
 };
 
 let state: DevSettings = { ...DEFAULTS };

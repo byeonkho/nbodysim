@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>spacesim · sim setup promotion · preview</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin:0; padding:0; background:#0a0a0c; color:#e7e7ea; font-family:'Inter',system-ui,sans-serif; }
+  h1 { font-size:13px; font-weight:500; letter-spacing:0.08em; text-transform:uppercase; color:#7f828d; padding:20px 24px 8px; margin:0; }
+  .frame { width:1920px; height:1080px; position:relative; margin:0 auto 32px; box-shadow:0 30px 80px rgba(0,0,0,0.6); }
+  .scale-wrap { transform-origin: top left; }
+  .starfield {
+    position:absolute; inset:0; overflow:hidden;
+    background:
+      radial-gradient(ellipse at 60% 35%, rgba(40,60,90,0.30) 0%, rgba(0,0,0,0) 55%),
+      radial-gradient(ellipse at 20% 80%, rgba(60,30,80,0.18) 0%, rgba(0,0,0,0) 50%),
+      #050610;
+  }
+  .starfield::before, .starfield::after {
+    content:""; position:absolute; inset:-2px;
+    background-image:
+      radial-gradient(1px 1px at 12% 18%, #fff, transparent 60%),
+      radial-gradient(1px 1px at 78% 22%, #fff, transparent 60%),
+      radial-gradient(1px 1px at 33% 71%, #fff, transparent 60%),
+      radial-gradient(1px 1px at 89% 64%, #fff, transparent 60%),
+      radial-gradient(1px 1px at 47% 12%, rgba(255,255,255,.6), transparent 60%),
+      radial-gradient(1px 1px at 60% 86%, rgba(255,255,255,.7), transparent 60%),
+      radial-gradient(1.5px 1.5px at 84% 38%, rgba(255,255,255,.9), transparent 60%);
+    pointer-events:none;
+  }
+  .ab-root { position:absolute; inset:0; overflow:hidden; user-select:none; }
+</style>
+</head>
+<body>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="shared.jsx"></script>
+<script type="text/babel" src="dir-hybrid.jsx"></script>
+<script type="text/babel" src="dir-hybrid-v2.jsx"></script>
+
+<h1>Closed · sim setup leads the top bar</h1>
+<div class="scale-wrap" id="f1"><div class="frame"><div id="root1"></div></div></div>
+
+<h1>Drawer open · same params editor opened from either entrypoint</h1>
+<div class="scale-wrap" id="f2"><div class="frame"><div id="root2"></div></div></div>
+
+<script type="text/babel" data-presets="env,react">
+  ReactDOM.createRoot(document.getElementById('root1')).render(<window.HybridV2Hero />);
+  ReactDOM.createRoot(document.getElementById('root2')).render(<window.HybridV2Open />);
+  function fit() {
+    const s = Math.min(1, (window.innerWidth - 48) / 1920);
+    document.querySelectorAll('.scale-wrap').forEach(w => {
+      w.style.transform = `scale(${s})`;
+      w.style.width = (1920 * s) + 'px';
+      w.style.height = (1080 * s + 32) + 'px';
+      w.style.margin = '0 auto 12px';
+    });
+  }
+  fit(); window.addEventListener('resize', fit);
+</script>
+
+</body>
+</html>

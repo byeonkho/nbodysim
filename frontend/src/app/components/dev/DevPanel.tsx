@@ -179,14 +179,16 @@ function Tunables() {
         toSlider={(stored) => Math.log10(stored / 149_597_870_700)}
         fromSlider={(slider) => Math.pow(10, slider) * 149_597_870_700}
       />
+      {/* Body-radius compression exponent. k = 1 is linear (real ratios,
+          tiny inner planets); k = 0.5 is sqrt (pleasant compression). */}
       <DevSlider
-        label="R floor"
-        valueKey="logRadiusFloor"
-        value={settings.logRadiusFloor}
-        min={0}
-        max={2}
-        step={0.05}
-        format={(v) => `${v.toFixed(2)} wu`}
+        label="Body k"
+        valueKey="logRadiusExponent"
+        value={settings.logRadiusExponent}
+        min={0.3}
+        max={1.0}
+        step={0.01}
+        format={(v) => v.toFixed(2)}
       />
     </section>
   );

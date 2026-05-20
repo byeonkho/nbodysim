@@ -87,7 +87,7 @@ describe("writeBodyWorldPositionToArray", () => {
 beforeEach(() => {
   setDevSetting("logScaleA", DEFAULT_LOG_SCALE_A);
   setDevSetting("logScaleRRef", 149_597_870_700);
-  setDevSetting("logRadiusFloor", 0.5);
+  setDevSetting("logRadiusExponent", 0.55);
 });
 
 describe("setBodyWorldPositionWithPreset", () => {
