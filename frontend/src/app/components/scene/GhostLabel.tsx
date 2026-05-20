@@ -13,9 +13,10 @@ import {
 } from "@/app/store/slices/SimulationSlice";
 import { readBodyPositionInto } from "@/app/store/chunkBuffer";
 import type { RootState } from "@/app/store/Store";
-import { setBodyWorldPosition } from "@/app/utils/coordinates";
+import { setBodyWorldPositionWithPreset } from "@/app/utils/coordinates";
 import { writePivotInto } from "@/app/utils/framePivot";
-import { calculateDistance, scaleDistanceInto } from "@/app/utils/helpers";
+import { calculateDistance } from "@/app/utils/helpers";
+import { worldRadius, worldDistanceFromParent } from "@/app/utils/scalePipeline";
 import { BODY_DISPLAY, toBodyKey } from "@/app/constants/BodyVisuals";
 
 // Two-line ghost label above each non-active body: NAME (uppercase, wide
@@ -36,8 +37,9 @@ export function GhostLabel({ bodyName }: { bodyName: string }) {
   const orbitingPosVec = useRef(new THREE.Vector3());
   const posSimple = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const orbitingSimple = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
-  const shiftedScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const pivotScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const parentWorldScratch = useRef(new THREE.Vector3());
+  const childDeltaScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const frameCounter = useRef(0);
   const lastAu = useRef<string>("");
 
@@ -47,6 +49,12 @@ export function GhostLabel({ bodyName }: { bodyName: string }) {
   );
   const orbitingNameUpper =
     properties?.orbitingBody?.trim().toUpperCase() ?? "";
+  const ownRadiusM = properties?.radius ?? 0;
+  const parentRadiusM =
+    propsList?.find(
+      (p: CelestialBodyProperties) =>
+        p.name?.trim().toUpperCase() === orbitingNameUpper,
+    )?.radius ?? 0;
 
   useFrame(() => {
     if (!groupRef.current || !properties) return;
@@ -70,38 +78,50 @@ export function GhostLabel({ bodyName }: { bodyName: string }) {
     posSimple.current.x = bodyPosVec.current.x;
     posSimple.current.y = bodyPosVec.current.y;
     posSimple.current.z = bodyPosVec.current.z;
-    let pos: Vector3Simple = posSimple.current;
+    const displayFrame = state.simulation.simulationParameters.displayFrame;
+    const preset = simulationScale.preset;
 
-    if (
-      properties.positionScale !== undefined &&
-      properties.positionScale !== 1 &&
-      orbitingIdx >= 0
-    ) {
+    writePivotInto(pivotScratch.current, buffer, idx, displayFrame);
+    posSimple.current.x -= pivotScratch.current.x;
+    posSimple.current.y -= pivotScratch.current.y;
+    posSimple.current.z -= pivotScratch.current.z;
+
+    if (orbitingNameUpper && orbitingIdx >= 0) {
       readBodyPositionInto(orbitingPosVec.current, buffer, idx, orbitingIdx);
-      orbitingSimple.current.x = orbitingPosVec.current.x;
-      orbitingSimple.current.y = orbitingPosVec.current.y;
-      orbitingSimple.current.z = orbitingPosVec.current.z;
-      scaleDistanceInto(
-        posSimple.current,
+      orbitingSimple.current.x =
+        orbitingPosVec.current.x - pivotScratch.current.x;
+      orbitingSimple.current.y =
+        orbitingPosVec.current.y - pivotScratch.current.y;
+      orbitingSimple.current.z =
+        orbitingPosVec.current.z - pivotScratch.current.z;
+
+      setBodyWorldPositionWithPreset(
+        parentWorldScratch.current,
+        orbitingSimple.current,
+        preset,
+      );
+
+      worldDistanceFromParent(
         posSimple.current,
         orbitingSimple.current,
-        properties.positionScale,
+        worldRadius(parentRadiusM, preset),
+        worldRadius(ownRadiusM, preset),
+        preset,
+        childDeltaScratch.current,
       );
-      pos = posSimple.current;
+
+      groupRef.current.position.set(
+        parentWorldScratch.current.x + childDeltaScratch.current.x,
+        parentWorldScratch.current.y + childDeltaScratch.current.z,
+        parentWorldScratch.current.z + childDeltaScratch.current.y,
+      );
+    } else {
+      setBodyWorldPositionWithPreset(
+        groupRef.current.position,
+        posSimple.current,
+        preset,
+      );
     }
-
-    const displayFrame = state.simulation.simulationParameters.displayFrame;
-    writePivotInto(pivotScratch.current, buffer, idx, displayFrame);
-    shiftedScratch.current.x = pos.x - pivotScratch.current.x;
-    shiftedScratch.current.y = pos.y - pivotScratch.current.y;
-    shiftedScratch.current.z = pos.z - pivotScratch.current.z;
-    pos = shiftedScratch.current;
-
-    setBodyWorldPosition(
-      groupRef.current.position,
-      pos,
-      simulationScale.positionScale,
-    );
 
     frameCounter.current++;
     if (frameCounter.current >= TEXT_THROTTLE_FRAMES) {
