@@ -33,9 +33,19 @@ export const DEFAULT_LOG_R_REF_M = 149_597_870_700; // 1 AU
 // Power-law exponent for body-radius compression in Log preset.
 // (R / 1e8) ^ k. k = 1 collapses to linear (real ratios, tiny inner planets);
 // k = 0.5 is sqrt — pleasant compression where Sun stays dominant but Moon /
-// Mercury / Mars remain visibly distinct. No floor: the power-law itself
-// raises tiny bodies to visible sizes without flattening them together.
+// Mercury / Mars remain visibly distinct.
 export const DEFAULT_LOG_RADIUS_EXPONENT = 0.5;
+
+// Minimum world-radius applied AFTER the power-law in Log preset only. The
+// power-law alone is enough for everything down to dwarf planets, but the
+// smallest named NEAs (Apophis 185 m, Bennu 245 m, Ryugu 435 m) end up
+// sub-pixel under any reasonable zoom. 0.02 wu lifts those four to a barely
+// visible dot while leaving Moon (0.132 wu), Pluto (0.109 wu), the dwarf
+// planets (0.046–0.069 wu), and everything larger fully unaffected — the
+// previous floor experiment was abandoned because it flattened Moon and
+// Earth to the same size; this floor is set well below the smallest "real"
+// body so that doesn't recur.
+export const DEFAULT_LOG_MIN_RADIUS = 0.02;
 
 /**
  * Convert a real heliocentric distance in metres to world units, per
@@ -57,15 +67,24 @@ export function worldDistance(r_m: number, preset: ScalePreset): number {
  * ratio, which makes most planets dots at default zoom. Log: power-law
  * compression `(R / 1e8) ^ k` so the ~400× real spread (Sun vs Moon)
  * collapses to a usable ~30× spread where every body is visible AND
- * visibly distinct.
+ * visibly distinct. A minimum-radius floor is applied AFTER the power-law
+ * so the smallest NEAs stay on-screen; see {@link DEFAULT_LOG_MIN_RADIUS}.
+ * Realistic preset ignores the floor.
  */
 export function worldRadius(R_m: number, preset: ScalePreset): number {
   const linear = R_m / REALISTIC_DIVISOR;
   if (preset === "realistic") {
     return linear;
   }
-  const { logRadiusExponent } = getDevSettings();
-  return Math.pow(linear, logRadiusExponent);
+  // R=0 short-circuits to 0 so the degenerate "no body" case doesn't
+  // get lifted to the floor (which would surprise consumers that check
+  // for a zero radius to distinguish "no body" from "tiny body").
+  if (R_m === 0) {
+    return 0;
+  }
+  const { logRadiusExponent, logMinRadius } = getDevSettings();
+  const compressed = Math.pow(linear, logRadiusExponent);
+  return compressed > logMinRadius ? compressed : logMinRadius;
 }
 
 /**

@@ -65,11 +65,12 @@ const Scene = () => {
   const devSettings = useDevSettings();
 
   // Per-body world radius via the scale pipeline, indexed by name.
-  // Re-computes when celestialBodyPropertiesList, the active preset, or the
-  // Log-preset body-radius exponent changes. worldRadius reads the exponent
-  // from devSettings internally; the explicit dep below is the invalidation
-  // trigger for slider drags. ESLint's static analysis can't see through to
-  // the devSettings read inside worldRadius, hence the disable.
+  // Re-computes when celestialBodyPropertiesList, the active preset, or any
+  // Log-preset tunable changes (body-radius exponent + minimum-radius floor).
+  // worldRadius reads both from devSettings internally; the explicit deps
+  // below are the invalidation triggers for slider drags. ESLint's static
+  // analysis can't see through to the devSettings reads inside worldRadius,
+  // hence the disable.
   const celestialBodyRadiusMap = useMemo(
     () => {
       const map = new Map<string, number>();
@@ -85,7 +86,12 @@ const Scene = () => {
       return map;
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [celestialBodyPropertiesList, simulationScale, devSettings.logRadiusExponent],
+    [
+      celestialBodyPropertiesList,
+      simulationScale,
+      devSettings.logRadiusExponent,
+      devSettings.logMinRadius,
+    ],
   );
 
   return (
