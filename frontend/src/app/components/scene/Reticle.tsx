@@ -18,15 +18,15 @@ import {
   readBodyStateInto,
 } from "@/app/store/chunkBuffer";
 import type { RootState } from "@/app/store/Store";
-import { setBodyWorldPosition } from "@/app/utils/coordinates";
+import { setBodyWorldPositionWithPreset } from "@/app/utils/coordinates";
 import { writePivotInto } from "@/app/utils/framePivot";
 import {
   calculateDistance,
   calculateMagnitude,
   formatToKM,
-  scaleDistanceInto,
   subtractInto,
 } from "@/app/utils/helpers";
+import { worldRadius, worldDistanceFromParent } from "@/app/utils/scalePipeline";
 import { BODY_DISPLAY, toBodyKey } from "@/app/constants/BodyVisuals";
 
 // In-scene reticle on the active body — three concentric accent rings,
@@ -64,6 +64,8 @@ export function Reticle() {
   const shiftedScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const pivotScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const velScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const parentWorldScratch = useRef(new THREE.Vector3());
+  const childDeltaScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const lastRange = useRef<string>("");
   const lastVel = useRef<string>("");
 
@@ -76,6 +78,13 @@ export function Reticle() {
     : undefined;
   const orbitingNameUpper =
     activeProps?.orbitingBody?.trim().toUpperCase() ?? "";
+  const ownRadiusM = activeProps?.radius ?? 0;
+  const parentRadiusM = orbitingNameUpper
+    ? (propsList?.find(
+        (p: CelestialBodyProperties) =>
+          p.name?.trim().toUpperCase() === orbitingNameUpper,
+      )?.radius ?? 0)
+    : 0;
 
   useFrame(() => {
     if (!isBodyActive || !upperName || !activeProps || !groupRef.current)
@@ -93,8 +102,8 @@ export function Reticle() {
 
     readBodyStateInto(bodyPosVec.current, bodyVelVec.current, buffer, idx, bodyIdx);
 
-    // Orbital reference (orbitingNameUpper) is used for the positionScale
-    // visual fudge below. Frame-aware state-vector reference (computed
+    // Orbital reference (orbitingNameUpper) is used for the scale-pipeline
+    // parent/child branch below. Frame-aware state-vector reference (computed
     // here) is used for the range/velocity readouts.
     const orbitingIdx = orbitingNameUpper
       ? findBodyIndexCaseInsensitive(buffer, orbitingNameUpper)
@@ -111,25 +120,9 @@ export function Reticle() {
         ? findBodyIndexCaseInsensitive(buffer, stateRefNameUpper)
         : -1;
 
-    const positionScale = activeProps.positionScale ?? 1;
     posSimple.current.x = bodyPosVec.current.x;
     posSimple.current.y = bodyPosVec.current.y;
     posSimple.current.z = bodyPosVec.current.z;
-    let pos: Vector3Simple = posSimple.current;
-    if (positionScale !== 1 && orbitingIdx >= 0) {
-      readBodyPositionInto(orbitingPosVec.current, buffer, idx, orbitingIdx);
-      scaleDistanceInto(
-        posSimple.current,
-        posSimple.current,
-        {
-          x: orbitingPosVec.current.x,
-          y: orbitingPosVec.current.y,
-          z: orbitingPosVec.current.z,
-        },
-        positionScale,
-      );
-      pos = posSimple.current;
-    }
 
     // Apply display-frame pivot. Reticle marks the body in scene world
     // space, so it has to follow the same pivot subtraction Sphere.tsx
@@ -137,16 +130,47 @@ export function Reticle() {
     // heliocentric coordinate while the rendered body sits at its
     // geocentric one (1 AU mismatch).
     writePivotInto(pivotScratch.current, buffer, idx, displayFrame);
-    shiftedScratch.current.x = pos.x - pivotScratch.current.x;
-    shiftedScratch.current.y = pos.y - pivotScratch.current.y;
-    shiftedScratch.current.z = pos.z - pivotScratch.current.z;
-    pos = shiftedScratch.current;
+    posSimple.current.x -= pivotScratch.current.x;
+    posSimple.current.y -= pivotScratch.current.y;
+    posSimple.current.z -= pivotScratch.current.z;
 
-    setBodyWorldPosition(
-      groupRef.current.position,
-      pos,
-      simulationScale.positionScale,
-    );
+    if (orbitingNameUpper && orbitingIdx >= 0) {
+      readBodyPositionInto(orbitingPosVec.current, buffer, idx, orbitingIdx);
+      // shiftedScratch reused here for the parent's pivot-adjusted metres position.
+      shiftedScratch.current.x = orbitingPosVec.current.x - pivotScratch.current.x;
+      shiftedScratch.current.y = orbitingPosVec.current.y - pivotScratch.current.y;
+      shiftedScratch.current.z = orbitingPosVec.current.z - pivotScratch.current.z;
+
+      // Parent's world-unit position via the pipeline.
+      setBodyWorldPositionWithPreset(
+        parentWorldScratch.current,
+        shiftedScratch.current,
+        simulationScale.preset,
+      );
+
+      // Child world-relative-to-parent delta with min-separation rule.
+      worldDistanceFromParent(
+        posSimple.current,
+        shiftedScratch.current,
+        worldRadius(parentRadiusM, simulationScale.preset),
+        worldRadius(ownRadiusM, simulationScale.preset),
+        simulationScale.preset,
+        childDeltaScratch.current,
+      );
+
+      // Y/Z swap on the delta to convert from ICRF axes to three.js world space.
+      groupRef.current.position.set(
+        parentWorldScratch.current.x + childDeltaScratch.current.x,
+        parentWorldScratch.current.y + childDeltaScratch.current.z,
+        parentWorldScratch.current.z + childDeltaScratch.current.y,
+      );
+    } else {
+      setBodyWorldPositionWithPreset(
+        groupRef.current.position,
+        posSimple.current,
+        simulationScale.preset,
+      );
+    }
 
     if (stateRefIdx < 0) {
       // No frame-aware state reference. Show dashes.
