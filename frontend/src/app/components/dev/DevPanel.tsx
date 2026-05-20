@@ -163,14 +163,21 @@ function Tunables() {
         step={1}
         format={(v) => v.toFixed(0)}
       />
+      {/* Log r_ref slider uses log-AU mapping: slider position is
+          log10(AU). Range -1.3 to +0.7 covers r_ref ∈ [0.05 AU, 5 AU]
+          with even resolution across the meaningful compression range.
+          A linear slider on [0.1, 10] AU put ~90% of travel in the
+          near-linear regime, making the shape change hard to feel. */}
       <DevSlider
         label="Log r_ref"
         valueKey="logScaleRRef"
         value={settings.logScaleRRef}
-        min={0.1 * 149_597_870_700}
-        max={10 * 149_597_870_700}
-        step={0.1 * 149_597_870_700}
+        min={-1.301}
+        max={0.699}
+        step={0.04}
         format={(v) => `${(v / 149_597_870_700).toFixed(2)} AU`}
+        toSlider={(stored) => Math.log10(stored / 149_597_870_700)}
+        fromSlider={(slider) => Math.pow(10, slider) * 149_597_870_700}
       />
       <DevSlider
         label="R floor"
@@ -232,6 +239,8 @@ function DevSlider({
   max,
   step,
   format,
+  toSlider,
+  fromSlider,
 }: {
   label: string;
   valueKey: keyof DevSettings;
@@ -240,7 +249,13 @@ function DevSlider({
   max: number;
   step: number;
   format: (v: number) => string;
+  // Optional non-linear slider mapping. When both are provided, min/max/step
+  // are in SLIDER-POSITION units and toSlider/fromSlider translate to/from
+  // the stored value. Used by log_r_ref (slider position is log10(AU)).
+  toSlider?: (storedValue: number) => number;
+  fromSlider?: (sliderValue: number) => number;
 }) {
+  const sliderValue = toSlider ? toSlider(value) : value;
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between">
@@ -254,10 +269,12 @@ function DevSlider({
         min={min}
         max={max}
         step={step}
-        value={value}
-        onChange={(e) =>
-          setDevSetting(valueKey, parseFloat(e.target.value))
-        }
+        value={sliderValue}
+        onChange={(e) => {
+          const sliderVal = parseFloat(e.target.value);
+          const storedVal = fromSlider ? fromSlider(sliderVal) : sliderVal;
+          setDevSetting(valueKey, storedVal);
+        }}
         className="dev-slider w-full"
       />
     </div>
