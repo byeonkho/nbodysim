@@ -287,7 +287,12 @@ function ViewToggles() {
   const scaleLabel = scale.name === "Realistic" ? "Real" : "Stylized";
 
   return (
-    <div className="grid grid-cols-3 gap-[5px]">
+    // Fixed width so the chip grid doesn't grow when the Scale chip's
+    // value changes length (e.g. "Real" vs "Stylized"). Without this,
+    // the flex-1 Scrubber sibling shifts in response to chip content
+    // length, which reads as the whole panel jittering. 290px comfortably
+    // holds the longest expected value across all 7 chips.
+    <div className="grid grid-cols-3 gap-[5px] w-[290px] shrink-0">
       <ToggleChip label="Grid" on={grid} onClick={() => dispatch(toggleShowGrid())} />
       <ToggleChip label="Trails" on={trails} onClick={() => dispatch(toggleShowTrails())} />
       <ToggleChip
@@ -334,14 +339,18 @@ function ToggleChip({
       onClick={onClick}
       aria-pressed={hasValue ? undefined : Boolean(on)}
       className={[
-        "flex items-center gap-1.5 rounded-[7px] border px-[9px] py-[5px] text-[10px] font-medium transition-colors",
+        // w-full + justify-between: chip fills its grid cell; label sticks
+        // to the left, value sticks to the right. Stable column widths
+        // regardless of value text length. min-w-0 lets the spans truncate
+        // if absolutely needed rather than blowing out the cell.
+        "flex w-full min-w-0 items-center justify-between gap-1.5 rounded-[7px] border px-[9px] py-[5px] text-[10px] font-medium transition-colors",
         lit
           ? "bg-[rgba(164,168,255,0.12)] border-[rgba(164,168,255,0.28)] text-accent"
           : "bg-white/[0.04] border-white/[0.06] text-[#9b9ea9] hover:bg-white/[0.06]",
       ].join(" ")}
     >
-      <span>{label}</span>
-      <span className="tabular font-mono text-[9px] opacity-70">
+      <span className="truncate">{label}</span>
+      <span className="tabular truncate font-mono text-[9px] opacity-70">
         {hasValue ? value : lit ? "●" : "○"}
       </span>
     </button>

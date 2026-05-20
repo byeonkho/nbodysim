@@ -123,7 +123,13 @@ const Scene = () => {
           Visible mostly as subtle silhouette detail on the dark side. */}
       <hemisphereLight args={[0xb0c4ff, 0x2a2118, 0.08]} />
       {showAxes && <axesHelper args={[simulationScale.AXES.SIZE]} />}
-      {showGrid && (() => {
+      {/* Grid only renders in Real preset. Its "1 cell = 1 AU" semantics
+          rely on linear distance scaling. In Stylized preset world distance
+          is log1p-compressed, so a uniform Cartesian grid would silently
+          lie (Neptune at 30 AU sits at world cell ~5, not cell 30). Hiding
+          the grid there is the honest call. The toggle stays interactive
+          so users can pre-set their preference before flipping to Real. */}
+      {showGrid && simulationScale.preset === "realistic" && (() => {
         // 1 cell = 1 AU, by construction. Major lines every 10 AU
         // (Jupiter sits ~5.2 AU; Neptune ~30 AU — so a 10 AU section
         // gives the user a meaningful "outer-system" landmark).
