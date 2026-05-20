@@ -2,7 +2,7 @@ import { StaticImageData } from "next/image";
 import MercuryTexture from "../../../public/textures/mercury_texture.jpg";
 import VenusTexture from "../../../public/textures/venus_texture.jpg";
 import EarthTexture from "../../../public/textures/earth_texture.jpg";
-import FallbackTexture from "../../../public/textures/earth_texture.jpg";
+import FallbackTexture from "../../../public/textures/fallback.jpg";
 import MarsTexture from "../../../public/textures/mars_texture.jpg";
 import JupiterTexture from "../../../public/textures/jupiter_texture.jpg";
 import SaturnTexture from "../../../public/textures/saturn_texture.jpg";
@@ -10,6 +10,16 @@ import UranusTexture from "../../../public/textures/uranus_texture.jpg";
 import NeptuneTexture from "../../../public/textures/neptune_texture.jpg";
 import MoonTexture from "../../../public/textures/moon_texture.jpg";
 import SunTexture from "../../../public/textures/sun_texture.jpg";
+// Minor bodies. Pallas / Hygiea / Apophis have no published surface mosaic
+// (Pallas + Hygiea: only blurry Hubble discs; Apophis: radar-only until the
+// 2029 flyby), so they ride the fallback texture. See ATTRIBUTIONS.md for
+// licensing per asset.
+import PlutoTexture from "../../../public/textures/pluto.jpg";
+import CeresTexture from "../../../public/textures/ceres.jpg";
+import VestaTexture from "../../../public/textures/vesta.jpg";
+import ErosTexture from "../../../public/textures/eros.jpg";
+import BennuTexture from "../../../public/textures/bennu.jpg";
+import RyuguTexture from "../../../public/textures/ryugu.jpg";
 
 const SimConstants = {
   // 1 astronomical unit in metres (IAU 2012 definition). Scene grid cell
@@ -71,6 +81,19 @@ export const bodyProperties: Record<string, BodyProperties> = {
   MOON:    { texture: MoonTexture    as StaticImageData, rotationSpeed: 0.004 },
   SUN:     { texture: SunTexture     as StaticImageData, rotationSpeed: 0.004 },
   FALLBACK:{ texture: FallbackTexture as StaticImageData, rotationSpeed: 0.1 },
+
+  // Minor bodies. Rotation rates are stylized (same convention as the
+  // planets above — visually-pleasing spin, not real angular velocity).
+  // Negative = retrograde.
+  PLUTO:   { texture: PlutoTexture   as StaticImageData, rotationSpeed: -0.016 }, // 6.4 d retrograde
+  CERES:   { texture: CeresTexture   as StaticImageData, rotationSpeed:  0.045 }, // 9.07 hr
+  VESTA:   { texture: VestaTexture   as StaticImageData, rotationSpeed:  0.076 }, // 5.34 hr
+  PALLAS:  { texture: FallbackTexture as StaticImageData, rotationSpeed: 0.052 }, // 7.81 hr — fallback (no mosaic)
+  HYGIEA:  { texture: FallbackTexture as StaticImageData, rotationSpeed: 0.029 }, // 13.8 hr — fallback (no mosaic)
+  EROS:    { texture: ErosTexture    as StaticImageData, rotationSpeed:  0.076 }, // 5.27 hr
+  APOPHIS: { texture: FallbackTexture as StaticImageData, rotationSpeed: 0.013 }, // 30.4 hr — fallback (no mosaic)
+  BENNU:   { texture: BennuTexture   as StaticImageData, rotationSpeed:  0.093 }, // 4.30 hr
+  RYUGU:   { texture: RyuguTexture   as StaticImageData, rotationSpeed:  0.053 }, // 7.63 hr
 };
 
 export default SimConstants;
