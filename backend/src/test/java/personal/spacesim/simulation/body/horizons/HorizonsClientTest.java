@@ -60,13 +60,18 @@ class HorizonsClientTest {
 
     @Test
     void buildsQueryWithSpkIdAndCenter10_andParsesResponse() {
-        // Request matcher: the URL must contain COMMAND='2000433' (URL-encoded
-        // single quotes will appear as %27).
+        // Request matcher: the URL must contain the SPK id wrapped as a
+        // designation lookup. Horizons interprets a bare numeric "2000433"
+        // as IAU asteroid number 2000433, which is out of bounds (max
+        // 887103); the DES=...; form forces the SPK-ID branch. JPL's parser
+        // also rejects literal ';' in queries, so the whole value must be
+        // form-encoded; we assert the encoded fragments.
         server.expect(requestUrlContains("COMMAND="))
               .andExpect(method(HttpMethod.GET))
-              .andExpect(requestUrlContains("2000433"))
+              .andExpect(requestUrlContains("DES%3D2000433")) // DES=2000433 form-encoded
+              .andExpect(requestUrlContains("%3B"))            // trailing semicolon
               .andExpect(requestUrlContains("CENTER="))
-              .andExpect(requestUrlContains("@10"))   // heliocentric body code
+              .andExpect(requestUrlContains("%4010"))          // '@10' form-encoded
               .andExpect(requestUrlContains("OUT_UNITS="))
               .andRespond(withSuccess(capturedResponse, MediaType.TEXT_PLAIN));
 
@@ -87,6 +92,25 @@ class HorizonsClientTest {
 
         assertThrows(HorizonsClient.HorizonsFetchException.class,
             () -> client.fetchState("2000433", AbsoluteDate.J2000_EPOCH));
+    }
+
+    @Test
+    void parseFailureSurfacesJplErrorBodyInException() {
+        // When JPL returns a non-ephemeris body (e.g. "No ephemeris for
+        // target ..."), the parser throws IllegalArgumentException. The
+        // message must include enough of the body that the JPL error is
+        // visible in logs — debugging this class of bug from "missing
+        // $$SOE markers" alone was painful.
+        String jplError =
+            "API VERSION: 1.2\nAPI SOURCE: NASA/JPL Horizons API\n\n" +
+            "No ephemeris for target \"\" after A.D. 2009-DEC-31 00:00:00.0000 TDB";
+        server.expect(requestUrlContains("COMMAND="))
+              .andRespond(withSuccess(jplError, MediaType.TEXT_PLAIN));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+            () -> client.fetchState("2000433", AbsoluteDate.J2000_EPOCH));
+        assertTrue(ex.getMessage().contains("No ephemeris"),
+            "Expected JPL error body in exception message, got: " + ex.getMessage());
     }
 
     /** Helper: match any request whose URL string contains the given substring. */
