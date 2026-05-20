@@ -1,7 +1,6 @@
 package personal.spacesim.simulation;
 
 import lombok.Getter;
-import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.orekit.frames.Frame;
 import org.orekit.time.AbsoluteDate;
@@ -21,7 +20,6 @@ import java.util.Map;
 import static personal.spacesim.simulation.state.GlobalState.COORDS_PER_BODY;
 
 @Getter
-@Setter
 @Slf4j
 public class Simulation {
 
