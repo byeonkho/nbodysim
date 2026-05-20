@@ -152,6 +152,15 @@ public class Simulation {
      */
     private final double e0;
 
+    /**
+     * Number of leading massive bodies in {@link #celestialBodies}. The
+     * remainder are test particles — they feel gravity from the massive
+     * prefix but exert none. Equals {@code celestialBodies.size()} when
+     * no test particles are present.
+     */
+    private final int massiveCount;
+
+    /** Backwards-compatible: all bodies treated as massive. */
     public Simulation(
             String sessionID,
             List<CelestialBodyWrapper> celestialBodies,
@@ -162,6 +171,22 @@ public class Simulation {
             int keyframesPerKept,
             int targetSnapshotsPerChunk
     ) {
+        this(sessionID, celestialBodies, frame, integrator, simStartDate,
+             timeStepUnit, keyframesPerKept, targetSnapshotsPerChunk,
+             celestialBodies.size());
+    }
+
+    public Simulation(
+            String sessionID,
+            List<CelestialBodyWrapper> celestialBodies,
+            Frame frame,
+            Integrator integrator,
+            AbsoluteDate simStartDate,
+            String timeStepUnit,
+            int keyframesPerKept,
+            int targetSnapshotsPerChunk,
+            int massiveCount
+    ) {
         this.sessionID = sessionID;
         this.frame = frame;
         this.celestialBodies = celestialBodies;
@@ -171,7 +196,8 @@ public class Simulation {
         this.timeStepUnit = timeStepUnit;
         this.keyframesPerKept = keyframesPerKept;
         this.targetSnapshotsPerChunk = targetSnapshotsPerChunk;
-        this.derivatives = NBodyDerivatives.forBodies(celestialBodies);
+        this.massiveCount = massiveCount;
+        this.derivatives = NBodyDerivatives.forBodies(celestialBodies, massiveCount);
         this.isAdaptiveIntegrator = integrator instanceof DP853Integrator;
 
         // Pre-compute the time-gap (sim seconds between adjacent emissions)

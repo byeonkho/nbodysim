@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import personal.spacesim.simulation.body.CelestialBodyWrapper;
 import personal.spacesim.simulation.body.CelestialBodyWrapperFactory;
+import personal.spacesim.simulation.body.MinorBodyCatalog;
 import personal.spacesim.simulation.frame.CustomFrameFactory;
 import personal.spacesim.utils.math.integrators.Integrator;
 import personal.spacesim.utils.math.integrators.IntegratorFactory;
@@ -54,11 +55,26 @@ public class SimulationFactory {
         Frame frame = customFrameFactory.createFrame(frameStr);
         Integrator integrator = integratorFactory.createIntegrator(integratorStr);
 
-        List<CelestialBodyWrapper> celestialBodies = new ArrayList<>();
+        // Partition into [massive | test] so NBodyDerivatives can use its
+        // sumBound = massiveCount dispatch. Test particles are the bodies
+        // flagged isTestParticle() in MinorBodyCatalog (NEAs); everything
+        // else — Sun, planets, dwarf planets, Pluto — is massive.
+        List<CelestialBodyWrapper> massive = new ArrayList<>(celestialBodyNames.size());
+        List<CelestialBodyWrapper> test = new ArrayList<>();
         for (String bodyName : celestialBodyNames) {
-            CelestialBodyWrapper body = celestialBodyWrapperFactory.createCelestialBodyWrapper(bodyName, frame, simStartDate);
-            celestialBodies.add(body);
+            CelestialBodyWrapper body = celestialBodyWrapperFactory.createCelestialBodyWrapper(
+                    bodyName, frame, simStartDate);
+            MinorBodyCatalog.Entry minorEntry = MinorBodyCatalog.get(bodyName);
+            if (minorEntry != null && minorEntry.isTestParticle()) {
+                test.add(body);
+            } else {
+                massive.add(body);
+            }
         }
+        int massiveCount = massive.size();
+        List<CelestialBodyWrapper> celestialBodies = new ArrayList<>(massive.size() + test.size());
+        celestialBodies.addAll(massive);
+        celestialBodies.addAll(test);
 
         return new Simulation(
                 sessionID,
@@ -68,7 +84,8 @@ public class SimulationFactory {
                 simStartDate,
                 timeStepUnit,
                 keyframesPerKept,
-                targetSnapshotsPerChunk
+                targetSnapshotsPerChunk,
+                massiveCount
         );
     }
 }
