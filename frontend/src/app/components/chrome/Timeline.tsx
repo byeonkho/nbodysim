@@ -290,9 +290,11 @@ function ViewToggles() {
     // Fixed width so the chip grid doesn't grow when the Scale chip's
     // value changes length (e.g. "Real" vs "Stylized"). Without this,
     // the flex-1 Scrubber sibling shifts in response to chip content
-    // length, which reads as the whole panel jittering. 290px comfortably
-    // holds the longest expected value across all 7 chips.
-    <div className="grid grid-cols-3 gap-[5px] w-[290px] shrink-0">
+    // length, which reads as the whole panel jittering. 348px is sized
+    // so the longest chip content ("Scale" + "Stylized") fits naturally
+    // in its 1/3 cell with no truncation — short-value chips get extra
+    // breathing room between label and dot, which is acceptable.
+    <div className="grid grid-cols-3 gap-[5px] w-[348px] shrink-0">
       <ToggleChip label="Grid" on={grid} onClick={() => dispatch(toggleShowGrid())} />
       <ToggleChip label="Trails" on={trails} onClick={() => dispatch(toggleShowTrails())} />
       <ToggleChip
@@ -349,8 +351,8 @@ function ToggleChip({
           : "bg-white/[0.04] border-white/[0.06] text-[#9b9ea9] hover:bg-white/[0.06]",
       ].join(" ")}
     >
-      <span className="truncate">{label}</span>
-      <span className="tabular truncate font-mono text-[9px] opacity-70">
+      <span>{label}</span>
+      <span className="tabular font-mono text-[9px] opacity-70">
         {hasValue ? value : lit ? "●" : "○"}
       </span>
     </button>
