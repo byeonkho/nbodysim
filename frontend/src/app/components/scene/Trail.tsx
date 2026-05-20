@@ -2,17 +2,18 @@
 
 import React, { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { useStore } from "react-redux";
+import { useSelector, useStore } from "react-redux";
 import * as THREE from "three";
 import { RootState } from "@/app/store/Store";
 import {
   CelestialBodyProperties,
+  selectCelestialBodyPropertiesList,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
 import { readBodyPositionInto } from "@/app/store/chunkBuffer";
-import { writeBodyWorldPositionToArray } from "@/app/utils/coordinates";
+import { writeBodyWorldPositionToArrayWithPreset } from "@/app/utils/coordinates";
 import { findEarthBodyIndex, writePivotInto } from "@/app/utils/framePivot";
-import { scaleDistanceInto } from "@/app/utils/helpers";
+import { worldDistance, worldRadius, worldDistanceFromParent } from "@/app/utils/scalePipeline";
 import { getDevSettings } from "@/app/dev/devSettingsStore";
 
 interface TrailProps {
@@ -40,6 +41,27 @@ const Trail: React.FC<TrailProps> = ({
   color = [1, 1, 1],
 }) => {
   const store = useStore<RootState>();
+  const propsList = useSelector(selectCelestialBodyPropertiesList);
+
+  const { orbitingBodyNameUpper, ownRadiusM } = useMemo(() => {
+    const nameUpper = bodyName.toUpperCase();
+    const bodyProps: CelestialBodyProperties | undefined = propsList?.find(
+      (bp: CelestialBodyProperties) => bp.name?.toUpperCase() === nameUpper,
+    );
+    return {
+      orbitingBodyNameUpper: bodyProps?.orbitingBody?.toUpperCase(),
+      ownRadiusM: bodyProps?.radius ?? 0,
+    };
+  }, [bodyName, propsList]);
+
+  const parentRadiusM = useMemo(() => {
+    if (!orbitingBodyNameUpper) return 0;
+    const parent = propsList?.find(
+      (bp: CelestialBodyProperties) =>
+        bp.name?.toUpperCase() === orbitingBodyNameUpper,
+    );
+    return parent?.radius ?? 0;
+  }, [orbitingBodyNameUpper, propsList]);
 
   const lineObject = useMemo(() => {
     const geom = new THREE.BufferGeometry();
@@ -78,7 +100,7 @@ const Trail: React.FC<TrailProps> = ({
   const posSimple = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const orbitingSimple = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const pivotScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
-  const shiftedScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  const childDeltaScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
 
   // Cached body indices into the chunk buffer. Backend's wire format
   // guarantees stable body ordering across every chunk of a session, so
@@ -102,8 +124,6 @@ const Trail: React.FC<TrailProps> = ({
       state.simulation.timeState.currentTimeStepIndex;
     const simulationScale =
       state.simulation.simulationParameters.simulationScale;
-    const celestialBodyPropertiesList =
-      state.simulation.simulationParameters.celestialBodyPropertiesList;
     const displayFrame = state.simulation.simulationParameters.displayFrame;
 
     const geom = lineObject.geometry;
@@ -130,14 +150,6 @@ const Trail: React.FC<TrailProps> = ({
     const end = Math.min(idxFloor, buffer.totalTimesteps - 1);
     const total = end - start;
 
-    const bodyProps: CelestialBodyProperties | undefined =
-      celestialBodyPropertiesList.find(
-        (bp: CelestialBodyProperties) =>
-          bp.name?.toUpperCase() === bodyName.toUpperCase(),
-      );
-    const positionScale = bodyProps?.positionScale ?? 1;
-    const orbitingBodyName = bodyProps?.orbitingBody;
-
     // Lazy-resolve cached indices into the chunk buffer.
     if (bodyIndexRef.current === -1) {
       const targetUpper = bodyName.toUpperCase();
@@ -147,10 +159,9 @@ const Trail: React.FC<TrailProps> = ({
           break;
         }
       }
-      if (orbitingBodyName) {
-        const orbitingTarget = orbitingBodyName.toUpperCase();
+      if (orbitingBodyNameUpper) {
         for (const [bn, i] of buffer.bodyNameToIndex.entries()) {
-          if (bn.toUpperCase() === orbitingTarget) {
+          if (bn.toUpperCase() === orbitingBodyNameUpper) {
             orbitingIndexRef.current = i;
             break;
           }
@@ -171,40 +182,60 @@ const Trail: React.FC<TrailProps> = ({
       posSimple.current.x = posScratchVec.current.x;
       posSimple.current.y = posScratchVec.current.y;
       posSimple.current.z = posScratchVec.current.z;
-      let pos: Vector3Simple = posSimple.current;
-
-      if (positionScale !== 1 && orbitingIdx >= 0) {
-        readBodyPositionInto(orbitingScratchVec.current, buffer, i, orbitingIdx);
-        orbitingSimple.current.x = orbitingScratchVec.current.x;
-        orbitingSimple.current.y = orbitingScratchVec.current.y;
-        orbitingSimple.current.z = orbitingScratchVec.current.z;
-        scaleDistanceInto(
-          posSimple.current,
-          posSimple.current,
-          orbitingSimple.current,
-          positionScale,
-        );
-        pos = posSimple.current;
-      }
-
       // Frame transform: subtract this timestep's pivot from `pos`. Geo
       // trails reproject per-history-point so the trail shows where the
       // body *was relative to Earth at each moment*, not relative to
       // Earth's current position. Helio path: pivot is zeros, the
       // subtraction is a no-op.
       writePivotInto(pivotScratch.current, buffer, i, displayFrame);
-      shiftedScratch.current.x = pos.x - pivotScratch.current.x;
-      shiftedScratch.current.y = pos.y - pivotScratch.current.y;
-      shiftedScratch.current.z = pos.z - pivotScratch.current.z;
-      pos = shiftedScratch.current;
+      posSimple.current.x -= pivotScratch.current.x;
+      posSimple.current.y -= pivotScratch.current.y;
+      posSimple.current.z -= pivotScratch.current.z;
 
       const writeIdx = count * 3;
-      writeBodyWorldPositionToArray(
-        positions,
-        writeIdx,
-        pos,
-        simulationScale.positionScale,
-      );
+
+      if (orbitingIdx >= 0) {
+        // Body has a parent — apply the body-agnostic minimum-separation
+        // rule via worldDistanceFromParent. Mirrors the Sphere.tsx pattern.
+        readBodyPositionInto(orbitingScratchVec.current, buffer, i, orbitingIdx);
+        orbitingSimple.current.x = orbitingScratchVec.current.x - pivotScratch.current.x;
+        orbitingSimple.current.y = orbitingScratchVec.current.y - pivotScratch.current.y;
+        orbitingSimple.current.z = orbitingScratchVec.current.z - pivotScratch.current.z;
+
+        // Parent world position — inlined pipeline math (option b, no scratch alloc).
+        // worldDistance maps |parent_m| to world units; scale each axis proportionally.
+        const px = orbitingSimple.current.x;
+        const py = orbitingSimple.current.y;
+        const pz = orbitingSimple.current.z;
+        const pr_m = Math.sqrt(px * px + py * py + pz * pz);
+        const ps = pr_m === 0 ? 0 : worldDistance(pr_m, simulationScale.preset) / pr_m;
+        // Y/Z swap: ICRF Y → world Z, ICRF Z → world Y.
+        const parentWorldX = px * ps;
+        const parentWorldY = pz * ps;
+        const parentWorldZ = py * ps;
+
+        // Child delta relative to parent — in ICRF axes (no swap yet).
+        worldDistanceFromParent(
+          posSimple.current,
+          orbitingSimple.current,
+          worldRadius(parentRadiusM, simulationScale.preset),
+          worldRadius(ownRadiusM, simulationScale.preset),
+          simulationScale.preset,
+          childDeltaScratch.current,
+        );
+
+        // Sum parent world pos + delta with Y/Z swap applied to delta.
+        positions[writeIdx]     = parentWorldX + childDeltaScratch.current.x;
+        positions[writeIdx + 1] = parentWorldY + childDeltaScratch.current.z; // swap
+        positions[writeIdx + 2] = parentWorldZ + childDeltaScratch.current.y; // swap
+      } else {
+        writeBodyWorldPositionToArrayWithPreset(
+          positions,
+          writeIdx,
+          posSimple.current,
+          simulationScale.preset,
+        );
+      }
 
       const fade = total > 0 ? (i - start) / total : 1;
       colors[writeIdx] = color[0] * fade;
