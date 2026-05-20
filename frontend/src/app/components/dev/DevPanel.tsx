@@ -190,6 +190,17 @@ function Tunables() {
         step={0.01}
         format={(v) => v.toFixed(2)}
       />
+      {/* Minimum world-radius floor for the Log preset. Lifts the smallest
+          NEAs (Apophis, Bennu, Ryugu, Eros) to a visible dot. 0 disables. */}
+      <DevSlider
+        label="Min radius"
+        valueKey="logMinRadius"
+        value={settings.logMinRadius}
+        min={0}
+        max={0.1}
+        step={0.005}
+        format={(v) => v.toFixed(3)}
+      />
     </section>
   );
 }

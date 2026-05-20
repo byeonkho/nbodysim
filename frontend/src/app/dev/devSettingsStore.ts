@@ -63,6 +63,16 @@ export interface DevSettings {
    * Realistic preset ignores this.
    */
   logRadiusExponent: number;
+  /**
+   * Log preset: minimum world-radius for any body, applied AFTER the
+   * power-law compression. Without a floor, the smallest named NEAs
+   * (Apophis 185 m, Bennu 245 m, Ryugu 435 m) render at ~0.001–0.002 wu
+   * — sub-pixel at any zoom. Default 0.02 wu lifts those four to a barely
+   * visible dot while leaving Moon (0.13 wu), Pluto (0.11 wu), the dwarf
+   * planets (0.05–0.07 wu), and everything larger fully unaffected.
+   * Set to 0 to disable. Realistic preset ignores this.
+   */
+  logMinRadius: number;
 }
 
 const DEFAULTS: DevSettings = {
@@ -74,6 +84,7 @@ const DEFAULTS: DevSettings = {
   logScaleA: 60,
   logScaleRRef: 149_597_870_700,
   logRadiusExponent: 0.5,
+  logMinRadius: 0.02,
 };
 
 let state: DevSettings = { ...DEFAULTS };
