@@ -29,6 +29,7 @@ import { Reticle } from "@/app/components/scene/Reticle";
 import { GhostLabel } from "@/app/components/scene/GhostLabel";
 import { bodyColorRgb01, toBodyKey } from "@/app/constants/BodyVisuals";
 import { worldDistance, worldRadius } from "@/app/utils/scalePipeline";
+import { useDevSettings } from "@/app/dev/devSettingsStore";
 
 // Background is rendered in CSS on the parent container (Layout.tsx), not
 // as a three.js scene.background. The canvas is transparent (`alpha: true`),
@@ -57,19 +58,35 @@ const Scene = () => {
   const showOrbitPaths: boolean = useSelector(selectShowOrbitPaths);
   const simulationScale: SimulationScale = useSelector(selectSimulationScale);
 
+  // Subscribe to dev settings so the radius map re-computes when Log-preset
+  // tunables (specifically logRadiusExponent) change. worldRadius reads from
+  // devSettings internally; without this subscription the useMemo below
+  // doesn't know to invalidate when the dev slider moves.
+  const devSettings = useDevSettings();
+
   // Per-body world radius via the scale pipeline, indexed by name.
-  // Stable across animation frames because both inputs are stable across
-  // frames — only changes when celestialBodyPropertiesList or scale changes.
-  const celestialBodyRadiusMap = useMemo(() => {
-    const map = new Map<string, number>();
-    if (!celestialBodyPropertiesList) return map;
-    for (const props of celestialBodyPropertiesList) {
-      if (props.name && props.radius !== undefined) {
-        map.set(props.name, worldRadius(props.radius, simulationScale.preset));
+  // Re-computes when celestialBodyPropertiesList, the active preset, or the
+  // Log-preset body-radius exponent changes. worldRadius reads the exponent
+  // from devSettings internally; the explicit dep below is the invalidation
+  // trigger for slider drags. ESLint's static analysis can't see through to
+  // the devSettings read inside worldRadius, hence the disable.
+  const celestialBodyRadiusMap = useMemo(
+    () => {
+      const map = new Map<string, number>();
+      if (!celestialBodyPropertiesList) return map;
+      for (const props of celestialBodyPropertiesList) {
+        if (props.name && props.radius !== undefined) {
+          map.set(
+            props.name,
+            worldRadius(props.radius, simulationScale.preset),
+          );
+        }
       }
-    }
-    return map;
-  }, [celestialBodyPropertiesList, simulationScale]);
+      return map;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [celestialBodyPropertiesList, simulationScale, devSettings.logRadiusExponent],
+  );
 
   return (
     <Canvas
