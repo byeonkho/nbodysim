@@ -156,6 +156,7 @@ export function Reticle() {
         worldRadius(ownRadiusM, simulationScale.preset),
         simulationScale.preset,
         childDeltaScratch.current,
+        orbitingNameUpper,
       );
 
       // Y/Z swap on the delta to convert from ICRF axes to three.js world space.
