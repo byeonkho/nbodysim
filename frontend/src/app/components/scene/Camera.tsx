@@ -121,6 +121,7 @@ function writeBodyRenderedPositionInto(
         worldRadius(ownRadiusM, preset),
         preset,
         childDeltaScratch,
+        orbitingBodyNameUpper,
       );
 
       // Apply Y/Z swap to delta (matches Sphere pattern).
