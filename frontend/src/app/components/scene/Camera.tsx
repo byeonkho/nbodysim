@@ -1,19 +1,19 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { useSelector, useStore } from "react-redux";
 import {
   type CameraPreset,
-  CelestialBodyProperties,
   selectActiveBodyName,
   selectCameraPreset,
+  selectCelestialBodyPropertiesList,
   selectIsBodyActive,
   selectSimulationScale,
   SimulationScale,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
-import { readBodyPositionInto } from "@/app/store/chunkBuffer";
+import { readBodyPositionInto, type ChunkBuffer } from "@/app/store/chunkBuffer";
 import * as THREE from "three";
 import { RootState } from "@/app/store/Store";
 import { useDevSettings } from "@/app/dev/devSettingsStore";
@@ -46,9 +46,19 @@ const parentShiftedScratch: Vector3Simple = { x: 0, y: 0, z: 0 };
 const parentWorldScratchVec3 = new THREE.Vector3();
 const childDeltaScratch: Vector3Simple = { x: 0, y: 0, z: 0 };
 
+// PropsByUpperName values carry a pre-uppercased orbitingBody so the hot path
+// never has to `.toUpperCase()` per frame. Built at component level via useMemo;
+// keyed on `propsList` identity.
+interface UpperCachedProps {
+  radius?: number;
+  orbitingBodyUpper?: string;
+}
+
 function writeBodyRenderedPositionInto(
   out: THREE.Vector3,
-  activeBodyName: string,
+  activeBodyNameUpper: string,
+  propsByUpperName: Map<string, UpperCachedProps>,
+  bodyIdxByUpperName: Map<string, number>,
   state: RootState,
   pivotScratch: Vector3Simple,
   shiftedScratch: Vector3Simple,
@@ -58,15 +68,8 @@ function writeBodyRenderedPositionInto(
   const idx = state.simulation.timeState.currentTimeStepIndex;
   if (!buffer || idx >= buffer.totalTimesteps) return false;
 
-  const upperActiveName = activeBodyName.toUpperCase();
-  let bodyIdx = -1;
-  for (const [bn, i] of buffer.bodyNameToIndex.entries()) {
-    if (bn.toUpperCase() === upperActiveName) {
-      bodyIdx = i;
-      break;
-    }
-  }
-  if (bodyIdx < 0) return false;
+  const bodyIdx = bodyIdxByUpperName.get(activeBodyNameUpper);
+  if (bodyIdx === undefined) return false;
 
   readBodyPositionInto(bodyReadScratch, buffer, idx, bodyIdx);
 
@@ -76,25 +79,14 @@ function writeBodyRenderedPositionInto(
   shiftedScratch.y = bodyReadScratch.y - pivotScratch.y;
   shiftedScratch.z = bodyReadScratch.z - pivotScratch.z;
 
-  const propsList =
-    state.simulation.simulationParameters.celestialBodyPropertiesList;
-  const bodyProps = propsList?.find(
-    (bp: CelestialBodyProperties) =>
-      bp.name?.toUpperCase() === upperActiveName,
-  );
-  const orbitingBodyNameUpper = bodyProps?.orbitingBody?.toUpperCase();
+  const bodyProps = propsByUpperName.get(activeBodyNameUpper);
+  const orbitingBodyNameUpper = bodyProps?.orbitingBodyUpper;
   const ownRadiusM = bodyProps?.radius ?? 0;
 
   if (orbitingBodyNameUpper) {
-    let parentIdx = -1;
-    for (const [bn, i] of buffer.bodyNameToIndex.entries()) {
-      if (bn.toUpperCase() === orbitingBodyNameUpper) {
-        parentIdx = i;
-        break;
-      }
-    }
+    const parentIdx = bodyIdxByUpperName.get(orbitingBodyNameUpper);
 
-    if (parentIdx >= 0) {
+    if (parentIdx !== undefined) {
       // Read and pivot-subtract parent position.
       readBodyPositionInto(bodyReadScratch, buffer, idx, parentIdx);
       parentReadScratch.x = bodyReadScratch.x;
@@ -104,10 +96,7 @@ function writeBodyRenderedPositionInto(
       parentShiftedScratch.y = parentReadScratch.y - pivotScratch.y;
       parentShiftedScratch.z = parentReadScratch.z - pivotScratch.z;
 
-      const parentProps = propsList?.find(
-        (bp: CelestialBodyProperties) =>
-          bp.name?.toUpperCase() === orbitingBodyNameUpper,
-      );
+      const parentProps = propsByUpperName.get(orbitingBodyNameUpper);
       const parentRadiusM = parentProps?.radius ?? 0;
 
       // Parent's world-unit position via the pipeline.
@@ -137,6 +126,9 @@ function writeBodyRenderedPositionInto(
   return true;
 }
 
+const EMPTY_PROPS_MAP: Map<string, UpperCachedProps> = new Map();
+const EMPTY_INDEX_MAP: Map<string, number> = new Map();
+
 const Camera: React.FC = () => {
   const { camera } = useThree();
   const controlsRef = useRef<OrbitControlsImpl>(null!);
@@ -144,6 +136,7 @@ const Camera: React.FC = () => {
   const isBodyActive: boolean = useSelector(selectIsBodyActive);
   const simulationScale: SimulationScale = useSelector(selectSimulationScale);
   const cameraPreset: CameraPreset = useSelector(selectCameraPreset);
+  const propsList = useSelector(selectCelestialBodyPropertiesList);
   const { orbitDampingFactor } = useDevSettings();
   const store = useStore<RootState>();
 
@@ -156,6 +149,54 @@ const Camera: React.FC = () => {
   const targetDeltaScratch = useRef(new THREE.Vector3());
   const desiredCameraScratch = useRef(new THREE.Vector3());
   const safetyDirScratch = useRef(new THREE.Vector3());
+
+  // Pre-uppercase lookup map for body properties. Eliminates per-frame
+  // `propsList.find(... .toUpperCase() ...)` linear scans. Rebuilds only
+  // when propsList identity changes (rare — once per chunk merge that
+  // updates µ, plus loadSimulation).
+  const propsByUpperName = useMemo<Map<string, UpperCachedProps>>(() => {
+    if (!propsList) return EMPTY_PROPS_MAP;
+    const map = new Map<string, UpperCachedProps>();
+    for (const bp of propsList) {
+      if (!bp.name) continue;
+      map.set(bp.name.toUpperCase(), {
+        radius: bp.radius,
+        orbitingBodyUpper: bp.orbitingBody?.toUpperCase(),
+      });
+    }
+    return map;
+  }, [propsList]);
+
+  // Pre-uppercased active body name. Eliminates per-frame
+  // `activeBodyName.toUpperCase()` allocation.
+  const activeBodyNameUpper = useMemo(
+    () => activeBodyName?.toUpperCase() ?? null,
+    [activeBodyName],
+  );
+
+  // Buffer-index map keyed by uppercase name. The chunkBuffer is read from
+  // store.getState() (not subscribed) so we can't useMemo on it directly —
+  // instead, cache by buffer identity and rebuild only when a new buffer
+  // arrives (new session). Backend already uppercases names at body
+  // construction so buffer.bodyNameToIndex keys are upper today, but we
+  // rebuild defensively to avoid coupling to that invariant.
+  const bufferIdxRef = useRef<{
+    buffer: ChunkBuffer | null;
+    map: Map<string, number>;
+  }>({ buffer: null, map: EMPTY_INDEX_MAP });
+
+  const getBodyIdxByUpperName = (
+    buffer: ChunkBuffer | null,
+  ): Map<string, number> => {
+    if (!buffer) return EMPTY_INDEX_MAP;
+    if (bufferIdxRef.current.buffer === buffer) return bufferIdxRef.current.map;
+    const map = new Map<string, number>();
+    for (let i = 0; i < buffer.bodyNames.length; i++) {
+      map.set(buffer.bodyNames[i].toUpperCase(), i);
+    }
+    bufferIdxRef.current = { buffer, map };
+    return map;
+  };
 
   /* eslint-disable react-hooks/immutability */
   useEffect(() => {
@@ -182,7 +223,7 @@ const Camera: React.FC = () => {
   }, [camera, simulationScale, cameraPreset]);
 
   useEffect(() => {
-    if (!isBodyActive || !activeBodyName || !controlsRef.current) {
+    if (!isBodyActive || !activeBodyNameUpper || !controlsRef.current) {
       tweenRef.current = null;
       minDistanceRef.current = 0;
       if (controlsRef.current) controlsRef.current.minDistance = 0;
@@ -191,9 +232,12 @@ const Camera: React.FC = () => {
 
     const state = store.getState();
     const preset = simulationScale.preset;
+    const bodyIdxByUpperName = getBodyIdxByUpperName(state.simulation.chunkBuffer);
     const ok = writeBodyRenderedPositionInto(
       bodyPosScratch.current,
-      activeBodyName,
+      activeBodyNameUpper,
+      propsByUpperName,
+      bodyIdxByUpperName,
       state,
       pivotScratch.current,
       shiftedScratch.current,
@@ -201,12 +245,7 @@ const Camera: React.FC = () => {
     );
     if (!ok) return;
 
-    const propsList =
-      state.simulation.simulationParameters.celestialBodyPropertiesList;
-    const bodyProps = propsList?.find(
-      (bp: CelestialBodyProperties) =>
-        bp.name?.toUpperCase() === activeBodyName.toUpperCase(),
-    );
+    const bodyProps = propsByUpperName.get(activeBodyNameUpper);
     const bodyRadius = bodyProps?.radius;
     const min =
       bodyRadius != null
@@ -234,21 +273,33 @@ const Camera: React.FC = () => {
       startCameraPos: camera.position.clone(),
       capturedOffset,
     };
-  }, [activeBodyName, isBodyActive, simulationScale, store, camera]);
+  }, [
+    activeBodyNameUpper,
+    isBodyActive,
+    simulationScale,
+    store,
+    camera,
+    propsByUpperName,
+  ]);
 
   useFrame(() => {
     const controls = controlsRef.current;
     if (!controls) return;
 
-    if (!isBodyActive || !activeBodyName) {
+    if (!isBodyActive || !activeBodyNameUpper) {
       controls.update();
       return;
     }
 
     const frameState = store.getState();
+    const bodyIdxByUpperName = getBodyIdxByUpperName(
+      frameState.simulation.chunkBuffer,
+    );
     const ok = writeBodyRenderedPositionInto(
       bodyPosScratch.current,
-      activeBodyName,
+      activeBodyNameUpper,
+      propsByUpperName,
+      bodyIdxByUpperName,
       frameState,
       pivotScratch.current,
       shiftedScratch.current,
