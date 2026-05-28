@@ -108,6 +108,7 @@ export function GhostLabel({ bodyName }: { bodyName: string }) {
         worldRadius(ownRadiusM, preset),
         preset,
         childDeltaScratch.current,
+        orbitingNameUpper,
       );
 
       groupRef.current.position.set(
