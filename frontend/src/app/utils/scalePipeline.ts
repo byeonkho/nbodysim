@@ -64,7 +64,22 @@ export interface LogScaleParams {
   rRef: number;
 }
 
-export const MOON_LOG_SCALE: Record<string, LogScaleParams> = {
+// Constrained key type — every body with at least one moon in MoonCatalog,
+// plus EARTH (which uses the same per-parent path for the existing Moon).
+// Typing the catalog as Record<MoonLogScaleParent, ...> instead of
+// Record<string, ...> catches typos like MOON_LOG_SCALE.JUPTIER at compile
+// time. Lookup site below uses an `in` guard to safely narrow string →
+// MoonLogScaleParent.
+export type MoonLogScaleParent =
+  | "EARTH"
+  | "MARS"
+  | "JUPITER"
+  | "SATURN"
+  | "URANUS"
+  | "NEPTUNE"
+  | "PLUTO";
+
+export const MOON_LOG_SCALE: Record<MoonLogScaleParent, LogScaleParams> = {
   EARTH:   { A: 5, rRef: 3.84e8 },   // Moon
   MARS:    { A: 5, rRef: 9.38e6 },   // Phobos
   JUPITER: { A: 5, rRef: 4.218e8 },  // Io
@@ -168,7 +183,9 @@ export function worldDistanceFromParent(
   // to one ring outside the parent. SUN/undefined falls through to
   // heliocentric compression (existing behavior).
   const override =
-    parentName && parentName !== "SUN" ? MOON_LOG_SCALE[parentName] : undefined;
+    parentName && parentName !== "SUN" && parentName in MOON_LOG_SCALE
+      ? MOON_LOG_SCALE[parentName as MoonLogScaleParent]
+      : undefined;
   const compressed = worldDistance(r_m, preset, override);
   const minGap = parentWorldRadius_wu + childWorldRadius_wu * 3; // child + 2× buffer
   const finalDist = compressed > minGap ? compressed : minGap;
