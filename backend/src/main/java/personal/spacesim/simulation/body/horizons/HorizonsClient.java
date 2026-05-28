@@ -2,7 +2,10 @@ package personal.spacesim.simulation.body.horizons;
 
 import org.orekit.time.AbsoluteDate;
 import org.orekit.time.TimeScalesFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -35,6 +38,23 @@ public class HorizonsClient {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     /**
+     * Identifies this client to JPL. They publish no numeric rate limit;
+     * their guidance is to be a good citizen and identify yourself so they
+     * can email before any block. The email is the on-record contact for
+     * this project's portfolio deployment.
+     */
+    private static final String USER_AGENT = "spacesim/1.0 (byeon.kho@gmail.com)";
+
+    /**
+     * Default retry policy for transient JPL failures. Three attempts with
+     * 1s/2s base sleeps between retries. JPL's overload signal is 503, not
+     * 429; we also retry on network-layer failures (ResourceAccessException)
+     * since those are usually transient.
+     */
+    private static final int DEFAULT_MAX_ATTEMPTS = 3;
+    private static final long DEFAULT_INITIAL_BACKOFF_MS = 1000L;
+
+    /**
      * Global single-permit, fair semaphore: JPL Horizons explicitly asks
      * clients to submit "only one API request at a time" (per the API
      * documentation). The {@link HorizonsStateCache} already serializes
@@ -47,9 +67,25 @@ public class HorizonsClient {
     private static final Semaphore JPL_PERMIT = new Semaphore(1, true);
 
     private final RestClient http;
+    private final int maxAttempts;
+    private final long initialBackoffMillis;
 
+    @Autowired
     public HorizonsClient(RestClient.Builder builder) {
-        this.http = builder.baseUrl(API_BASE).build();
+        this(builder, DEFAULT_MAX_ATTEMPTS, DEFAULT_INITIAL_BACKOFF_MS);
+    }
+
+    /**
+     * Test-only constructor — allows shorter backoff so retry tests run
+     * in milliseconds instead of seconds. Package-private on purpose.
+     */
+    HorizonsClient(RestClient.Builder builder, int maxAttempts, long initialBackoffMillis) {
+        this.http = builder
+            .baseUrl(API_BASE)
+            .defaultHeader("User-Agent", USER_AGENT)
+            .build();
+        this.maxAttempts = maxAttempts;
+        this.initialBackoffMillis = initialBackoffMillis;
     }
 
     public HorizonsResponseParser.State fetchState(String spkId, AbsoluteDate epoch) {
@@ -100,10 +136,7 @@ public class HorizonsClient {
                     + " at " + epoch + ")", e);
         }
         try {
-            body = http.get().uri(uri).retrieve().body(String.class);
-        } catch (RestClientException ex) {
-            throw new HorizonsFetchException(
-                "Failed to fetch state for SPK " + spkId + " at " + epoch, ex);
+            body = fetchWithRetry(uri, spkId, epoch);
         } finally {
             JPL_PERMIT.release();
         }
@@ -112,6 +145,44 @@ public class HorizonsClient {
                 "Empty Horizons response for SPK " + spkId);
         }
         return HorizonsResponseParser.parseFirstRecord(body);
+    }
+
+    /**
+     * Execute the GET with exponential backoff on transient failures.
+     * Retries on {@link HttpServerErrorException} (any 5xx — JPL signals
+     * overload as 503) and {@link ResourceAccessException} (network-layer
+     * errors like connection reset, DNS hiccups, read timeouts). Does NOT
+     * retry on 4xx (client error: malformed query, unknown body — repeat
+     * attempts cannot fix these and only waste JPL quota).
+     */
+    private String fetchWithRetry(URI uri, String spkId, AbsoluteDate epoch) {
+        long backoff = initialBackoffMillis;
+        RestClientException lastTransient = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return http.get().uri(uri).retrieve().body(String.class);
+            } catch (HttpServerErrorException | ResourceAccessException transientErr) {
+                lastTransient = transientErr;
+                if (attempt < maxAttempts) {
+                    try {
+                        Thread.sleep(backoff);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new HorizonsFetchException(
+                            "Interrupted during retry backoff for SPK " + spkId
+                                + " at " + epoch, ie);
+                    }
+                    backoff *= 2;
+                }
+            } catch (RestClientException nonRetryable) {
+                throw new HorizonsFetchException(
+                    "Failed to fetch state for SPK " + spkId + " at " + epoch,
+                    nonRetryable);
+            }
+        }
+        throw new HorizonsFetchException(
+            "Failed to fetch state for SPK " + spkId + " at " + epoch
+                + " after " + maxAttempts + " attempts", lastTransient);
     }
 
     /**
