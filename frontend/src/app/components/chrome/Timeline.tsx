@@ -1,6 +1,14 @@
 "use client";
 
-import { useState, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import { createPortal } from "react-dom";
 import { useDispatch, useSelector } from "react-redux";
 import {
   cycleSimulationScale,
@@ -296,11 +304,17 @@ function ViewToggles() {
     // breathing room between label and dot, which is acceptable.
     <div className="grid grid-cols-3 gap-[5px] w-[348px] shrink-0">
       <ToggleChip label="Grid" on={grid} onClick={() => dispatch(toggleShowGrid())} />
-      <ToggleChip label="Trails" on={trails} onClick={() => dispatch(toggleShowTrails())} />
+      <ToggleChip
+        label="Trails"
+        on={trails}
+        onClick={() => dispatch(toggleShowTrails())}
+        tooltip="The fading line behind each body, tracing where it has just been."
+      />
       <ToggleChip
         label="Orbits"
         on={orbits}
         onClick={() => dispatch(toggleShowOrbitPaths())}
+        tooltip="The full loop each body would trace forever if no other body's gravity ever changed its path. Slowly shifts as nearby bodies tug on it."
       />
       <ToggleChip
         label="Labels"
@@ -322,39 +336,108 @@ function ViewToggles() {
   );
 }
 
+// Stable subscribe for useSyncExternalStore — never re-fires. Mirrors
+// the gating pattern in InfoTooltip: false on SSR, true post-hydration,
+// so createPortal only runs once document.body is available.
+const noopSubscribe = () => () => {};
+
 function ToggleChip({
   label,
   on,
   value,
   onClick,
+  tooltip,
 }: {
   label: string;
   on?: boolean;
   value?: string;
   onClick: () => void;
+  /** Optional plain-English description shown above the chip on hover/focus. */
+  tooltip?: string;
 }) {
   const hasValue = value !== undefined;
   const lit = hasValue ? value !== "OFF" : Boolean(on);
+
+  // Tooltip mechanics mirror InfoTooltip: portal into document.body to
+  // escape every ancestor's stacking context / overflow / backdrop-filter;
+  // positioned from the chip's bounding rect on each open.
+  const tooltipId = useId();
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ left: number; top: number } | null>(
+    null,
+  );
+  const mounted = useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false,
+  );
+
+  useEffect(() => {
+    if (!open || !buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    const tooltipWidth = 256; // matches w-64
+    const gap = 8;
+    setCoords({
+      left: rect.left + rect.width / 2 - tooltipWidth / 2,
+      top: rect.top - gap, // tooltip's BOTTOM sits here; translateY(-100%) flips it above
+    });
+  }, [open]);
+
+  const tooltipHandlers = tooltip
+    ? {
+        onMouseEnter: () => setOpen(true),
+        onMouseLeave: () => setOpen(false),
+        onFocus: () => setOpen(true),
+        onBlur: () => setOpen(false),
+      }
+    : {};
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={hasValue ? undefined : Boolean(on)}
-      className={[
-        // w-full + justify-between: chip fills its grid cell; label sticks
-        // to the left, value sticks to the right. Stable column widths
-        // regardless of value text length. min-w-0 lets the spans truncate
-        // if absolutely needed rather than blowing out the cell.
-        "flex w-full min-w-0 items-center justify-between gap-1.5 rounded-[7px] border px-[9px] py-[5px] text-[10px] font-medium transition-colors",
-        lit
-          ? "bg-[rgba(164,168,255,0.12)] border-[rgba(164,168,255,0.28)] text-accent"
-          : "bg-white/[0.04] border-white/[0.06] text-[#9b9ea9] hover:bg-white/[0.06]",
-      ].join(" ")}
-    >
-      <span>{label}</span>
-      <span className="tabular font-mono text-[9px] opacity-70">
-        {hasValue ? value : lit ? "●" : "○"}
-      </span>
-    </button>
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={onClick}
+        aria-pressed={hasValue ? undefined : Boolean(on)}
+        aria-describedby={tooltip && open ? tooltipId : undefined}
+        {...tooltipHandlers}
+        className={[
+          // w-full + justify-between: chip fills its grid cell; label sticks
+          // to the left, value sticks to the right. Stable column widths
+          // regardless of value text length. min-w-0 lets the spans truncate
+          // if absolutely needed rather than blowing out the cell.
+          "flex w-full min-w-0 items-center justify-between gap-1.5 rounded-[7px] border px-[9px] py-[5px] text-[10px] font-medium transition-colors",
+          lit
+            ? "bg-[rgba(164,168,255,0.12)] border-[rgba(164,168,255,0.28)] text-accent"
+            : "bg-white/[0.04] border-white/[0.06] text-[#9b9ea9] hover:bg-white/[0.06]",
+        ].join(" ")}
+      >
+        <span>{label}</span>
+        <span className="tabular font-mono text-[9px] opacity-70">
+          {hasValue ? value : lit ? "●" : "○"}
+        </span>
+      </button>
+      {tooltip &&
+        mounted &&
+        coords &&
+        createPortal(
+          <div
+            id={tooltipId}
+            role="tooltip"
+            className="text-hi pointer-events-none fixed z-50 w-64 rounded-md border border-white/[0.08] px-3 py-2 text-[11px] leading-[1.5] shadow-lg transition-opacity duration-150"
+            style={{
+              background: "rgba(10, 12, 20, 0.96)",
+              left: coords.left,
+              top: coords.top,
+              opacity: open ? 1 : 0,
+              transform: "translateY(-100%)",
+            }}
+          >
+            {tooltip}
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
