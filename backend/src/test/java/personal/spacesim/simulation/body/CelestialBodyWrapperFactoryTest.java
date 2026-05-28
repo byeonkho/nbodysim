@@ -3,6 +3,7 @@ package personal.spacesim.simulation.body;
 import org.hipparchus.geometry.euclidean.threed.Vector3D;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.orekit.data.DataContext;
 import org.orekit.data.DirectoryCrawler;
 import org.orekit.frames.Frame;
@@ -26,6 +27,9 @@ import static org.mockito.Mockito.*;
 
 class CelestialBodyWrapperFactoryTest {
 
+    @TempDir
+    Path horizonsCacheDir;
+
     @BeforeAll
     static void loadOrekitData() {
         try {
@@ -44,7 +48,7 @@ class CelestialBodyWrapperFactoryTest {
     @Test
     void majorPlanetGoesThroughOrekit_horizonsClientUntouched() {
         HorizonsClient mockClient = mock(HorizonsClient.class);
-        HorizonsStateCache cache = new HorizonsStateCache();
+        HorizonsStateCache cache = new HorizonsStateCache(horizonsCacheDir);
         CelestialBodyWrapperFactory factory =
             new CelestialBodyWrapperFactory(mockClient, cache);
 
@@ -62,7 +66,7 @@ class CelestialBodyWrapperFactoryTest {
     @Test
     void plutoRoutedThroughOrekit_notHorizons() {
         HorizonsClient mockClient = mock(HorizonsClient.class);
-        HorizonsStateCache cache = new HorizonsStateCache();
+        HorizonsStateCache cache = new HorizonsStateCache(horizonsCacheDir);
         CelestialBodyWrapperFactory factory =
             new CelestialBodyWrapperFactory(mockClient, cache);
 
@@ -87,7 +91,7 @@ class CelestialBodyWrapperFactoryTest {
                 new Vector3D(2.0e11, 1.0e11, 1.0e10),
                 new Vector3D(1.0e4,  1.0e4,  0.0)));
 
-        HorizonsStateCache cache = new HorizonsStateCache();
+        HorizonsStateCache cache = new HorizonsStateCache(horizonsCacheDir);
         CelestialBodyWrapperFactory factory =
             new CelestialBodyWrapperFactory(mockClient, cache);
 
@@ -119,7 +123,7 @@ class CelestialBodyWrapperFactoryTest {
         when(mockClient.fetchState(eq("2000433"), any(AbsoluteDate.class)))
             .thenReturn(new HorizonsResponseParser.State(horizonsPos, Vector3D.ZERO));
 
-        HorizonsStateCache cache = new HorizonsStateCache();
+        HorizonsStateCache cache = new HorizonsStateCache(horizonsCacheDir);
         CelestialBodyWrapperFactory factory =
             new CelestialBodyWrapperFactory(mockClient, cache);
 
@@ -140,7 +144,7 @@ class CelestialBodyWrapperFactoryTest {
             .thenReturn(new HorizonsResponseParser.State(
                 new Vector3D(2e11, 1e11, 1e10),
                 new Vector3D(1e4, 1e4, 0)));
-        HorizonsStateCache cache = new HorizonsStateCache();
+        HorizonsStateCache cache = new HorizonsStateCache(horizonsCacheDir);
 
         CelestialBodyWrapperFactory factory =
             new CelestialBodyWrapperFactory(mockClient, cache);
@@ -159,7 +163,7 @@ class CelestialBodyWrapperFactoryTest {
     @Test
     void moonOrbitingBodyIsEarth() {
         HorizonsClient mockClient = mock(HorizonsClient.class);
-        HorizonsStateCache cache = new HorizonsStateCache();
+        HorizonsStateCache cache = new HorizonsStateCache(horizonsCacheDir);
         CelestialBodyWrapperFactory factory =
             new CelestialBodyWrapperFactory(mockClient, cache);
 
