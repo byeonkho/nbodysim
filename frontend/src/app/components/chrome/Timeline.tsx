@@ -64,7 +64,7 @@ function Transport() {
         onClick={() => dispatch(setSpeedMultiplier("decrease"))}
         ariaLabel="Decrease speed"
       >
-        <svg width="14" height="14" viewBox="0 0 18 18" fill="currentColor">
+        <svg width="20" height="20" viewBox="0 0 18 18" fill="currentColor">
           <path d="M5 4l-2 2 2 2M9 4l-2 2 2 2" />
         </svg>
       </TransportButton>
@@ -90,7 +90,7 @@ function Transport() {
         onClick={() => dispatch(setSpeedMultiplier("increase"))}
         ariaLabel="Increase speed"
       >
-        <svg width="14" height="14" viewBox="0 0 18 18" fill="currentColor">
+        <svg width="20" height="20" viewBox="0 0 18 18" fill="currentColor">
           <path d="M3 4l2 2-2 2M7 4l2 2-2 2" />
         </svg>
       </TransportButton>
