@@ -8,6 +8,7 @@ import {
   selectActiveBodyName,
   selectCelestialBodyPropertiesList,
   selectDisplayFrame,
+  selectIsBodyActive,
   type Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
 import { readBodyStateInto, readDeltaERelativeAt } from "@/app/store/chunkBuffer";
@@ -42,6 +43,7 @@ const RAD_TO_DEG = 180 / Math.PI;
 
 export function BodyCard() {
   const activeName = useSelector(selectActiveBodyName);
+  const isBodyActive = useSelector(selectIsBodyActive);
   const propsList = useSelector(selectCelestialBodyPropertiesList);
   const displayFrame = useSelector(selectDisplayFrame);
   const store = useStore<RootState>();
@@ -295,7 +297,11 @@ export function BodyCard() {
     orbitingMu,
   ]);
 
-  if (!upperName || !activeProps) {
+  // Empty-space click in the scene dispatches setIsBodyActive(false) without
+  // clearing activeBodyName (see Scene.tsx onPointerMissed). Gate on
+  // isBodyActive too so the card returns to the empty state on deselect —
+  // mirrors how BodySelector un-highlights pills via the same flag.
+  if (!isBodyActive || !upperName || !activeProps) {
     return <BodyCardEmpty />;
   }
 
