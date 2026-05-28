@@ -65,7 +65,7 @@ function Transport() {
         ariaLabel="Decrease speed"
       >
         <svg width="20" height="20" viewBox="0 0 18 18" fill="currentColor">
-          <path d="M5 4l-2 2 2 2M9 4l-2 2 2 2" />
+          <path d="M15 4L9 9L15 14ZM9 4L3 9L9 14Z" />
         </svg>
       </TransportButton>
 
@@ -91,7 +91,7 @@ function Transport() {
         ariaLabel="Increase speed"
       >
         <svg width="20" height="20" viewBox="0 0 18 18" fill="currentColor">
-          <path d="M3 4l2 2-2 2M7 4l2 2-2 2" />
+          <path d="M3 4L9 9L3 14ZM9 4L15 9L9 14Z" />
         </svg>
       </TransportButton>
     </div>
