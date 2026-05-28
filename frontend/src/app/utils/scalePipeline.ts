@@ -48,15 +48,66 @@ export const DEFAULT_LOG_RADIUS_EXPONENT = 0.5;
 export const DEFAULT_LOG_MIN_RADIUS = 0.02;
 
 /**
+ * Per-parent log compression params. Heliocentric log compression
+ * (A=60, rRef=1 AU) crushes parent-relative moon distances into a
+ * tiny fraction of a world unit, so every moon ends up at the
+ * min-separation floor — visually clumped on top of its parent.
+ * Per-parent curves spread each parent system out into a usable
+ * visual range.
+ *
+ * With A=5 and rRef set to the parent's innermost-moon real distance,
+ * the innermost moon renders at 5*log10(2) ≈ 1.5 wu and outer moons
+ * spread proportionally to their real distance ratios.
+ */
+export interface LogScaleParams {
+  A: number;
+  rRef: number;
+}
+
+// Constrained key type — every body with at least one moon in MoonCatalog,
+// plus EARTH (which uses the same per-parent path for the existing Moon).
+// Typing the catalog as Record<MoonLogScaleParent, ...> instead of
+// Record<string, ...> catches typos like MOON_LOG_SCALE.JUPTIER at compile
+// time. Lookup site below uses an `in` guard to safely narrow string →
+// MoonLogScaleParent.
+export type MoonLogScaleParent =
+  | "EARTH"
+  | "MARS"
+  | "JUPITER"
+  | "SATURN"
+  | "URANUS"
+  | "NEPTUNE"
+  | "PLUTO";
+
+export const MOON_LOG_SCALE: Record<MoonLogScaleParent, LogScaleParams> = {
+  EARTH:   { A: 5, rRef: 3.84e8 },   // Moon
+  MARS:    { A: 5, rRef: 9.38e6 },   // Phobos
+  JUPITER: { A: 5, rRef: 4.218e8 },  // Io
+  SATURN:  { A: 5, rRef: 1.855e8 },  // Mimas
+  URANUS:  { A: 5, rRef: 1.297e8 },  // Miranda
+  NEPTUNE: { A: 5, rRef: 3.5476e8 }, // Triton
+  PLUTO:   { A: 5, rRef: 1.96e7 },   // Charon
+};
+
+/**
  * Convert a real heliocentric distance in metres to world units, per
  * preset. Realistic: linear divide by REALISTIC_DIVISOR. Log: log1p
- * compression with live-tunable A and r_ref from devSettingsStore.
+ * compression with live-tunable A and r_ref from devSettingsStore,
+ * or an optional override (used by worldDistanceFromParent to apply
+ * per-parent log curves for moon systems).
  */
-export function worldDistance(r_m: number, preset: ScalePreset): number {
+export function worldDistance(
+  r_m: number,
+  preset: ScalePreset,
+  override?: LogScaleParams,
+): number {
   if (preset === "realistic") {
     return r_m / REALISTIC_DIVISOR;
   }
   // Log preset: A * log10(1 + r / r_ref).
+  if (override) {
+    return override.A * Math.log10(1 + r_m / override.rRef);
+  }
   const { logScaleA, logScaleRRef } = getDevSettings();
   return logScaleA * Math.log10(1 + r_m / logScaleRRef);
 }
@@ -113,6 +164,7 @@ export function worldDistanceFromParent(
   childWorldRadius_wu: number,
   preset: ScalePreset,
   out: Vector3Simple,
+  parentName?: string,
 ): void {
   const dx = childPos_m.x - parentPos_m.x;
   const dy = childPos_m.y - parentPos_m.y;
@@ -126,7 +178,15 @@ export function worldDistanceFromParent(
     return;
   }
 
-  const compressed = worldDistance(r_m, preset);
+  // For non-Sun parents, use the per-parent log curve so each planet
+  // system has its own visual scale instead of all moons collapsing
+  // to one ring outside the parent. SUN/undefined falls through to
+  // heliocentric compression (existing behavior).
+  const override =
+    parentName && parentName !== "SUN" && parentName in MOON_LOG_SCALE
+      ? MOON_LOG_SCALE[parentName as MoonLogScaleParent]
+      : undefined;
+  const compressed = worldDistance(r_m, preset, override);
   const minGap = parentWorldRadius_wu + childWorldRadius_wu * 3; // child + 2× buffer
   const finalDist = compressed > minGap ? compressed : minGap;
 

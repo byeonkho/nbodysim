@@ -3,6 +3,7 @@ import {
   worldDistance,
   worldRadius,
   worldDistanceFromParent,
+  MOON_LOG_SCALE,
   REALISTIC_DIVISOR,
   DEFAULT_LOG_SCALE_A,
   DEFAULT_LOG_RADIUS_EXPONENT,
@@ -277,5 +278,92 @@ describe("worldDistanceFromParent", () => {
     const expectedMag = AU / REALISTIC_DIVISOR;
     const actualMag = Math.sqrt(out.x ** 2 + out.y ** 2 + out.z ** 2);
     expect(actualMag).toBeCloseTo(expectedMag, 1);
+  });
+});
+
+describe("per-parent log scale", () => {
+  beforeEach(() => {
+    setDevSetting("logScaleA", DEFAULT_LOG_SCALE_A);
+    setDevSetting("logScaleRRef", 149_597_870_700);
+    setDevSetting("logRadiusExponent", DEFAULT_LOG_RADIUS_EXPONENT);
+    setDevSetting("logMinRadius", DEFAULT_LOG_MIN_RADIUS);
+  });
+
+  it("MOON_LOG_SCALE has an entry for every parent that hosts a moon", () => {
+    // Parents that need their own log curve: every planet with at least
+    // one moon in MoonCatalog, plus Earth (existing Moon stays on the
+    // per-parent path for consistency).
+    const expected = ["EARTH", "MARS", "JUPITER", "SATURN", "URANUS", "NEPTUNE", "PLUTO"];
+    for (const parent of expected) {
+      expect(MOON_LOG_SCALE[parent]).toBeDefined();
+      expect(MOON_LOG_SCALE[parent].A).toBeGreaterThan(0);
+      expect(MOON_LOG_SCALE[parent].rRef).toBeGreaterThan(0);
+    }
+  });
+
+  it("worldDistance with override applies the override log curve", () => {
+    // Earth-Moon real distance ≈ 3.84e8 m. With override A=5, rRef=3.84e8,
+    // expected: 5 * log10(2) = 1.505 wu (vs heliocentric A=60, rRef=1AU
+    // which would give a tiny 0.067 wu — currently floored to 0.65 wu
+    // by the min-separation rule).
+    const result = worldDistance(3.84e8, "log", { A: 5, rRef: 3.84e8 });
+    expect(result).toBeCloseTo(1.505, 2);
+  });
+
+  it("worldDistance with override and farther distance scales correctly", () => {
+    // Saturn-Iapetus 3.56e9 m using Saturn's rRef (Mimas 1.855e8 m), A=5.
+    // 5 * log10(1 + 3.56e9 / 1.855e8) = 5 * log10(20.19) ≈ 6.52 wu.
+    const result = worldDistance(3.56e9, "log", { A: 5, rRef: 1.855e8 });
+    expect(result).toBeCloseTo(6.52, 1);
+  });
+
+  it("worldDistance without override falls through to heliocentric", () => {
+    // Regression: existing behavior must not change for callers that
+    // don't supply an override (Sun-centric distance compression).
+    const noOverride = worldDistance(1.496e11, "log");
+    expect(noOverride).toBeGreaterThan(0);
+    // 1 AU into the heliocentric log curve: 60 * log10(2) = 18.06 wu
+    expect(noOverride).toBeCloseTo(18.06, 1);
+  });
+
+  it("worldDistance with override on realistic preset ignores the override", () => {
+    // Realistic preset is a linear divide — log overrides only apply to
+    // the log preset. Realistic must remain pure ratio.
+    const result = worldDistance(3.84e8, "realistic", { A: 5, rRef: 3.84e8 });
+    expect(result).toBeCloseTo(3.84, 2);
+  });
+
+  it("worldDistanceFromParent uses MOON_LOG_SCALE when parent != SUN", () => {
+    const out: Vector3Simple = { x: 0, y: 0, z: 0 };
+    // Saturn at origin (parent), Titan at +1.22e9 m on X.
+    worldDistanceFromParent(
+      { x: 1.22e9, y: 0, z: 0 },           // child metres (heliocentric position)
+      { x: 0, y: 0, z: 0 },                // parent metres
+      0.78,                                 // parent world radius
+      0.16,                                 // child world radius
+      "log",
+      out,
+      "SATURN",                             // parent name — drives MOON_LOG_SCALE lookup
+    );
+    // Distance: 1.22e9 m. Saturn rRef = 1.855e8 (Mimas), A=5.
+    // 5 * log10(1 + 1.22e9 / 1.855e8) = 5 * log10(7.578) ≈ 4.40 wu
+    const magnitude = Math.sqrt(out.x * out.x + out.y * out.y + out.z * out.z);
+    expect(magnitude).toBeCloseTo(4.40, 1);
+  });
+
+  it("worldDistanceFromParent uses heliocentric curve when parent == SUN", () => {
+    const out: Vector3Simple = { x: 0, y: 0, z: 0 };
+    // Earth-Sun: 1.496e11 m. No override → heliocentric A=60, rRef=1AU.
+    worldDistanceFromParent(
+      { x: 1.496e11, y: 0, z: 0 },
+      { x: 0, y: 0, z: 0 },
+      0,            // Sun world radius (test doesn't care about pushout)
+      0,
+      "log",
+      out,
+      "SUN",
+    );
+    const magnitude = Math.sqrt(out.x * out.x + out.y * out.y + out.z * out.z);
+    expect(magnitude).toBeCloseTo(18.06, 1);
   });
 });
