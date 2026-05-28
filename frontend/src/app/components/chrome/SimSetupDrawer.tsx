@@ -7,7 +7,7 @@ import { initializeCelestialBodies } from "@/app/utils/initializeCelestialBodies
 import type { AppDispatch } from "@/app/store/Store";
 import { store } from "@/app/store/Store";
 import { dispatchChunkRequest } from "@/app/store/middleware/simulationRequestThunk";
-import { setLastSimRequest } from "@/app/store/slices/SimulationSlice";
+import { setIsPaused, setLastSimRequest } from "@/app/store/slices/SimulationSlice";
 import {
   BODY_CATEGORY,
   BODY_DISPLAY,
@@ -150,6 +150,11 @@ export function SimSetupDrawer({ open, onOpenChange }: SimSetupDrawerProps) {
       // chunk fetches; overwritten on the next Run.
       dispatch(setLastSimRequest(requestPayload));
       dispatchChunkRequest(dispatch, { sessionID });
+      // Auto-start: animation gates on `isPaused` AND a populated buffer,
+      // so setting this now lets the controller spring into motion the
+      // instant the first chunk arrives, instead of waiting for a manual
+      // play click.
+      dispatch(setIsPaused(false));
       onOpenChange(false);
     } catch (err) {
       console.error("Sim params submit error:", err);
