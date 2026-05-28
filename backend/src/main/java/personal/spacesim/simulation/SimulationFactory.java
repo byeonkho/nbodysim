@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import personal.spacesim.simulation.body.CelestialBodyWrapper;
 import personal.spacesim.simulation.body.CelestialBodyWrapperFactory;
 import personal.spacesim.simulation.body.MinorBodyCatalog;
+import personal.spacesim.simulation.body.MoonCatalog;
 import personal.spacesim.simulation.frame.CustomFrameFactory;
 import personal.spacesim.utils.math.integrators.Integrator;
 import personal.spacesim.utils.math.integrators.IntegratorFactory;
@@ -57,15 +58,16 @@ public class SimulationFactory {
 
         // Partition into [massive | test] so NBodyDerivatives can use its
         // sumBound = massiveCount dispatch. Test particles are the bodies
-        // flagged isTestParticle() in MinorBodyCatalog (NEAs); everything
-        // else — Sun, planets, dwarf planets, Pluto — is massive.
+        // flagged isTestParticle() in MinorBodyCatalog (NEAs) or MoonCatalog
+        // (smaller moons like Mimas, Phobos); everything else — Sun, planets,
+        // dwarf planets, Galileans, Titan, Triton, Charon, Earth's Moon — is
+        // massive.
         List<CelestialBodyWrapper> massive = new ArrayList<>(celestialBodyNames.size());
         List<CelestialBodyWrapper> test = new ArrayList<>();
         for (String bodyName : celestialBodyNames) {
             CelestialBodyWrapper body = celestialBodyWrapperFactory.createCelestialBodyWrapper(
                     bodyName, frame, simStartDate);
-            MinorBodyCatalog.Entry minorEntry = MinorBodyCatalog.get(bodyName);
-            if (minorEntry != null && minorEntry.isTestParticle()) {
+            if (isTestParticle(bodyName)) {
                 test.add(body);
             } else {
                 massive.add(body);
@@ -87,5 +89,18 @@ public class SimulationFactory {
                 targetSnapshotsPerChunk,
                 massiveCount
         );
+    }
+
+    private static boolean isTestParticle(String bodyName) {
+        // Test particle if EITHER catalog says so. MinorBodyCatalog covers
+        // dwarf planets (massive) and named NEAs (test); MoonCatalog covers
+        // 21 named moons (7 massive, 14 test). Earth's Moon is Orekit-sourced
+        // and lives outside MoonCatalog — it's classified massive via the
+        // fall-through here returning false.
+        MinorBodyCatalog.Entry minor = MinorBodyCatalog.get(bodyName);
+        if (minor != null && minor.isTestParticle()) return true;
+        MoonCatalog.Entry moon = MoonCatalog.get(bodyName);
+        if (moon != null && moon.isTestParticle()) return true;
+        return false;
     }
 }
