@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -188,6 +189,102 @@ class HorizonsClientTest {
             () -> client.fetchState("2000433", AbsoluteDate.J2000_EPOCH));
         assertTrue(ex.getMessage().contains("No ephemeris"),
             "Expected JPL error body in exception message, got: " + ex.getMessage());
+    }
+
+    @Test
+    void retriesOn5xxAndSucceedsOnLaterAttempt() {
+        // JPL's overload signal is 503 (not 429). Two 503s then 200 must
+        // recover transparently; without retry the first 503 would surface
+        // as a fetch failure and abort the whole sim submission.
+        RestClient.Builder builder = RestClient.builder();
+        server = MockRestServiceServer.bindTo(builder).ignoreExpectOrder(true).build();
+        client = new HorizonsClient(builder, 3, 1L);  // tiny backoff keeps test fast
+
+        AtomicInteger callCount = new AtomicInteger();
+        server.expect(ExpectedCount.times(3), requestUrlContains("COMMAND="))
+              .andRespond(request -> {
+                  int n = callCount.incrementAndGet();
+                  if (n < 3) {
+                      return new org.springframework.mock.http.client.MockClientHttpResponse(
+                          new byte[0], org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
+                  }
+                  org.springframework.mock.http.client.MockClientHttpResponse resp =
+                      new org.springframework.mock.http.client.MockClientHttpResponse(
+                          capturedResponse.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                          org.springframework.http.HttpStatus.OK);
+                  resp.getHeaders().setContentType(MediaType.TEXT_PLAIN);
+                  return resp;
+              });
+
+        HorizonsResponseParser.State state =
+            client.fetchState("2000433", AbsoluteDate.J2000_EPOCH);
+
+        assertNotNull(state);
+        assertEquals(3, callCount.get(),
+            "Expected 3 attempts (two 503s then 200); got " + callCount.get());
+    }
+
+    @Test
+    void throwsAfterMaxAttemptsOnPersistent5xx() {
+        // After exhausting all retries, the wrapper must surface the
+        // failure rather than spinning forever or returning null.
+        RestClient.Builder builder = RestClient.builder();
+        server = MockRestServiceServer.bindTo(builder).ignoreExpectOrder(true).build();
+        client = new HorizonsClient(builder, 3, 1L);
+
+        AtomicInteger callCount = new AtomicInteger();
+        server.expect(ExpectedCount.times(3), requestUrlContains("COMMAND="))
+              .andRespond(request -> {
+                  callCount.incrementAndGet();
+                  return new org.springframework.mock.http.client.MockClientHttpResponse(
+                      new byte[0], org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
+              });
+
+        assertThrows(HorizonsClient.HorizonsFetchException.class,
+            () -> client.fetchState("2000433", AbsoluteDate.J2000_EPOCH));
+        assertEquals(3, callCount.get(),
+            "Expected exactly maxAttempts=3 calls; got " + callCount.get());
+    }
+
+    @Test
+    void doesNotRetryOn4xx() {
+        // 4xx is a client-side problem (bad request, unknown body, etc.).
+        // Retrying wastes time and JPL quota and won't ever succeed.
+        client = new HorizonsClient(
+            buildBuilderWithMock(), 3, 1L);
+
+        AtomicInteger callCount = new AtomicInteger();
+        server.expect(requestUrlContains("COMMAND="))
+              .andRespond(request -> {
+                  callCount.incrementAndGet();
+                  return new org.springframework.mock.http.client.MockClientHttpResponse(
+                      new byte[0], org.springframework.http.HttpStatus.BAD_REQUEST);
+              });
+
+        assertThrows(HorizonsClient.HorizonsFetchException.class,
+            () -> client.fetchState("2000433", AbsoluteDate.J2000_EPOCH));
+        assertEquals(1, callCount.get(),
+            "Expected exactly 1 call for 4xx (no retry); got " + callCount.get());
+    }
+
+    @Test
+    void sendsDescriptiveUserAgentHeader() {
+        // JPL has no documented rate limit; their guidance is to be a good
+        // citizen and identify yourself so they can email before any block.
+        server.expect(requestUrlContains("COMMAND="))
+              .andExpect(header("User-Agent", containsString("spacesim")))
+              .andExpect(header("User-Agent", containsString("byeon.kho@gmail.com")))
+              .andRespond(withSuccess(capturedResponse, MediaType.TEXT_PLAIN));
+
+        client.fetchState("2000433", AbsoluteDate.J2000_EPOCH);
+        server.verify();
+    }
+
+    /** Build a fresh RestClient.Builder bound to a new MockRestServiceServer. */
+    private RestClient.Builder buildBuilderWithMock() {
+        RestClient.Builder builder = RestClient.builder();
+        server = MockRestServiceServer.bindTo(builder).build();
+        return builder;
     }
 
     /** Helper: match any request whose URL string contains the given substring. */

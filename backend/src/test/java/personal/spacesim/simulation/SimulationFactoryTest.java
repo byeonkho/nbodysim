@@ -3,6 +3,7 @@ package personal.spacesim.simulation;
 import org.hipparchus.geometry.euclidean.threed.Vector3D;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.orekit.data.DataContext;
 import org.orekit.data.DirectoryCrawler;
 import org.orekit.time.AbsoluteDate;
@@ -35,6 +36,9 @@ import static org.mockito.Mockito.*;
  */
 class SimulationFactoryTest {
 
+    @TempDir
+    Path horizonsCacheDir;
+
     @BeforeAll
     static void loadOrekitData() {
         try {
@@ -62,7 +66,7 @@ class SimulationFactoryTest {
 
         return new SimulationFactory(
             new IntegratorFactory(),
-            new CelestialBodyWrapperFactory(mockClient, new HorizonsStateCache()),
+            new CelestialBodyWrapperFactory(mockClient, new HorizonsStateCache(horizonsCacheDir)),
             new CustomFrameFactory()
         );
     }
