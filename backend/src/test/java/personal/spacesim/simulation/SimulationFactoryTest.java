@@ -59,7 +59,7 @@ class SimulationFactoryTest {
         // canned state for any minor-body fetch — the actual numbers don't
         // matter for ordering tests, only that the call returns a wrapper.
         HorizonsClient mockClient = mock(HorizonsClient.class);
-        when(mockClient.fetchState(anyString(), any(AbsoluteDate.class)))
+        when(mockClient.fetchByDesignation(anyString(), any(AbsoluteDate.class)))
             .thenReturn(new HorizonsResponseParser.State(
                 new Vector3D(2.0e11, 1.0e11, 1.0e10),
                 new Vector3D(1.0e4,  1.0e4,  0.0)));

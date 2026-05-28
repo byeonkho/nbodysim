@@ -49,14 +49,34 @@ public class CelestialBodyWrapperFactory {
         String upper = name.toUpperCase();
         CelestialBodyWrapper wrapper;
 
+        // Dispatch order: MoonCatalog → MinorBodyCatalog → Orekit.
+        // Moons go first because their NAIF IDs use a different Horizons
+        // query format (bare COMMAND) than minor-body SPK IDs (DES= form),
+        // and each moon has a non-Sun orbitingBody set from the catalog.
+        MoonCatalog.Entry moonEntry = MoonCatalog.get(upper);
+        if (moonEntry != null) {
+            HorizonsResponseParser.State heliocentric =
+                horizonsCache.getOrFetch(
+                    moonEntry.naifId(), date,
+                    epoch -> horizonsClient.fetchByMajorBodyId(moonEntry.naifId(), epoch));
+
+            PVCoordinates sunPv = CelestialBodyFactory.getSun()
+                .getPVCoordinates(date, frame);
+            Vector3D posInFrame = heliocentric.position().add(sunPv.getPosition());
+            Vector3D velInFrame = heliocentric.velocity().add(sunPv.getVelocity());
+
+            wrapper = new CelestialBodyWrapper(
+                upper, moonEntry.mu(), moonEntry.radius(), posInFrame, velInFrame);
+            wrapper.setOrbitingBody(moonEntry.parent());
+            return wrapper;
+        }
+
         MinorBodyCatalog.Entry minorEntry = MinorBodyCatalog.get(upper);
         if (minorEntry != null && !minorEntry.isOrekitSourced()) {
-            // Horizons path — fetch Sun-relative state, then re-express in the
-            // user's frame by adding the Sun's PV in that frame.
             HorizonsResponseParser.State heliocentric =
                 horizonsCache.getOrFetch(
                     minorEntry.spkId(), date,
-                    epoch -> horizonsClient.fetchState(minorEntry.spkId(), epoch));
+                    epoch -> horizonsClient.fetchByDesignation(minorEntry.spkId(), epoch));
 
             PVCoordinates sunPv = CelestialBodyFactory.getSun()
                 .getPVCoordinates(date, frame);
@@ -66,10 +86,13 @@ public class CelestialBodyWrapperFactory {
             wrapper = new CelestialBodyWrapper(
                 upper, minorEntry.mu(), minorEntry.radius(), posInFrame, velInFrame);
         } else {
-            // Orekit path — includes major planets and PLUTO (DE-440 covers it).
+            // Orekit path — includes major planets, PLUTO, and Earth's MOON.
             wrapper = new CelestialBodyWrapper(upper, frame, date);
         }
 
+        // Earth's Moon orbits Earth; everything Orekit-sourced or minor-body
+        // sourced orbits the Sun. (Moons in MoonCatalog return early above
+        // with their own parent already set.)
         if (upper.equals("MOON")) {
             wrapper.setOrbitingBody("EARTH");
         } else {

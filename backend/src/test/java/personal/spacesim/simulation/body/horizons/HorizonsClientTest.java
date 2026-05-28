@@ -287,6 +287,52 @@ class HorizonsClientTest {
         return builder;
     }
 
+    @Test
+    void fetchByMajorBodyId_sendsBareCommandValue() {
+        // Major-body NAIF IDs (e.g. 501 = Io, 606 = Titan, 901 = Charon)
+        // resolve directly in Horizons. The DES=...; wrapping is for the
+        // small-body designation lookup branch only; sending DES=501; for
+        // a moon makes Horizons fail with "out of bounds" because it tries
+        // the IAU asteroid range instead of the major-body table.
+        server.expect(requestUrlContains("COMMAND="))
+              .andExpect(method(HttpMethod.GET))
+              .andExpect(requestUrlContains("%27501%27"))   // 'COMMAND=501' form-encoded
+              .andExpect(request -> {
+                  // Contract of fetchByMajorBodyId: the DES=...; wrapper
+                  // must NOT be present. Sending DES=501; would push
+                  // Horizons down the small-body branch and fail with
+                  // "out of bounds" for major-body NAIF IDs.
+                  String url = request.getURI().toString();
+                  assertFalse(url.contains("DES%3D"),
+                      "Major-body COMMAND must not be DES-wrapped: " + url);
+              })
+              .andExpect(requestUrlContains("CENTER="))
+              .andExpect(requestUrlContains("%4010"))         // '@10' form-encoded
+              .andRespond(withSuccess(capturedResponse, MediaType.TEXT_PLAIN));
+
+        HorizonsResponseParser.State state =
+            client.fetchByMajorBodyId("501", AbsoluteDate.J2000_EPOCH);
+
+        assertNotNull(state);
+        server.verify();
+    }
+
+    @Test
+    void fetchByDesignation_stillWrapsInDes() {
+        // Confirm the asteroid path (existing behavior) is unchanged after
+        // the refactor — minor bodies must still use DES=...; wrapping.
+        server.expect(requestUrlContains("COMMAND="))
+              .andExpect(requestUrlContains("DES%3D2000433"))
+              .andExpect(requestUrlContains("%3B"))
+              .andRespond(withSuccess(capturedResponse, MediaType.TEXT_PLAIN));
+
+        HorizonsResponseParser.State state =
+            client.fetchByDesignation("2000433", AbsoluteDate.J2000_EPOCH);
+
+        assertNotNull(state);
+        server.verify();
+    }
+
     /** Helper: match any request whose URL string contains the given substring. */
     private static RequestMatcher requestUrlContains(String substring) {
         return requestTo(containsString(substring));

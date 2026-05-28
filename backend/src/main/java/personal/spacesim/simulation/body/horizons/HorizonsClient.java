@@ -18,7 +18,8 @@ import java.util.concurrent.Semaphore;
 
 /**
  * Thin HTTP client over the JPL Horizons CGI API. Fetches a single-epoch
- * state vector for a body identified by its SPK ID, in heliocentric ICRF.
+ * state vector for a body identified by either an SPK designation (for minor
+ * bodies) or a bare NAIF ID (for planets and moons), in heliocentric ICRF.
  *
  * <p>Heliocentric ({@code CENTER='@10'} — body 10 is the Sun) matches the
  * Sun-relative shifting done elsewhere in the simulation pipeline. The
@@ -89,6 +90,42 @@ public class HorizonsClient {
     }
 
     public HorizonsResponseParser.State fetchState(String spkId, AbsoluteDate epoch) {
+        // Backwards-compatible alias for minor-body callers. Kept so the
+        // MinorBodyCatalog → Horizons path continues to compile without churn.
+        return fetchByDesignation(spkId, epoch);
+    }
+
+    /**
+     * Fetch state for a minor body using its SPK ID wrapped as
+     * {@code COMMAND='DES=<spkId>;'} — forces JPL's small-body designation
+     * lookup. Required for numbered asteroids whose SPK IDs (2_000_001+)
+     * fall outside the IAU asteroid number range that bare COMMAND values
+     * would resolve against.
+     */
+    public HorizonsResponseParser.State fetchByDesignation(String spkId, AbsoluteDate epoch) {
+        return fetchAt(epoch, "'DES=" + spkId + ";'", spkId);
+    }
+
+    /**
+     * Fetch state for a major body (planet, moon, or Sun) using its bare
+     * NAIF ID — e.g. {@code "501"} for Io, {@code "606"} for Titan. The
+     * DES=...; wrapper is NOT applied because major-body codes in the
+     * 1..999 range resolve directly. Sending {@code COMMAND='DES=501;'}
+     * causes Horizons to try the small-body branch and fail with
+     * "out of bounds".
+     */
+    public HorizonsResponseParser.State fetchByMajorBodyId(String naifId, AbsoluteDate epoch) {
+        return fetchAt(epoch, "'" + naifId + "'", naifId);
+    }
+
+    /**
+     * Shared HTTP + retry + parse path. {@code commandValue} is inserted
+     * verbatim (after URL-encoding) as the {@code COMMAND=} query parameter;
+     * {@code bodyLabel} is used only for error messages.
+     */
+    private HorizonsResponseParser.State fetchAt(
+            AbsoluteDate epoch, String commandValue, String bodyLabel
+    ) {
         String startTime = formatEpoch(epoch);
         String stopTime  = formatEpoch(epoch.shiftedBy(60.0));  // 1-minute window
 
@@ -100,13 +137,7 @@ public class HorizonsClient {
         // encode ';' to %3B, which is what JPL accepts.
         String url = API_BASE
             + "?format=text"
-            // Horizons resolves a bare numeric COMMAND as an IAU asteroid
-            // number (range 1..887103). SPK IDs for numbered asteroids start
-            // at 2_000_001 (= 2_000_000 + IAU number), well outside that
-            // range, so the bare form fails with "out of bounds". Wrapping
-            // as DES=<spkId>; forces the small-body designation lookup —
-            // JPL's own error message documents this fallback.
-            + "&COMMAND=" + encodeQueryValue("'DES=" + spkId + ";'")
+            + "&COMMAND=" + encodeQueryValue(commandValue)
             + "&OBJ_DATA=" + encodeQueryValue("'NO'")
             + "&MAKE_EPHEM=" + encodeQueryValue("'YES'")
             + "&EPHEM_TYPE=" + encodeQueryValue("'VECTORS'")
@@ -132,17 +163,17 @@ public class HorizonsClient {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new HorizonsFetchException(
-                "Interrupted waiting for JPL Horizons permit (SPK " + spkId
+                "Interrupted waiting for JPL Horizons permit (" + bodyLabel
                     + " at " + epoch + ")", e);
         }
         try {
-            body = fetchWithRetry(uri, spkId, epoch);
+            body = fetchWithRetry(uri, bodyLabel, epoch);
         } finally {
             JPL_PERMIT.release();
         }
         if (body == null || body.isEmpty()) {
             throw new HorizonsFetchException(
-                "Empty Horizons response for SPK " + spkId);
+                "Empty Horizons response for " + bodyLabel);
         }
         return HorizonsResponseParser.parseFirstRecord(body);
     }
@@ -155,7 +186,7 @@ public class HorizonsClient {
      * retry on 4xx (client error: malformed query, unknown body — repeat
      * attempts cannot fix these and only waste JPL quota).
      */
-    private String fetchWithRetry(URI uri, String spkId, AbsoluteDate epoch) {
+    private String fetchWithRetry(URI uri, String bodyLabel, AbsoluteDate epoch) {
         long backoff = initialBackoffMillis;
         RestClientException lastTransient = null;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -169,19 +200,19 @@ public class HorizonsClient {
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                         throw new HorizonsFetchException(
-                            "Interrupted during retry backoff for SPK " + spkId
+                            "Interrupted during retry backoff for " + bodyLabel
                                 + " at " + epoch, ie);
                     }
                     backoff *= 2;
                 }
             } catch (RestClientException nonRetryable) {
                 throw new HorizonsFetchException(
-                    "Failed to fetch state for SPK " + spkId + " at " + epoch,
+                    "Failed to fetch state for " + bodyLabel + " at " + epoch,
                     nonRetryable);
             }
         }
         throw new HorizonsFetchException(
-            "Failed to fetch state for SPK " + spkId + " at " + epoch
+            "Failed to fetch state for " + bodyLabel + " at " + epoch
                 + " after " + maxAttempts + " attempts", lastTransient);
     }
 
