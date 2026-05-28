@@ -63,6 +63,10 @@ class SimulationFactoryTest {
             .thenReturn(new HorizonsResponseParser.State(
                 new Vector3D(2.0e11, 1.0e11, 1.0e10),
                 new Vector3D(1.0e4,  1.0e4,  0.0)));
+        when(mockClient.fetchByMajorBodyId(anyString(), any(AbsoluteDate.class)))
+            .thenReturn(new HorizonsResponseParser.State(
+                new Vector3D(2.0e11, 1.0e11, 1.0e10),
+                new Vector3D(1.0e4,  1.0e4,  0.0)));
 
         return new SimulationFactory(
             new IntegratorFactory(),
@@ -143,5 +147,42 @@ class SimulationFactoryTest {
             "hours", 1, 5000);
 
         assertEquals(0, sim.getMassiveCount());
+    }
+
+    @Test
+    void galileansAreMassive_smallerSaturnMoonsAreTestParticles() {
+        SimulationFactory factory = newFactory();
+        // Mix: planets + Galileans (all massive) + Mimas/Enceladus (test
+        // particles). Test-particle moons must sort to the end alongside
+        // EROS-class test particles, leaving massiveCount = 3 planets + 4
+        // Galileans = 7.
+        Simulation sim = factory.createSimulation(
+            "test",
+            List.of("SUN", "EARTH", "MARS", "IO", "MIMAS", "EUROPA", "ENCELADUS",
+                    "GANYMEDE", "CALLISTO"),
+            "Heliocentric", "RK4", AbsoluteDate.J2000_EPOCH,
+            "hours", 1, 5000);
+        assertEquals(9, sim.getCelestialBodies().size());
+        // 7 massive: SUN, EARTH, MARS, IO, EUROPA, GANYMEDE, CALLISTO
+        assertEquals(7, sim.getMassiveCount());
+        // Last two slots must be the test particles (order within each
+        // partition is otherwise unconstrained — verify via the names).
+        List<String> tailNames = sim.getCelestialBodies()
+            .subList(7, 9).stream()
+            .map(CelestialBodyWrapper::getName).toList();
+        assertTrue(tailNames.contains("MIMAS"));
+        assertTrue(tailNames.contains("ENCELADUS"));
+    }
+
+    @Test
+    void titanMassive_iapetusTestParticle() {
+        SimulationFactory factory = newFactory();
+        Simulation sim = factory.createSimulation(
+            "test",
+            List.of("SUN", "SATURN", "TITAN", "IAPETUS"),
+            "Heliocentric", "RK4", AbsoluteDate.J2000_EPOCH,
+            "hours", 1, 5000);
+        assertEquals(3, sim.getMassiveCount());  // SUN, SATURN, TITAN
+        assertEquals("IAPETUS", sim.getCelestialBodies().get(3).getName());
     }
 }
