@@ -127,8 +127,14 @@ public class HorizonsClient {
             AbsoluteDate epoch, String commandValue, String bodyLabel
     ) {
         String startTime = formatEpoch(epoch);
-        String stopTime  = formatEpoch(epoch.shiftedBy(60.0));
+        String stopTime  = formatEpoch(epoch.shiftedBy(60.0));  // 1-minute window
 
+        // Assembled manually rather than via Spring's URI builder because
+        // JPL's parser breaks on a literal ';' in the query string and
+        // Spring's default UriBuilderFactory encoding modes leave ';'
+        // unescaped per RFC 3986 (where ';' is a "sub-delim" allowed in
+        // query components). URLEncoder.encode() (form-encoded) does
+        // encode ';' to %3B, which is what JPL accepts.
         String url = API_BASE
             + "?format=text"
             + "&COMMAND=" + encodeQueryValue(commandValue)
@@ -144,9 +150,15 @@ public class HorizonsClient {
             + "&REF_SYSTEM=" + encodeQueryValue("'ICRF'")
             + "&VEC_TABLE=" + encodeQueryValue("'2'");
 
+        // URI.create() takes a pre-encoded string verbatim; passing the
+        // String form to RestClient.uri() would re-encode our '%' characters
+        // (to '%25'), corrupting the manually-encoded ';' and '='.
         URI uri = URI.create(url);
         String body;
         try {
+            // Block until the global JPL permit is available. With one
+            // permit and fair queueing, at most one HTTP call is in
+            // flight to JPL across the entire process.
             JPL_PERMIT.acquire();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

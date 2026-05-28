@@ -297,6 +297,15 @@ class HorizonsClientTest {
         server.expect(requestUrlContains("COMMAND="))
               .andExpect(method(HttpMethod.GET))
               .andExpect(requestUrlContains("%27501%27"))   // 'COMMAND=501' form-encoded
+              .andExpect(request -> {
+                  // Contract of fetchByMajorBodyId: the DES=...; wrapper
+                  // must NOT be present. Sending DES=501; would push
+                  // Horizons down the small-body branch and fail with
+                  // "out of bounds" for major-body NAIF IDs.
+                  String url = request.getURI().toString();
+                  assertFalse(url.contains("DES%3D"),
+                      "Major-body COMMAND must not be DES-wrapped: " + url);
+              })
               .andExpect(requestUrlContains("CENTER="))
               .andExpect(requestUrlContains("%4010"))         // '@10' form-encoded
               .andRespond(withSuccess(capturedResponse, MediaType.TEXT_PLAIN));
