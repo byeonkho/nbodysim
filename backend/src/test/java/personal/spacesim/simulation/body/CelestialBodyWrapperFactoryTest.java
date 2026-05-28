@@ -22,6 +22,7 @@ import java.nio.file.Paths;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -86,7 +87,7 @@ class CelestialBodyWrapperFactoryTest {
     void minorBodyEros_routedThroughHorizons() {
         HorizonsClient mockClient = mock(HorizonsClient.class);
         // Canned Horizons response: Sun-relative position ~2e11 m, vel ~14 km/s.
-        when(mockClient.fetchState(eq("2000433"), any(AbsoluteDate.class)))
+        when(mockClient.fetchByDesignation(eq("2000433"), any(AbsoluteDate.class)))
             .thenReturn(new HorizonsResponseParser.State(
                 new Vector3D(2.0e11, 1.0e11, 1.0e10),
                 new Vector3D(1.0e4,  1.0e4,  0.0)));
@@ -108,7 +109,7 @@ class CelestialBodyWrapperFactoryTest {
         // used directly without offset.
         assertEquals(2.0e11, eros.getPosition().getX(), 1.0);
         assertEquals(1.0e11, eros.getPosition().getY(), 1.0);
-        verify(mockClient).fetchState("2000433", j2000);
+        verify(mockClient).fetchByDesignation("2000433", j2000);
     }
 
     @Test
@@ -120,7 +121,7 @@ class CelestialBodyWrapperFactoryTest {
         // raw mock output by that amount.
         Vector3D horizonsPos = new Vector3D(2.0e11, 0.0, 0.0);
         HorizonsClient mockClient = mock(HorizonsClient.class);
-        when(mockClient.fetchState(eq("2000433"), any(AbsoluteDate.class)))
+        when(mockClient.fetchByDesignation(eq("2000433"), any(AbsoluteDate.class)))
             .thenReturn(new HorizonsResponseParser.State(horizonsPos, Vector3D.ZERO));
 
         HorizonsStateCache cache = new HorizonsStateCache(horizonsCacheDir);
@@ -140,7 +141,7 @@ class CelestialBodyWrapperFactoryTest {
     @Test
     void horizonsCacheHit_skipsClient() {
         HorizonsClient mockClient = mock(HorizonsClient.class);
-        when(mockClient.fetchState(eq("2000433"), any(AbsoluteDate.class)))
+        when(mockClient.fetchByDesignation(eq("2000433"), any(AbsoluteDate.class)))
             .thenReturn(new HorizonsResponseParser.State(
                 new Vector3D(2e11, 1e11, 1e10),
                 new Vector3D(1e4, 1e4, 0)));
@@ -157,7 +158,7 @@ class CelestialBodyWrapperFactoryTest {
         factory.createCelestialBodyWrapper("EROS", heliocentric, j2000);
 
         // Second call must hit cache.
-        verify(mockClient, times(1)).fetchState("2000433", j2000);
+        verify(mockClient, times(1)).fetchByDesignation("2000433", j2000);
     }
 
     @Test
@@ -173,5 +174,65 @@ class CelestialBodyWrapperFactoryTest {
 
         assertEquals("EARTH", moon.getOrbitingBody());
         verifyNoInteractions(mockClient);
+    }
+
+    @Test
+    void titanRoutedThroughHorizonsBareId_withSaturnAsParent() {
+        HorizonsClient mockClient = mock(HorizonsClient.class);
+        when(mockClient.fetchByMajorBodyId(eq("606"), any(AbsoluteDate.class)))
+            .thenReturn(new HorizonsResponseParser.State(
+                new Vector3D(1.4e12, 0, 0),    // ~Saturn distance
+                new Vector3D(0, 1.0e4, 0)));
+
+        HorizonsStateCache cache = new HorizonsStateCache(horizonsCacheDir);
+        CelestialBodyWrapperFactory factory =
+            new CelestialBodyWrapperFactory(mockClient, cache);
+
+        Frame icrf = FramesFactory.getICRF();
+        CelestialBodyWrapper titan =
+            factory.createCelestialBodyWrapper("TITAN", icrf, AbsoluteDate.J2000_EPOCH);
+
+        assertEquals("TITAN", titan.getName());
+        assertEquals("SATURN", titan.getOrbitingBody());
+        verify(mockClient, times(1)).fetchByMajorBodyId(eq("606"), any(AbsoluteDate.class));
+        // Asteroid path must NOT be used for a moon.
+        verify(mockClient, never()).fetchByDesignation(anyString(), any(AbsoluteDate.class));
+    }
+
+    @Test
+    void ioRoutedThroughHorizonsBareId_withJupiterAsParent() {
+        HorizonsClient mockClient = mock(HorizonsClient.class);
+        when(mockClient.fetchByMajorBodyId(eq("501"), any(AbsoluteDate.class)))
+            .thenReturn(new HorizonsResponseParser.State(
+                new Vector3D(7.78e11, 0, 0), new Vector3D(0, 1.7e4, 0)));
+
+        HorizonsStateCache cache = new HorizonsStateCache(horizonsCacheDir);
+        CelestialBodyWrapperFactory factory =
+            new CelestialBodyWrapperFactory(mockClient, cache);
+
+        CelestialBodyWrapper io = factory.createCelestialBodyWrapper(
+            "IO", FramesFactory.getICRF(), AbsoluteDate.J2000_EPOCH);
+
+        assertEquals("JUPITER", io.getOrbitingBody());
+    }
+
+    @Test
+    void erosStillUsesDesignationPath() {
+        // Regression check — existing asteroid path must not break.
+        HorizonsClient mockClient = mock(HorizonsClient.class);
+        when(mockClient.fetchByDesignation(eq("2000433"), any(AbsoluteDate.class)))
+            .thenReturn(new HorizonsResponseParser.State(
+                new Vector3D(2.0e11, 0, 0), new Vector3D(0, 2.0e4, 0)));
+
+        HorizonsStateCache cache = new HorizonsStateCache(horizonsCacheDir);
+        CelestialBodyWrapperFactory factory =
+            new CelestialBodyWrapperFactory(mockClient, cache);
+
+        CelestialBodyWrapper eros = factory.createCelestialBodyWrapper(
+            "EROS", FramesFactory.getICRF(), AbsoluteDate.J2000_EPOCH);
+
+        assertEquals("SUN", eros.getOrbitingBody());
+        verify(mockClient, times(1)).fetchByDesignation(eq("2000433"), any(AbsoluteDate.class));
+        verify(mockClient, never()).fetchByMajorBodyId(anyString(), any(AbsoluteDate.class));
     }
 }
