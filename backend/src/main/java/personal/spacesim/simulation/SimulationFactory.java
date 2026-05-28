@@ -94,7 +94,9 @@ public class SimulationFactory {
     private static boolean isTestParticle(String bodyName) {
         // Test particle if EITHER catalog says so. MinorBodyCatalog covers
         // dwarf planets (massive) and named NEAs (test); MoonCatalog covers
-        // 21 named moons (8 massive, 14 test).
+        // 21 named moons (7 massive, 14 test). Earth's Moon is Orekit-sourced
+        // and lives outside MoonCatalog — it's classified massive via the
+        // fall-through here returning false.
         MinorBodyCatalog.Entry minor = MinorBodyCatalog.get(bodyName);
         if (minor != null && minor.isTestParticle()) return true;
         MoonCatalog.Entry moon = MoonCatalog.get(bodyName);
