@@ -172,6 +172,7 @@ const Sphere: React.FC<SphereProps> = ({
             worldRadius(ownRadiusM, simulationScale.preset),
             simulationScale.preset,
             childDeltaScratch.current,
+            orbitingBodyNameUpper,
           );
 
           // worldDistanceFromParent returns the delta in input ICRF axes —
