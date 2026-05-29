@@ -20,6 +20,9 @@ import VestaTexture from "../../../public/textures/vesta.jpg";
 import ErosTexture from "../../../public/textures/eros.jpg";
 import BennuTexture from "../../../public/textures/bennu.jpg";
 import RyuguTexture from "../../../public/textures/ryugu.jpg";
+// Moons (public-domain NASA/USGS mission mosaics — see ATTRIBUTIONS.md). Bodies
+// with no usable public-domain mosaic (Deimos, Nereid) ride the fallback texture.
+import PhobosTexture from "../../../public/textures/phobos.jpg";
 
 const SimConstants = {
   // 1 astronomical unit in metres (IAU 2012 definition). Scene grid cell
@@ -94,6 +97,12 @@ export const bodyProperties: Record<string, BodyProperties> = {
   APOPHIS: { texture: FallbackTexture as StaticImageData, rotationSpeed: 0.013 }, // 30.4 hr — fallback (no mosaic)
   BENNU:   { texture: BennuTexture   as StaticImageData, rotationSpeed:  0.093 }, // 4.30 hr
   RYUGU:   { texture: RyuguTexture   as StaticImageData, rotationSpeed:  0.053 }, // 7.63 hr
+
+  // Moons. Stylized spins (cosmetic — real moons are tidally locked). Negative =
+  // retrograde. Real rotation/orbital period in the trailing comment. Bodies on
+  // the fallback texture (Deimos, Nereid) have no published public-domain mosaic.
+  PHOBOS:  { texture: PhobosTexture  as StaticImageData, rotationSpeed:  0.08  }, // 0.319 d
+  DEIMOS:  { texture: FallbackTexture as StaticImageData, rotationSpeed: 0.05  }, // 1.26 d — fallback (no PD mosaic)
 };
 
 export default SimConstants;

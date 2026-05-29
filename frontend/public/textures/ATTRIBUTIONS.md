@@ -20,6 +20,16 @@ The major-planet textures (`mercury_texture.jpg`, `venus_texture.jpg`, `earth_te
 
 All minor-body textures were downsampled to 2048×1024 JPG at quality 85 for repository size; originals remain at their sources.
 
+## Moons
+
+All public-domain, from NASA/USGS mission mosaics (no required attribution; sources listed for traceability). Downsampled to 2048×1024 JPG at quality 85.
+
+| File | Body | Source | License | Notes |
+|------|------|--------|---------|-------|
+| `phobos.jpg` | Phobos | NASA/USGS Astrogeology — Phobos Viking Global Mosaic, `planetarymaps.usgs.gov/mosaic/Phobos_Viking_Mosaic_40ppd_DLRcontrol.tif` | Public domain | Viking Orbiter imagery, DLR control. |
+| (fallback) | Deimos | n/a | n/a | No public-domain global mosaic exists; available Commons maps are CC-BY-SA artist reconstructions. Rides the fallback texture. |
+| (fallback) | Nereid | n/a | n/a | Never resolved by any spacecraft; no surface mosaic exists. |
+
 ## License caveats
 
 - **Steve Albers' textures** (Pluto, Ceres, Vesta) are licensed for personal / non-commercial use only. This project is a personal portfolio piece and qualifies. Any commercial use would require either contacting Albers directly or replacing these assets with mission-derived public-domain mosaics (e.g. processing NASA Dawn / New Horizons source data directly).
