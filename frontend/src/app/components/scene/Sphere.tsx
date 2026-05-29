@@ -52,7 +52,7 @@ const Sphere: React.FC<SphereProps> = ({
   unlit = false,
 }) => {
   const meshRef = useRef<THREE.Mesh>(null!);
-  const lightRef = useRef<THREE.PointLight>(null!);
+  const posGroupRef = useRef<THREE.Group>(null!);
   const dispatch = useDispatch<AppDispatch>();
   const store = useStore<RootState>();
   const propsList = useSelector(selectCelestialBodyPropertiesList);
@@ -180,7 +180,7 @@ const Sphere: React.FC<SphereProps> = ({
           // setBodyWorldPositionWithPreset which DID apply the swap. Apply the
           // swap to the delta (delta.y → world Z, delta.z → world Y) before
           // summing so both terms are in three.js world space.
-          meshRef.current.position.set(
+          posGroupRef.current.position.set(
             parentWorldScratch.current.x + childDeltaScratch.current.x,
             parentWorldScratch.current.y + childDeltaScratch.current.z,
             parentWorldScratch.current.z + childDeltaScratch.current.y,
@@ -189,15 +189,7 @@ const Sphere: React.FC<SphereProps> = ({
           // No parent — straight pipeline transform. setBodyWorldPositionWithPreset
           // applies the Y/Z swap internally.
           setBodyWorldPositionWithPreset(
-            meshRef.current.position,
-            posSimple.current,
-            simulationScale.preset,
-          );
-        }
-
-        if (lightRef.current) {
-          setBodyWorldPositionWithPreset(
-            lightRef.current.position,
+            posGroupRef.current.position,
             posSimple.current,
             simulationScale.preset,
           );
@@ -213,27 +205,30 @@ const Sphere: React.FC<SphereProps> = ({
   };
 
   return (
-    <>
-      <mesh ref={meshRef} onClick={handleClick}>
-        <sphereGeometry args={[radius, 32, 32]} />
-        {unlit ? (
-          <meshBasicMaterial map={textureUrl ? texture : undefined} />
-        ) : (
-          <meshStandardMaterial
-            map={textureUrl ? texture : undefined}
-            onBeforeCompile={halfLambertOverride}
-          />
-        )}
-      </mesh>
+    <group ref={posGroupRef}>
+      <group>
+        <mesh ref={meshRef} onClick={handleClick}>
+          <sphereGeometry args={[radius, 32, 32]} />
+          {unlit ? (
+            <meshBasicMaterial map={textureUrl ? texture : undefined} />
+          ) : (
+            <meshStandardMaterial
+              map={textureUrl ? texture : undefined}
+              onBeforeCompile={halfLambertOverride}
+            />
+          )}
+        </mesh>
+      </group>
       {/* decay=0 → no distance falloff, so every body gets equal direct
           light from the Sun regardless of scene-space distance. Real
           inverse-square would make outer planets pitch black or inner
           ones blown out at our scales; standard artistic license for
-          solar-system viz. */}
+          solar-system viz. Light is a child of posGroup at local origin
+          so it inherits the group's world position with no per-frame write. */}
       {unlit && (
-        <pointLight ref={lightRef} color={0xffffff} intensity={1.5} decay={0} />
+        <pointLight color={0xffffff} intensity={1.5} decay={0} />
       )}
-    </>
+    </group>
   );
 };
 
