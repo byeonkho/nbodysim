@@ -23,6 +23,30 @@ export type BodyKey =
   | "URANUS"
   | "NEPTUNE"
   | "MOON"
+  // Major moons — sourced via Horizons bare-NAIF-ID path (see backend
+  // MoonCatalog). They share the "planet" category and render inside the
+  // Planets section, sub-grouped by parent at the UI layer.
+  | "PHOBOS"
+  | "DEIMOS"
+  | "IO"
+  | "EUROPA"
+  | "GANYMEDE"
+  | "CALLISTO"
+  | "MIMAS"
+  | "ENCELADUS"
+  | "TETHYS"
+  | "DIONE"
+  | "RHEA"
+  | "TITAN"
+  | "IAPETUS"
+  | "ARIEL"
+  | "UMBRIEL"
+  | "TITANIA"
+  | "OBERON"
+  | "MIRANDA"
+  | "TRITON"
+  | "NEREID"
+  | "CHARON"
   // Minor bodies — dwarf planets, large main-belt asteroids, named NEAs.
   | "PLUTO"
   | "CERES"
@@ -50,6 +74,31 @@ export const BODY_CATEGORY: Record<BodyKey, BodyCategory> = {
   URANUS: "planet",
   NEPTUNE: "planet",
   MOON: "planet",
+  // Major moons share the "planet" category so they appear inside the
+  // existing Planets section. The drawer groups them under per-parent
+  // sub-headers at the UI layer; the category itself stays flat so the
+  // section-level master toggle still means "select everything here".
+  PHOBOS: "planet",
+  DEIMOS: "planet",
+  IO: "planet",
+  EUROPA: "planet",
+  GANYMEDE: "planet",
+  CALLISTO: "planet",
+  MIMAS: "planet",
+  ENCELADUS: "planet",
+  TETHYS: "planet",
+  DIONE: "planet",
+  RHEA: "planet",
+  TITAN: "planet",
+  IAPETUS: "planet",
+  ARIEL: "planet",
+  UMBRIEL: "planet",
+  TITANIA: "planet",
+  OBERON: "planet",
+  MIRANDA: "planet",
+  TRITON: "planet",
+  NEREID: "planet",
+  CHARON: "planet",
   PLUTO: "dwarfPlanet",
   CERES: "dwarfPlanet",
   VESTA: "dwarfPlanet",
@@ -74,7 +123,29 @@ export const BODY_ORDER: readonly BodyKey[] = [
   "SATURN",
   "URANUS",
   "NEPTUNE",
+  // Moons grouped by parent in physical (inner-to-outer) order.
   "MOON",
+  "PHOBOS",
+  "DEIMOS",
+  "IO",
+  "EUROPA",
+  "GANYMEDE",
+  "CALLISTO",
+  "MIMAS",
+  "ENCELADUS",
+  "TETHYS",
+  "DIONE",
+  "RHEA",
+  "TITAN",
+  "IAPETUS",
+  "MIRANDA",
+  "ARIEL",
+  "UMBRIEL",
+  "TITANIA",
+  "OBERON",
+  "TRITON",
+  "NEREID",
+  "CHARON",
   "PLUTO",
   "CERES",
   "VESTA",
@@ -102,6 +173,33 @@ export const BODY_COLOR: Record<BodyKey, string> = {
   URANUS: "#7fc7c5",
   NEPTUNE: "#4a78c0",
   MOON: "#bfc4cc",
+  // Mars moons — dark gray-brown (carbonaceous chondrite spectra).
+  PHOBOS: "#7a7064",
+  DEIMOS: "#857a6c",
+  // Galileans — distinctive colors.
+  IO: "#e6c878", // sulfur yellow
+  EUROPA: "#d6c8b0", // off-white ice
+  GANYMEDE: "#a89684", // tan
+  CALLISTO: "#6c604c", // dark brown
+  // Saturn moons — icy whites and grays.
+  MIMAS: "#c8c4bc",
+  ENCELADUS: "#e8e6e0",
+  TETHYS: "#c0bcb4",
+  DIONE: "#b8b4ac",
+  RHEA: "#a8a49c",
+  TITAN: "#c89854", // orange haze
+  IAPETUS: "#9c8870", // two-tone, averaged to brown
+  // Uranus moons — uniform dark gray (low albedo).
+  ARIEL: "#888078",
+  UMBRIEL: "#605850",
+  TITANIA: "#807870",
+  OBERON: "#706860",
+  MIRANDA: "#988c80",
+  // Neptune moons.
+  TRITON: "#c0a890", // pinkish (nitrogen ice + tholin)
+  NEREID: "#807870",
+  // Pluto's Charon — reddish-brown polar cap mixed with neutral gray.
+  CHARON: "#988880",
   PLUTO: "#c8b8a6",
   CERES: "#b8a890",
   VESTA: "#a89880",
@@ -126,6 +224,27 @@ export const BODY_NAIF: Record<BodyKey, string> = {
   URANUS: "799",
   NEPTUNE: "899",
   MOON: "301",
+  PHOBOS: "401",
+  DEIMOS: "402",
+  IO: "501",
+  EUROPA: "502",
+  GANYMEDE: "503",
+  CALLISTO: "504",
+  MIMAS: "601",
+  ENCELADUS: "602",
+  TETHYS: "603",
+  DIONE: "604",
+  RHEA: "605",
+  TITAN: "606",
+  IAPETUS: "608",
+  ARIEL: "701",
+  UMBRIEL: "702",
+  TITANIA: "703",
+  OBERON: "704",
+  MIRANDA: "705",
+  TRITON: "801",
+  NEREID: "802",
+  CHARON: "901",
   PLUTO: "999",
   CERES: "2000001",
   VESTA: "2000004",
@@ -148,6 +267,27 @@ export const BODY_DISPLAY: Record<BodyKey, string> = {
   URANUS: "Uranus",
   NEPTUNE: "Neptune",
   MOON: "Moon",
+  PHOBOS: "Phobos",
+  DEIMOS: "Deimos",
+  IO: "Io",
+  EUROPA: "Europa",
+  GANYMEDE: "Ganymede",
+  CALLISTO: "Callisto",
+  MIMAS: "Mimas",
+  ENCELADUS: "Enceladus",
+  TETHYS: "Tethys",
+  DIONE: "Dione",
+  RHEA: "Rhea",
+  TITAN: "Titan",
+  IAPETUS: "Iapetus",
+  ARIEL: "Ariel",
+  UMBRIEL: "Umbriel",
+  TITANIA: "Titania",
+  OBERON: "Oberon",
+  MIRANDA: "Miranda",
+  TRITON: "Triton",
+  NEREID: "Nereid",
+  CHARON: "Charon",
   PLUTO: "Pluto",
   CERES: "Ceres",
   VESTA: "Vesta",

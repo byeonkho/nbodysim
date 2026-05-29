@@ -19,11 +19,12 @@ const ALL_19: BodyKey[] = [
 ];
 
 describe("BodyVisuals catalog", () => {
-  it("BODY_ORDER includes all 19 keys", () => {
+  it("BODY_ORDER includes all 19 base keys", () => {
     for (const key of ALL_19) {
       expect(BODY_ORDER.includes(key)).toBe(true);
     }
-    expect(BODY_ORDER.length).toBe(19);
+    // 19 base bodies + 21 major moons = 40.
+    expect(BODY_ORDER.length).toBe(40);
   });
 
   it("BODY_COLOR has valid hex for every key", () => {
@@ -80,6 +81,50 @@ describe("BodyVisuals categories", () => {
     ] as BodyKey[]) {
       expect(BODY_CATEGORY[key]).toBe("asteroid");
     }
+  });
+});
+
+const NEW_MOONS: BodyKey[] = [
+  "PHOBOS", "DEIMOS",
+  "IO", "EUROPA", "GANYMEDE", "CALLISTO",
+  "MIMAS", "ENCELADUS", "TETHYS", "DIONE", "RHEA", "TITAN", "IAPETUS",
+  "ARIEL", "UMBRIEL", "TITANIA", "OBERON", "MIRANDA",
+  "TRITON", "NEREID",
+  "CHARON",
+];
+
+describe("BodyVisuals — moon entries", () => {
+  it("each new moon has an entry in every table", () => {
+    for (const key of NEW_MOONS) {
+      expect(BODY_ORDER).toContain(key);
+      // Moons share the existing "planet" category so the drawer renders
+      // them inside the Planets section (sub-grouped by parent in Phase 6).
+      expect(BODY_CATEGORY[key]).toBe("planet");
+      expect(BODY_COLOR[key]).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(BODY_NAIF[key]).toMatch(/^\d{3}$/);
+      expect(BODY_DISPLAY[key]).toBeTruthy();
+    }
+  });
+
+  it("Earth's Moon stays in the planet category (unchanged)", () => {
+    expect(BODY_ORDER).toContain("MOON");
+    expect(BODY_CATEGORY.MOON).toBe("planet");
+  });
+
+  it("BODY_TEXTURE resolves for every new moon (FALLBACK until textures land)", () => {
+    for (const key of NEW_MOONS) {
+      expect(BODY_TEXTURE).toHaveProperty(key);
+    }
+  });
+
+  it("BODY_NAIF for moons matches backend MoonCatalog NAIF IDs", () => {
+    // Pinning a few — full set would just duplicate the catalog. The
+    // spot-check catches accidental ID drift (e.g. Io <-> Europa swap).
+    expect(BODY_NAIF.IO).toBe("501");
+    expect(BODY_NAIF.TITAN).toBe("606");
+    expect(BODY_NAIF.TRITON).toBe("801");
+    expect(BODY_NAIF.CHARON).toBe("901");
+    expect(BODY_NAIF.PHOBOS).toBe("401");
   });
 });
 
