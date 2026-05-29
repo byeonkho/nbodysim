@@ -33,6 +33,8 @@ import DioneTexture from "../../../public/textures/dione.jpg";
 import RheaTexture from "../../../public/textures/rhea.jpg";
 import TitanTexture from "../../../public/textures/titan.jpg";
 import IapetusTexture from "../../../public/textures/iapetus.jpg";
+import TritonTexture from "../../../public/textures/triton.jpg";
+import CharonTexture from "../../../public/textures/charon.jpg";
 
 const SimConstants = {
   // 1 astronomical unit in metres (IAU 2012 definition). Scene grid cell
@@ -133,6 +135,8 @@ export const bodyProperties: Record<string, BodyProperties> = {
   TITANIA: { texture: FallbackTexture as StaticImageData, rotationSpeed: 0.028 }, // 8.71 d — fallback
   OBERON:  { texture: FallbackTexture as StaticImageData, rotationSpeed: 0.023 }, // 13.46 d — fallback
   MIRANDA: { texture: FallbackTexture as StaticImageData, rotationSpeed: 0.05  }, // 1.41 d — fallback
+  TRITON:  { texture: TritonTexture  as StaticImageData, rotationSpeed: -0.035 }, // 5.88 d retrograde
+  CHARON:  { texture: CharonTexture  as StaticImageData, rotationSpeed: -0.016 }, // 6.39 d mutual lock
 };
 
 export default SimConstants;

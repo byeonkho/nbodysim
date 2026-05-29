@@ -44,6 +44,8 @@ All public-domain, from NASA/USGS mission mosaics (no required attribution; sour
 | (fallback) | Titania | n/a | n/a | Southern-hemisphere-only Voyager 2 coverage; same as Ariel. |
 | (fallback) | Oberon | n/a | n/a | Southern-hemisphere-only Voyager 2 coverage (most incomplete of the five); same as Ariel. |
 | (fallback) | Miranda | n/a | n/a | Southern-hemisphere-only Voyager 2 coverage; same as Ariel. |
+| `triton.jpg` | Triton | NASA/USGS Astrogeology — Triton Voyager 2 Color Global Mosaic 600m (GlobalFill) | Public domain | Color; unimaged gaps interpolated (no black void). Cantaloupe terrain + south polar cap. |
+| `charon.jpg` | Charon | NASA/USGS Astrogeology — Charon New Horizons LORRI/MVIC Global Mosaic 300m (Jul 2017) | Public domain | Grayscale; the dark north polar region (Mordor Macula) and Serenity Chasma. |
 | (fallback) | Nereid | n/a | n/a | Never resolved by any spacecraft; no surface mosaic exists. |
 
 ## License caveats
