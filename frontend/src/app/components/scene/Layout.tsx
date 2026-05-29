@@ -8,7 +8,7 @@ import { BodySelector } from "@/app/components/chrome/BodySelector";
 import { FrameCompass } from "@/app/components/chrome/FrameCompass";
 import { LeftRail } from "@/app/components/chrome/LeftRail";
 import { RightColumn } from "@/app/components/chrome/RightColumn";
-import { SimSetupDrawer } from "@/app/components/chrome/SimSetupDrawer";
+import { SimSetupModal } from "@/app/components/chrome/simSetup/SimSetupModal";
 import { Timeline } from "@/app/components/chrome/Timeline";
 import { TopStatusStrip } from "@/app/components/chrome/TopStatusStrip";
 import { DevPanel } from "@/app/components/dev/DevPanel";
@@ -70,7 +70,7 @@ const Layout: React.FC = () => {
           <RightColumn />
           <Timeline />
 
-          <SimSetupDrawer open={simSetupOpen} onOpenChange={setSimSetupOpen} />
+          <SimSetupModal open={simSetupOpen} onOpenChange={setSimSetupOpen} />
 
           {devMode && <DevPanel />}
         </div>

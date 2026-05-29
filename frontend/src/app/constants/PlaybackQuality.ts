@@ -34,7 +34,7 @@ export const BUCKET_LABELS: Record<FidelityBucket, string> = {
 };
 
 /**
- * Per-integrator landing default — the bucket the SimSetupDrawer surfaces
+ * Per-integrator landing default — the bucket the Sim Setup modal surfaces
  * on first open and when switching integrators mid-config.
  *
  * <p>Must mirror backend {@code FidelityBucket.defaultFor()}. Drift means
