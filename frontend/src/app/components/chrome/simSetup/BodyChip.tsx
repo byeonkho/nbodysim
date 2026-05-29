@@ -1,13 +1,9 @@
-import {
-  BODY_DISPLAY,
-  BODY_NAIF,
-  type BodyKey,
-} from "@/app/constants/BodyVisuals";
+import { BODY_DISPLAY, type BodyKey } from "@/app/constants/BodyVisuals";
 import { BodySphere } from "@/app/components/chrome/BodySphere";
 
-// Catalog body chip. The whole chip is one toggle button: sphere + name +
-// NAIF id + a checkbox that fills accent when enabled. Enabled = indigo
-// border + tint + bright text + filled check.
+// Catalog body chip. The whole chip is one toggle button: sphere + name + a
+// checkbox that fills accent when enabled. Enabled = indigo border + tint +
+// bright text + filled check.
 export function BodyChip({
   bodyKey,
   on,
@@ -37,12 +33,6 @@ export function BodyChip({
         style={{ color: on ? "var(--color-hi)" : "var(--color-dim)" }}
       >
         {BODY_DISPLAY[bodyKey]}
-      </span>
-      <span
-        className="tabular shrink-0 font-mono text-[9px]"
-        style={{ color: on ? "rgba(164,168,255,0.7)" : "var(--color-subdim)" }}
-      >
-        {BODY_NAIF[bodyKey]}
       </span>
       <span
         className="grid shrink-0 place-items-center"
