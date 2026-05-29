@@ -27,6 +27,12 @@ import IoTexture from "../../../public/textures/io.jpg";
 import EuropaTexture from "../../../public/textures/europa.jpg";
 import GanymedeTexture from "../../../public/textures/ganymede.jpg";
 import CallistoTexture from "../../../public/textures/callisto.jpg";
+import EnceladusTexture from "../../../public/textures/enceladus.jpg";
+import TethysTexture from "../../../public/textures/tethys.jpg";
+import DioneTexture from "../../../public/textures/dione.jpg";
+import RheaTexture from "../../../public/textures/rhea.jpg";
+import TitanTexture from "../../../public/textures/titan.jpg";
+import IapetusTexture from "../../../public/textures/iapetus.jpg";
 
 const SimConstants = {
   // 1 astronomical unit in metres (IAU 2012 definition). Scene grid cell
@@ -111,6 +117,13 @@ export const bodyProperties: Record<string, BodyProperties> = {
   EUROPA:   { texture: EuropaTexture   as StaticImageData, rotationSpeed:  0.04  }, // 3.55 d
   GANYMEDE: { texture: GanymedeTexture as StaticImageData, rotationSpeed:  0.03  }, // 7.15 d
   CALLISTO: { texture: CallistoTexture as StaticImageData, rotationSpeed:  0.022 }, // 16.69 d
+  MIMAS:    { texture: FallbackTexture as StaticImageData, rotationSpeed:  0.06  }, // 0.94 d — fallback (only gridded/airbrush PD maps)
+  ENCELADUS:{ texture: EnceladusTexture as StaticImageData, rotationSpeed: 0.05  }, // 1.37 d
+  TETHYS:   { texture: TethysTexture   as StaticImageData, rotationSpeed:  0.045 }, // 1.89 d
+  DIONE:    { texture: DioneTexture    as StaticImageData, rotationSpeed:  0.04  }, // 2.74 d
+  RHEA:     { texture: RheaTexture     as StaticImageData, rotationSpeed:  0.035 }, // 4.52 d
+  TITAN:    { texture: TitanTexture    as StaticImageData, rotationSpeed:  0.024 }, // 15.95 d
+  IAPETUS:  { texture: IapetusTexture  as StaticImageData, rotationSpeed:  0.014 }, // 79.3 d
 };
 
 export default SimConstants;

@@ -32,6 +32,13 @@ All public-domain, from NASA/USGS mission mosaics (no required attribution; sour
 | `europa.jpg` | Europa | NASA/USGS Astrogeology — Europa Voyager/Galileo SSI Global Mosaic 500m | Public domain | Grayscale. |
 | `ganymede.jpg` | Ganymede | NASA/USGS Astrogeology — Ganymede Voyager/Galileo SSI Color Global Mosaic 1.4km | Public domain | Color. |
 | `callisto.jpg` | Callisto | NASA/USGS Astrogeology — Callisto Voyager/Galileo SSI Global Mosaic 1km | Public domain | Grayscale. |
+| (fallback) | Mimas | n/a | n/a | The only public-domain Mimas maps either have lat/long gridlines drawn over the surface (NASA PIA series) or are airbrushed shaded relief. Rides the fallback texture pending a clean-surface mosaic. |
+| `enceladus.jpg` | Enceladus | NASA/USGS Astrogeology — Enceladus Cassini Global Mosaic 110m | Public domain | Grayscale. |
+| `tethys.jpg` | Tethys | NASA/USGS Astrogeology — Tethys Cassini Global Mosaic 293m | Public domain | Grayscale. |
+| `dione.jpg` | Dione | NASA/USGS Astrogeology — Dione Cassini/Voyager Global Mosaic 154m | Public domain | Grayscale. |
+| `rhea.jpg` | Rhea | NASA/USGS Astrogeology — Rhea Cassini/Voyager Global Mosaic 417m | Public domain | Grayscale. |
+| `titan.jpg` | Titan | NASA/USGS Astrogeology — Titan Cassini ISS Global Mosaic 4005m (938nm methane-window) | Public domain | Surface albedo through the haze (dark dunes, bright Xanadu). |
+| `iapetus.jpg` | Iapetus | NASA/USGS Astrogeology — Iapetus Cassini/Voyager Global Mosaic 783m | Public domain | Grayscale; the dark/bright hemisphere dichotomy. |
 | (fallback) | Nereid | n/a | n/a | Never resolved by any spacecraft; no surface mosaic exists. |
 
 ## License caveats
