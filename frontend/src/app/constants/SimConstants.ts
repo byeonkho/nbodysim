@@ -23,6 +23,10 @@ import RyuguTexture from "../../../public/textures/ryugu.jpg";
 // Moons (public-domain NASA/USGS mission mosaics — see ATTRIBUTIONS.md). Bodies
 // with no usable public-domain mosaic (Deimos, Nereid) ride the fallback texture.
 import PhobosTexture from "../../../public/textures/phobos.jpg";
+import IoTexture from "../../../public/textures/io.jpg";
+import EuropaTexture from "../../../public/textures/europa.jpg";
+import GanymedeTexture from "../../../public/textures/ganymede.jpg";
+import CallistoTexture from "../../../public/textures/callisto.jpg";
 
 const SimConstants = {
   // 1 astronomical unit in metres (IAU 2012 definition). Scene grid cell
@@ -103,6 +107,10 @@ export const bodyProperties: Record<string, BodyProperties> = {
   // the fallback texture (Deimos, Nereid) have no published public-domain mosaic.
   PHOBOS:  { texture: PhobosTexture  as StaticImageData, rotationSpeed:  0.08  }, // 0.319 d
   DEIMOS:  { texture: FallbackTexture as StaticImageData, rotationSpeed: 0.05  }, // 1.26 d — fallback (no PD mosaic)
+  IO:       { texture: IoTexture       as StaticImageData, rotationSpeed:  0.05  }, // 1.77 d
+  EUROPA:   { texture: EuropaTexture   as StaticImageData, rotationSpeed:  0.04  }, // 3.55 d
+  GANYMEDE: { texture: GanymedeTexture as StaticImageData, rotationSpeed:  0.03  }, // 7.15 d
+  CALLISTO: { texture: CallistoTexture as StaticImageData, rotationSpeed:  0.022 }, // 16.69 d
 };
 
 export default SimConstants;

@@ -28,6 +28,10 @@ All public-domain, from NASA/USGS mission mosaics (no required attribution; sour
 |------|------|--------|---------|-------|
 | `phobos.jpg` | Phobos | NASA/USGS Astrogeology — Phobos Viking Global Mosaic, `planetarymaps.usgs.gov/mosaic/Phobos_Viking_Mosaic_40ppd_DLRcontrol.tif` | Public domain | Viking Orbiter imagery, DLR control. |
 | (fallback) | Deimos | n/a | n/a | No public-domain global mosaic exists; available Commons maps are CC-BY-SA artist reconstructions. Rides the fallback texture. |
+| `io.jpg` | Io | NASA/USGS Astrogeology — Io Galileo SSI/Voyager Color Merge Global Mosaic 1km | Public domain | Color. |
+| `europa.jpg` | Europa | NASA/USGS Astrogeology — Europa Voyager/Galileo SSI Global Mosaic 500m | Public domain | Grayscale. |
+| `ganymede.jpg` | Ganymede | NASA/USGS Astrogeology — Ganymede Voyager/Galileo SSI Color Global Mosaic 1.4km | Public domain | Color. |
+| `callisto.jpg` | Callisto | NASA/USGS Astrogeology — Callisto Voyager/Galileo SSI Global Mosaic 1km | Public domain | Grayscale. |
 | (fallback) | Nereid | n/a | n/a | Never resolved by any spacecraft; no surface mosaic exists. |
 
 ## License caveats
