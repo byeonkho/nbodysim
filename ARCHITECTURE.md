@@ -43,11 +43,11 @@ Backend snapshots are always emitted Sun-relative — `Simulation.snapshotFromSt
 
 ### Imperative scene graph, no per-tick React rerenders
 
-The 3D scene's R3F components (`Sphere`, `Trail`, `Reticle`, `GhostLabel`, `Camera`) update positions imperatively inside `useFrame` by reading from the chunk buffer at the current timestep via `useStore.getState()` — they never subscribe to per-frame state. Per-frame Redux subscriptions would force React to reconcile the entire scene on every animation tick, which dominated the cost in earlier profiles. Pattern documented in `engineering_patterns_spacesim.md`. Active body identity carries as a string (`activeBodyName`), not a buffer reference, so identity changes don't cascade.
+The 3D scene's R3F components (`Sphere`, `Trail`, `Reticle`, `GhostLabel`, `Camera`) update positions imperatively inside `useFrame` by reading from the chunk buffer at the current timestep via `useStore.getState()` — they never subscribe to per-frame state. Per-frame Redux subscriptions would force React to reconcile the entire scene on every animation tick, which dominated the cost in earlier profiles. Pattern documented in the project's hot-path engineering notes. Active body identity carries as a string (`activeBodyName`), not a buffer reference, so identity changes don't cascade.
 
 ### Hot-path mutating-output pattern
 
-Anything in the frontend render loop or backend integrator step uses pre-allocated buffers and mutating-output APIs (`scaleDistanceInto`, `subtractInto`, `derivativesInto`, `stepInto`, etc.) to avoid per-frame allocation. Documented in `engineering_patterns_spacesim.md`. The Trail.tsx perf bug — closures + per-frame `Array.find()` summing to ~45 000 closure allocations per frame at trail length 5000 — was the motivating incident.
+Anything in the frontend render loop or backend integrator step uses pre-allocated buffers and mutating-output APIs (`scaleDistanceInto`, `subtractInto`, `derivativesInto`, `stepInto`, etc.) to avoid per-frame allocation. Documented in the project's hot-path engineering notes. The Trail.tsx perf bug — closures + per-frame `Array.find()` summing to ~45 000 closure allocations per frame at trail length 5000 — was the motivating incident.
 
 ### Typed-array buffer mirrors the wire format end-to-end
 
