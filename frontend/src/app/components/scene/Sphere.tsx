@@ -2,6 +2,10 @@ import { useFrame, useLoader } from "@react-three/fiber";
 import React, { useMemo, useRef } from "react";
 import { useDispatch, useSelector, useStore } from "react-redux";
 import { AppDispatch, RootState } from "@/app/store/Store";
+import { toBodyKey } from "@/app/constants/BodyVisuals";
+import { RING_BODIES, HALO_BODIES } from "@/app/constants/BodyDecorations";
+import { PlanetRings } from "@/app/components/scene/PlanetRings";
+import { AtmosphereHalo } from "@/app/components/scene/AtmosphereHalo";
 import {
   CelestialBodyProperties,
   selectCelestialBodyPropertiesList,
@@ -56,6 +60,11 @@ const Sphere: React.FC<SphereProps> = ({
   const dispatch = useDispatch<AppDispatch>();
   const store = useStore<RootState>();
   const propsList = useSelector(selectCelestialBodyPropertiesList);
+
+  const bodyKey = toBodyKey(name);
+  const ring = bodyKey ? RING_BODIES[bodyKey] : undefined;
+  const halo = bodyKey ? HALO_BODIES[bodyKey] : undefined;
+  const tiltRad = ring?.tiltRad ?? 0;
 
   const { orbitingBodyNameUpper, ownRadiusM } = useMemo(() => {
     const nameUpper = name.toUpperCase();
@@ -206,7 +215,7 @@ const Sphere: React.FC<SphereProps> = ({
 
   return (
     <group ref={posGroupRef}>
-      <group>
+      <group rotation={[tiltRad, 0, 0]}>
         <mesh ref={meshRef} onClick={handleClick}>
           <sphereGeometry args={[radius, 32, 32]} />
           {unlit ? (
@@ -218,6 +227,8 @@ const Sphere: React.FC<SphereProps> = ({
             />
           )}
         </mesh>
+        {ring && <PlanetRings planetRadius={radius} config={ring} />}
+        {halo && <AtmosphereHalo planetRadius={radius} config={halo} />}
       </group>
       {/* decay=0 → no distance falloff, so every body gets equal direct
           light from the Sun regardless of scene-space distance. Real
