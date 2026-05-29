@@ -1,9 +1,11 @@
 import { useFrame, useLoader } from "@react-three/fiber";
-import React, { useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { useDispatch, useSelector, useStore } from "react-redux";
 import { AppDispatch, RootState } from "@/app/store/Store";
 import { toBodyKey } from "@/app/constants/BodyVisuals";
 import { RING_BODIES, HALO_BODIES } from "@/app/constants/BodyDecorations";
+import { IRREGULAR_BODIES } from "@/app/constants/BodyShapes";
+import { makeIrregularGeometry } from "@/app/utils/irregularGeometry";
 import { PlanetRings } from "@/app/components/scene/PlanetRings";
 import { AtmosphereHalo } from "@/app/components/scene/AtmosphereHalo";
 import {
@@ -39,6 +41,10 @@ const halfLambertOverride = (shader: { fragmentShader: string }) => {
   );
 };
 
+// Subdivision for deformed bodies — enough vertices for the lumps to read.
+// Round bodies keep the cheaper 32x32 sphere.
+const IRREGULAR_SEGMENTS: [number, number] = [96, 64];
+
 /**
  * Renders one celestial body. Position updates imperatively inside useFrame
  * by reading the live chunk buffer via store.getState() — never subscribes
@@ -65,6 +71,21 @@ const Sphere: React.FC<SphereProps> = ({
   const ring = bodyKey ? RING_BODIES[bodyKey] : undefined;
   const halo = bodyKey ? HALO_BODIES[bodyKey] : undefined;
   const tiltRad = ring?.tiltRad ?? 0;
+  const shape = bodyKey ? IRREGULAR_BODIES[bodyKey] : undefined;
+
+  // Deformed geometry for small rocky bodies; null for round bodies (which use
+  // the declarative <sphereGeometry>). One-time build per (radius, shape) — the
+  // only re-build trigger is a scale-preset change (rare), so this is not
+  // per-frame work. Dispose the old geometry when it is replaced or unmounted.
+  const irregularGeometry = useMemo(
+    () => (shape ? makeIrregularGeometry(radius, IRREGULAR_SEGMENTS, shape) : null),
+    [radius, shape],
+  );
+  useEffect(() => {
+    return () => {
+      irregularGeometry?.dispose();
+    };
+  }, [irregularGeometry]);
 
   const { orbitingBodyNameUpper, ownRadiusM } = useMemo(() => {
     const nameUpper = name.toUpperCase();
@@ -216,8 +237,12 @@ const Sphere: React.FC<SphereProps> = ({
   return (
     <group ref={posGroupRef}>
       <group rotation={[tiltRad, 0, 0]}>
-        <mesh ref={meshRef} onClick={handleClick}>
-          <sphereGeometry args={[radius, 32, 32]} />
+        <mesh
+          ref={meshRef}
+          onClick={handleClick}
+          geometry={irregularGeometry ?? undefined}
+        >
+          {!irregularGeometry && <sphereGeometry args={[radius, 32, 32]} />}
           {unlit ? (
             <meshBasicMaterial map={textureUrl ? texture : undefined} />
           ) : (
