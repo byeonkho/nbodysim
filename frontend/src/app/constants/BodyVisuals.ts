@@ -60,7 +60,7 @@ export type BodyKey =
 
 export type BodyCategory = "planet" | "dwarfPlanet" | "asteroid";
 
-// Grouping for SimSetupDrawer sectioning. SUN and MOON ride with the planets
+// Grouping for Sim Setup modal sectioning. SUN and MOON ride with the planets
 // for selector grouping purposes (they're "always-on" components of the
 // inner system, not standalone categories worth their own section).
 export const BODY_CATEGORY: Record<BodyKey, BodyCategory> = {

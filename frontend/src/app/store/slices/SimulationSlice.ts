@@ -61,7 +61,7 @@ export interface LastSimRequest {
   frame: string;
   integrator: string;
   timeStepUnit: string;
-  /** Fidelity bucket — populated by SimSetupDrawer. Optional for
+  /** Fidelity bucket — populated by the Sim Setup modal. Optional for
    * backwards-compat with any preserved request that pre-dates it. */
   fidelityBucket?: string;
 }

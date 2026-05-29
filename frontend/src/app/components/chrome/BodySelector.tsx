@@ -16,21 +16,27 @@ import {
   type BodyCategory,
   type BodyKey,
 } from "@/app/constants/BodyVisuals";
+import {
+  ALL_MOONS,
+  MOON_PARENT_LABEL,
+  MOON_PARENT_ORDER,
+  MOONS_BY_PARENT,
+  PLANET_KEYS,
+} from "@/app/constants/BodyCatalog";
 import { BodySphere } from "@/app/components/chrome/BodySphere";
 
-// Pill row showing the bodies currently in the sim, grouped by category:
-//   - Planets render inline as individual chips (the canonical solar-system
-//     framing — always 1:1 with whatever is enabled)
-//   - Dwarf planets collapse to a single group chip with a popover that
-//     reveals the per-body chips on click
-//   - Near-Earth asteroids same pattern
-// Group chips are only rendered when the category has at least one enabled
-// body in the current sim. Empty categories disappear. That way the row
-// stays compact and tracks what the user actually picked.
+// Pill row showing the bodies currently in the sim, grouped by kind:
+//   - Planets (Sun + the eight) render inline as individual chips — the
+//     canonical solar-system framing, always 1:1 with what's enabled.
+//   - Moons collapse to one group chip whose popover sub-groups by parent.
+//   - Dwarf planets and near-Earth asteroids each collapse to a group chip too.
+// Group chips render only when their kind has at least one enabled body, so the
+// row stays compact and tracks what the user actually picked. Clicking any pill
+// sets the inspected body (drives the body card + reticle). Scene-click also
+// selects bodies, so this row is a tracked-set readout + quick-jump, not the
+// only way to inspect.
 
-// Plain-English category labels for the group chips and popover headers.
-// "Asteroids" rather than the technical "NEAs" — per the presentation-copy
-// rule, prose stays accessible for non-technical visitors.
+// Plain-English labels for the minor-body group chips + popover headers.
 const CATEGORY_GROUP_LABEL: Record<BodyCategory, string> = {
   planet: "Planets",
   dwarfPlanet: "Dwarf planets",
@@ -51,15 +57,21 @@ export function BodySelector() {
 
   const activeKey = activeName?.trim().toUpperCase();
 
-  // Partition the enabled bodies by category. BODY_ORDER drives display
-  // ordering within a category — same source-of-truth the drawer uses.
-  const enabledByCategory: Record<BodyCategory, BodyKey[]> = {
-    planet: [],
+  // Planets (Sun + eight) inline; moons separated into their own group; dwarf
+  // and asteroid kept as their own groups. Moons share the backend "planet"
+  // category, so they must be split out explicitly rather than via BODY_CATEGORY.
+  const enabledPlanets = PLANET_KEYS.filter((k) => enabled.has(k));
+  const enabledMoons = ALL_MOONS.filter((k) => enabled.has(k));
+  const enabledByMinorCategory: Record<"dwarfPlanet" | "asteroid", BodyKey[]> = {
     dwarfPlanet: [],
     asteroid: [],
   };
   for (const key of BODY_ORDER) {
-    if (enabled.has(key)) enabledByCategory[BODY_CATEGORY[key]].push(key);
+    if (!enabled.has(key)) continue;
+    const cat = BODY_CATEGORY[key];
+    if (cat === "dwarfPlanet" || cat === "asteroid") {
+      enabledByMinorCategory[cat].push(key);
+    }
   }
 
   const handleSelect = (key: BodyKey) => {
@@ -72,7 +84,7 @@ export function BodySelector() {
       style={{ borderRadius: 9999 }}
     >
       {/* Planets render inline. */}
-      {enabledByCategory.planet.map((key) => {
+      {enabledPlanets.map((key) => {
         const isActive = isBodyActive && activeKey === key;
         return (
           <BodyPill
@@ -84,10 +96,18 @@ export function BodySelector() {
         );
       })}
 
-      {/* Minor-body categories collapse into a single group chip with a
-          click-to-open popover. Order matches CATEGORY_GROUP_LABEL keys. */}
+      {/* Moons collapse into one group chip; the popover sub-groups by parent. */}
+      {enabledMoons.length > 0 && (
+        <MoonGroupChip
+          enabledMoons={enabledMoons}
+          activeKey={isBodyActive ? activeKey : undefined}
+          onSelect={handleSelect}
+        />
+      )}
+
+      {/* Minor-body categories collapse into a single group chip each. */}
       {(["dwarfPlanet", "asteroid"] as const).map((category) => {
-        const bodies = enabledByCategory[category];
+        const bodies = enabledByMinorCategory[category];
         if (bodies.length === 0) return null;
         const containsActive = bodies.some((k) => k === activeKey);
         const groupActive = isBodyActive && containsActive;
@@ -139,6 +159,7 @@ function BodyPill({
   );
 }
 
+// Group chip for a flat minor-body category (dwarf planets, asteroids).
 function BodyGroupChip({
   label,
   count,
@@ -154,6 +175,87 @@ function BodyGroupChip({
   groupActive: boolean;
   onSelect: (key: BodyKey) => void;
 }) {
+  return (
+    <GroupChipShell
+      representative={bodies[0]}
+      label={label}
+      count={count}
+      groupActive={groupActive}
+    >
+      <p className="eyebrow text-dim px-2 pt-1 pb-1.5">{label}</p>
+      {bodies.map((key) => (
+        <BodyPill
+          key={key}
+          bodyKey={key}
+          active={activeKey === key}
+          onClick={() => onSelect(key)}
+        />
+      ))}
+    </GroupChipShell>
+  );
+}
+
+// Group chip for moons: popover content sub-grouped by parent body.
+function MoonGroupChip({
+  enabledMoons,
+  activeKey,
+  onSelect,
+}: {
+  enabledMoons: BodyKey[];
+  activeKey: string | undefined;
+  onSelect: (key: BodyKey) => void;
+}) {
+  const groupActive = Boolean(
+    activeKey && enabledMoons.some((k) => k === activeKey),
+  );
+
+  return (
+    <GroupChipShell
+      representative={enabledMoons[0]}
+      label="Moons"
+      count={enabledMoons.length}
+      groupActive={groupActive}
+    >
+      {MOON_PARENT_ORDER.map((parent) => {
+        const moons = MOONS_BY_PARENT[parent].filter((k) =>
+          enabledMoons.includes(k),
+        );
+        if (moons.length === 0) return null;
+        return (
+          <div key={parent} className="flex flex-col gap-0.5">
+            <p className="eyebrow text-dim px-2 pt-1 pb-1.5">
+              {MOON_PARENT_LABEL[parent]}
+            </p>
+            {moons.map((key) => (
+              <BodyPill
+                key={key}
+                bodyKey={key}
+                active={activeKey === key}
+                onClick={() => onSelect(key)}
+              />
+            ))}
+          </div>
+        );
+      })}
+    </GroupChipShell>
+  );
+}
+
+// Shared popover-chip shell: a trigger pill (representative sphere + label +
+// count + caret) and the popover surface that wraps the supplied content.
+function GroupChipShell({
+  representative,
+  label,
+  count,
+  groupActive,
+  children,
+}: {
+  representative: BodyKey;
+  label: string;
+  count: number;
+  groupActive: boolean;
+  children: React.ReactNode;
+}) {
   const triggerCls = [
     "flex items-center gap-2 rounded-full border px-[13px] py-[7px] transition-colors",
     "data-[state=open]:bg-[rgba(164,168,255,0.10)]",
@@ -166,10 +268,7 @@ function BodyGroupChip({
     <Popover.Root>
       <Popover.Trigger asChild>
         <button type="button" className={triggerCls}>
-          {/* The first enabled body in the group serves as the chip's
-              visual representative — gives the group a "face" the user can
-              recognize on a quick scan. */}
-          <BodySphere body={bodies[0]} size={13} glow={groupActive} />
+          <BodySphere body={representative} size={13} glow={groupActive} />
           <span
             className={
               groupActive
@@ -205,21 +304,10 @@ function BodyGroupChip({
         <Popover.Content
           align="center"
           sideOffset={6}
-          className="glass pointer-events-auto z-50 flex flex-col gap-0.5 p-1.5"
+          className="glass pointer-events-auto z-50 flex max-h-[60vh] flex-col gap-0.5 overflow-y-auto p-1.5"
           style={{ borderRadius: 14 }}
         >
-          <p className="eyebrow text-dim px-2 pt-1 pb-1.5">{label}</p>
-          {bodies.map((key) => {
-            const isActive = activeKey === key;
-            return (
-              <BodyPill
-                key={key}
-                bodyKey={key}
-                active={isActive}
-                onClick={() => onSelect(key)}
-              />
-            );
-          })}
+          {children}
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
