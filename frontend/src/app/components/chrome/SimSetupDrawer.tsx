@@ -60,10 +60,92 @@ for (const key of BODY_ORDER) {
   BODIES_BY_CATEGORY[BODY_CATEGORY[key]].push(key);
 }
 
-// Default selection on first open: planets only. Preserves the pre-Phase-3
-// behavior (10 bodies selected) so existing users don't get a surprise
-// 19-body sim that fans out minor-body queries to JPL Horizons.
-const DEFAULT_SELECTED: BodyKey[] = BODIES_BY_CATEGORY.planet;
+// The Sun + 8 planets, split out from the rest of the "planet" category so
+// the Planets section can render these as top-level chips while the moons
+// (which also live in the "planet" category) render under per-parent
+// sub-headers below them.
+const PLANET_KEYS: readonly BodyKey[] = [
+  "SUN",
+  "MERCURY",
+  "VENUS",
+  "EARTH",
+  "MARS",
+  "JUPITER",
+  "SATURN",
+  "URANUS",
+  "NEPTUNE",
+];
+
+// Parent ordering for the moon sub-hierarchy inside the Planets section.
+// Mirrors solar-system distance order so the moon sub-headers read
+// top-to-bottom in the same order as the planet chips above them.
+const MOON_PARENT_ORDER = [
+  "EARTH",
+  "MARS",
+  "JUPITER",
+  "SATURN",
+  "URANUS",
+  "NEPTUNE",
+  "PLUTO",
+] as const;
+
+type MoonParent = (typeof MOON_PARENT_ORDER)[number];
+
+const MOON_PARENT_LABEL: Record<MoonParent, string> = {
+  EARTH: "Earth's moon",
+  MARS: "Mars's moons",
+  JUPITER: "Jupiter's moons",
+  SATURN: "Saturn's moons",
+  URANUS: "Uranus's moons",
+  NEPTUNE: "Neptune's moons",
+  PLUTO: "Pluto's moon",
+};
+
+// Which parent each moon slots under. Earth's Moon lives on the Orekit
+// source path rather than the moon catalog, but for the drawer grouping it
+// sits under Earth like any other moon.
+const MOON_PARENT_OF: Partial<Record<BodyKey, MoonParent>> = {
+  MOON: "EARTH",
+  PHOBOS: "MARS",
+  DEIMOS: "MARS",
+  IO: "JUPITER",
+  EUROPA: "JUPITER",
+  GANYMEDE: "JUPITER",
+  CALLISTO: "JUPITER",
+  MIMAS: "SATURN",
+  ENCELADUS: "SATURN",
+  TETHYS: "SATURN",
+  DIONE: "SATURN",
+  RHEA: "SATURN",
+  TITAN: "SATURN",
+  IAPETUS: "SATURN",
+  ARIEL: "URANUS",
+  UMBRIEL: "URANUS",
+  TITANIA: "URANUS",
+  OBERON: "URANUS",
+  MIRANDA: "URANUS",
+  TRITON: "NEPTUNE",
+  NEREID: "NEPTUNE",
+  CHARON: "PLUTO",
+};
+
+const MOONS_BY_PARENT: Record<MoonParent, BodyKey[]> = MOON_PARENT_ORDER.reduce(
+  (acc, p) => {
+    acc[p] = [];
+    return acc;
+  },
+  {} as Record<MoonParent, BodyKey[]>,
+);
+for (const key of BODY_ORDER) {
+  const p = MOON_PARENT_OF[key];
+  if (p) MOONS_BY_PARENT[p].push(key);
+}
+
+// Default first-paint selection: Sun + 8 planets + Earth's Moon. A moonless
+// Earth looks wrong to casual visitors, so the Moon stays in. The other 20
+// moons are opt-in via the per-parent sub-headers, which keeps a default Run
+// from fanning out 20 extra queries to JPL Horizons.
+const DEFAULT_SELECTED: BodyKey[] = [...PLANET_KEYS, "MOON"];
 
 interface SimSetupDrawerProps {
   open: boolean;
@@ -119,6 +201,34 @@ export function SimSetupDrawer({ open, onOpenChange }: SimSetupDrawerProps) {
         if (enable) next.add(key);
         else next.delete(key);
       }
+      return next;
+    });
+  };
+
+  // Bulk enable/disable for one parent's moons, driven by the master toggle
+  // on each per-parent sub-header inside the Planets section.
+  const setParentMoonsEnabled = (parent: MoonParent, enable: boolean) => {
+    setSelectedBodies((prev) => {
+      const next = new Set(prev);
+      for (const key of MOONS_BY_PARENT[parent]) {
+        if (enable) next.add(key);
+        else next.delete(key);
+      }
+      return next;
+    });
+  };
+
+  // Which per-parent moon sub-groups are expanded. Collapsed by default so
+  // the Planets section stays compact; the sub-header still shows each
+  // group's selected count and master toggle while collapsed.
+  const [expandedParents, setExpandedParents] = useState<Set<MoonParent>>(
+    new Set(),
+  );
+  const toggleParentExpanded = (parent: MoonParent) => {
+    setExpandedParents((prev) => {
+      const next = new Set(prev);
+      if (next.has(parent)) next.delete(parent);
+      else next.add(parent);
       return next;
     });
   };
@@ -323,40 +433,80 @@ export function SimSetupDrawer({ open, onOpenChange }: SimSetupDrawerProps) {
                     </span>
                     <ToggleSwitch state={masterState} />
                   </button>
-                  <div
-                    className="overflow-hidden rounded-xl border border-white/[0.05]"
-                    style={{ background: "rgba(255,255,255,0.03)" }}
-                  >
-                    {bodies.map((key, i) => {
-                      const enabled = selectedBodies.has(key);
-                      return (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => toggleBody(key)}
-                          className={[
-                            "flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-white/[0.02]",
-                            i < bodies.length - 1 &&
-                              "border-b border-white/[0.04]",
-                          ]
-                            .filter(Boolean)
-                            .join(" ")}
-                        >
-                          <BodySphere body={key} size={14} />
-                          <span
-                            className={
-                              enabled
-                                ? "text-hi flex-1 text-[14px]"
-                                : "text-dim flex-1 text-[14px]"
-                            }
-                          >
-                            {BODY_DISPLAY[key]}
-                          </span>
-                          <ToggleSwitch state={enabled ? "on" : "off"} />
-                        </button>
-                      );
-                    })}
-                  </div>
+
+                  {category === "planet" ? (
+                    <>
+                      <ChipList
+                        keys={PLANET_KEYS}
+                        selectedBodies={selectedBodies}
+                        onToggle={toggleBody}
+                      />
+                      {MOON_PARENT_ORDER.map((parent) => {
+                        const moons = MOONS_BY_PARENT[parent];
+                        if (moons.length === 0) return null;
+                        const enabledMoons = moons.filter((k) =>
+                          selectedBodies.has(k),
+                        ).length;
+                        const parentMaster: ToggleState =
+                          enabledMoons === 0
+                            ? "off"
+                            : enabledMoons === moons.length
+                              ? "on"
+                              : "mixed";
+                        const isExpanded = expandedParents.has(parent);
+                        return (
+                          <div key={parent} className="mt-2">
+                            <div className="mb-1.5 flex items-center px-1">
+                              <button
+                                type="button"
+                                onClick={() => toggleParentExpanded(parent)}
+                                aria-expanded={isExpanded}
+                                aria-label={`${isExpanded ? "Collapse" : "Expand"} ${MOON_PARENT_LABEL[parent]}`}
+                                className="flex flex-1 items-center gap-1.5 text-left"
+                              >
+                                <Chevron expanded={isExpanded} />
+                                <span className="eyebrow text-dim">
+                                  {MOON_PARENT_LABEL[parent]}{" "}
+                                  <span className="text-dim/70 normal-case tracking-normal">
+                                    ({enabledMoons}/{moons.length})
+                                  </span>
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setParentMoonsEnabled(
+                                    parent,
+                                    parentMaster !== "on",
+                                  )
+                                }
+                                aria-label={
+                                  parentMaster === "on"
+                                    ? `Deselect ${MOON_PARENT_LABEL[parent]}`
+                                    : `Select ${MOON_PARENT_LABEL[parent]}`
+                                }
+                              >
+                                <ToggleSwitch state={parentMaster} />
+                              </button>
+                            </div>
+                            {isExpanded && (
+                              <ChipList
+                                keys={moons}
+                                selectedBodies={selectedBodies}
+                                onToggle={toggleBody}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </>
+                  ) : (
+                    <ChipList
+                      keys={bodies}
+                      selectedBodies={selectedBodies}
+                      onToggle={toggleBody}
+                    />
+                  )}
                 </div>
               );
             })}
@@ -422,6 +572,75 @@ function Field({
         <p className="text-dim mt-1.5 px-1 text-[11px] leading-[1.5]">{help}</p>
       )}
     </div>
+  );
+}
+
+// A bordered list of body chips. Shared by the planet chips, each
+// per-parent moon group, and the dwarf-planet / asteroid sections so the
+// chip markup lives in one place.
+function ChipList({
+  keys,
+  selectedBodies,
+  onToggle,
+}: {
+  keys: readonly BodyKey[];
+  selectedBodies: Set<BodyKey>;
+  onToggle: (key: BodyKey) => void;
+}) {
+  return (
+    <div
+      className="overflow-hidden rounded-xl border border-white/[0.05]"
+      style={{ background: "rgba(255,255,255,0.03)" }}
+    >
+      {keys.map((key, i) => {
+        const enabled = selectedBodies.has(key);
+        return (
+          <button
+            key={key}
+            type="button"
+            onClick={() => onToggle(key)}
+            className={[
+              "flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-white/[0.02]",
+              i < keys.length - 1 && "border-b border-white/[0.04]",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            <BodySphere body={key} size={14} />
+            <span
+              className={
+                enabled
+                  ? "text-hi flex-1 text-[14px]"
+                  : "text-dim flex-1 text-[14px]"
+              }
+            >
+              {BODY_DISPLAY[key]}
+            </span>
+            <ToggleSwitch state={enabled ? "on" : "off"} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function Chevron({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 10 10"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="text-dim transition-transform"
+      style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
+      aria-hidden
+    >
+      <path d="M3.5 1.5L7 5l-3.5 3.5" />
+    </svg>
   );
 }
 
