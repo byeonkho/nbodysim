@@ -124,6 +124,15 @@ export const bodyProperties: Record<string, BodyProperties> = {
   RHEA:     { texture: RheaTexture     as StaticImageData, rotationSpeed:  0.035 }, // 4.52 d
   TITAN:    { texture: TitanTexture    as StaticImageData, rotationSpeed:  0.024 }, // 15.95 d
   IAPETUS:  { texture: IapetusTexture  as StaticImageData, rotationSpeed:  0.014 }, // 79.3 d
+
+  // Uranus's moons — Voyager 2 (1986) only imaged the southern hemispheres, so
+  // the only public-domain maps are ~half pure-black no-data and read as
+  // half-missing on a sphere. All ride the fallback texture (see ATTRIBUTIONS.md).
+  ARIEL:   { texture: FallbackTexture as StaticImageData, rotationSpeed: 0.04  }, // 2.52 d — fallback
+  UMBRIEL: { texture: FallbackTexture as StaticImageData, rotationSpeed: 0.033 }, // 4.14 d — fallback
+  TITANIA: { texture: FallbackTexture as StaticImageData, rotationSpeed: 0.028 }, // 8.71 d — fallback
+  OBERON:  { texture: FallbackTexture as StaticImageData, rotationSpeed: 0.023 }, // 13.46 d — fallback
+  MIRANDA: { texture: FallbackTexture as StaticImageData, rotationSpeed: 0.05  }, // 1.41 d — fallback
 };
 
 export default SimConstants;

@@ -39,6 +39,11 @@ All public-domain, from NASA/USGS mission mosaics (no required attribution; sour
 | `rhea.jpg` | Rhea | NASA/USGS Astrogeology — Rhea Cassini/Voyager Global Mosaic 417m | Public domain | Grayscale. |
 | `titan.jpg` | Titan | NASA/USGS Astrogeology — Titan Cassini ISS Global Mosaic 4005m (938nm methane-window) | Public domain | Surface albedo through the haze (dark dunes, bright Xanadu). |
 | `iapetus.jpg` | Iapetus | NASA/USGS Astrogeology — Iapetus Cassini/Voyager Global Mosaic 783m | Public domain | Grayscale; the dark/bright hemisphere dichotomy. |
+| (fallback) | Ariel | n/a | n/a | Voyager 2 (1986) imaged only the southern hemisphere; the PD map is ~half pure-black no-data and reads as half-missing on a sphere. Rides the fallback texture. |
+| (fallback) | Umbriel | n/a | n/a | Southern-hemisphere-only Voyager 2 coverage; same as Ariel. |
+| (fallback) | Titania | n/a | n/a | Southern-hemisphere-only Voyager 2 coverage; same as Ariel. |
+| (fallback) | Oberon | n/a | n/a | Southern-hemisphere-only Voyager 2 coverage (most incomplete of the five); same as Ariel. |
+| (fallback) | Miranda | n/a | n/a | Southern-hemisphere-only Voyager 2 coverage; same as Ariel. |
 | (fallback) | Nereid | n/a | n/a | Never resolved by any spacecraft; no surface mosaic exists. |
 
 ## License caveats
