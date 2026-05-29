@@ -4,7 +4,9 @@ Source and license for each body texture in this directory. Required-attribution
 
 ## Major planets, Sun, Moon
 
-The major-planet textures (`mercury_texture.jpg`, `venus_texture.jpg`, `earth_texture.jpg`, `mars_texture.jpg`, `jupiter_texture.jpg`, `saturn_texture.jpg`, `uranus_texture.jpg`, `neptune_texture.jpg`, `moon_texture.jpg`, `sun_texture.jpg`) and `fallback.jpg` are from the project's original setup and predate this attributions file. Provenance was not recorded at the time; if you re-deploy this project commercially, audit these assets before doing so.
+The major-planet textures (`mercury_texture.jpg`, `venus_texture.jpg`, `earth_texture.jpg`, `mars_texture.jpg`, `jupiter_texture.jpg`, `saturn_texture.jpg`, `uranus_texture.jpg`, `neptune_texture.jpg`, `moon_texture.jpg`, `sun_texture.jpg`) are from the project's original setup and predate this attributions file. Provenance was not recorded at the time; if you re-deploy this project commercially, audit these assets before doing so.
+
+`fallback.jpg` (the generic texture for bodies without a dedicated mosaic) is a procedurally-generated neutral gray rocky surface created in-project with ImageMagick. No third-party source, no license obligations. It replaced an earlier blue-marble Earth image that made every fallback body look like a tiny Earth.
 
 ## Minor bodies
 
