@@ -222,6 +222,7 @@ const Trail: React.FC<TrailProps> = ({
           worldRadius(ownRadiusM, simulationScale.preset),
           simulationScale.preset,
           childDeltaScratch.current,
+          orbitingBodyNameUpper,
         );
 
         // Sum parent world pos + delta with Y/Z swap applied to delta.

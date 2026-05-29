@@ -274,6 +274,7 @@ const OrbitPath: React.FC<OrbitPathProps> = ({
         ownR_wu,
         preset,
         deltaScratch.current,
+        parentBodyName,
       );
 
       // Sum parent world + delta. Delta is in ICRF axes — apply Y/Z swap
