@@ -109,12 +109,12 @@ const Trail: React.FC<TrailProps> = ({
   const bodyIndexRef = useRef<number>(-1);
   const orbitingIndexRef = useRef<number>(-1);
   const earthIndexRef = useRef<number>(-1);
-
-  useEffect(() => {
-    bodyIndexRef.current = -1;
-    orbitingIndexRef.current = -1;
-    earthIndexRef.current = -1;
-  }, [bodyName]);
+  // Buffer the cached indices were resolved against. A new simulation creates a
+  // fresh ChunkBuffer whose body order depends on the selected set, so a reused
+  // Trail (same bodyName, no remount) must re-resolve its slot or it reads the
+  // wrong body's positions. Keyed on buffer identity, not bodyName, because the
+  // name never changes for a reused component. Mirrors Camera.tsx.
+  const resolvedBufferRef = useRef<object | null>(null);
 
   /* eslint-disable react-hooks/immutability */
   useFrame(() => {
@@ -149,6 +149,14 @@ const Trail: React.FC<TrailProps> = ({
     const start = Math.max(0, idxFloor - length);
     const end = Math.min(idxFloor, buffer.totalTimesteps - 1);
     const total = end - start;
+
+    // Invalidate cached indices when the buffer changes (new simulation).
+    if (resolvedBufferRef.current !== buffer) {
+      bodyIndexRef.current = -1;
+      orbitingIndexRef.current = -1;
+      earthIndexRef.current = -1;
+      resolvedBufferRef.current = buffer;
+    }
 
     // Lazy-resolve cached indices into the chunk buffer.
     if (bodyIndexRef.current === -1) {

@@ -125,6 +125,12 @@ const Sphere: React.FC<SphereProps> = ({
   const childDeltaScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const bodyIdxRef = useRef<number>(-1);
   const orbitingIdxRef = useRef<number>(-1);
+  // Buffer the cached indices were resolved against. A new simulation creates a
+  // fresh ChunkBuffer with a body order that depends on the selected set, so a
+  // reused Sphere (same name, no remount) must re-resolve its slot or it reads
+  // the wrong body's position. Keyed on buffer identity, not bodyName, because
+  // the name never changes for a reused component. Mirrors Camera.tsx.
+  const resolvedBufferRef = useRef<object | null>(null);
 
   useFrame((_, delta) => {
     const state = store.getState();
@@ -134,6 +140,12 @@ const Sphere: React.FC<SphereProps> = ({
     const displayFrame = state.simulation.simulationParameters.displayFrame;
 
     if (buffer && idx < buffer.totalTimesteps) {
+      // Invalidate cached indices when the buffer changes (new simulation).
+      if (resolvedBufferRef.current !== buffer) {
+        bodyIdxRef.current = -1;
+        orbitingIdxRef.current = -1;
+        resolvedBufferRef.current = buffer;
+      }
       // Lazy-resolve cached body indices. Match case-insensitively because
       // bodyProps name casing can differ from what the backend ships in the
       // chunk header (which feeds bodyNameToIndex).
