@@ -6,9 +6,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.orekit.data.DataContext;
 import org.orekit.data.DirectoryCrawler;
+import org.orekit.bodies.CelestialBody;
+import org.orekit.bodies.CelestialBodyFactory;
 import org.orekit.frames.Frame;
 import org.orekit.frames.FramesFactory;
 import org.orekit.time.AbsoluteDate;
+import org.orekit.utils.PVCoordinates;
 import personal.spacesim.simulation.body.horizons.HorizonsClient;
 import personal.spacesim.simulation.body.horizons.HorizonsResponseParser;
 import personal.spacesim.simulation.body.horizons.HorizonsStateCache;
@@ -103,12 +106,21 @@ class CelestialBodyWrapperFactoryTest {
             factory.createCelestialBodyWrapper("EROS", heliocentric, j2000);
 
         assertEquals("EROS", eros.getName());
-        assertEquals(personal.spacesim.simulation.body.MinorBodyCatalog.get("EROS").mu(),
-            eros.getMu(), 0.0);
-        // In Heliocentric frame the Sun is at origin, so Horizons output is
-        // used directly without offset.
-        assertEquals(2.0e11, eros.getPosition().getX(), 1.0);
-        assertEquals(1.0e11, eros.getPosition().getY(), 1.0);
+        assertEquals(MinorBodyCatalog.get("EROS").mu(), eros.getMu(), 0.0);
+        // Heliocentric frame: the Sun is at the origin, so there is NO
+        // translation. But the Horizons vector is expressed in ICRF
+        // orientation and must be ROTATED into the heliocentric (Sun-equator)
+        // frame so it shares orientation with the Orekit-sourced planets.
+        // Rotation preserves magnitude, so the norm — not the raw components —
+        // is the invariant. The components themselves rotate by the
+        // ICRF→Sun-equator angle (~26°), which is exactly the bug this fix
+        // closes (a moon/asteroid otherwise lands rotated off its parent).
+        Vector3D sunRelativeIcrf = new Vector3D(2.0e11, 1.0e11, 1.0e10);
+        assertEquals(sunRelativeIcrf.getNorm(), eros.getPosition().getNorm(), 1.0,
+            "Heliocentric placement is a pure rotation of the Sun-relative "
+                + "Horizons vector, so its magnitude must be preserved");
+        // And the components are NOT the raw input — proves the rotation ran.
+        assertNotEquals(2.0e11, eros.getPosition().getX(), 1.0e8);
         verify(mockClient).fetchByDesignation("2000433", j2000);
     }
 
@@ -234,5 +246,72 @@ class CelestialBodyWrapperFactoryTest {
         assertEquals("SUN", eros.getOrbitingBody());
         verify(mockClient, times(1)).fetchByDesignation(eq("2000433"), any(AbsoluteDate.class));
         verify(mockClient, never()).fetchByMajorBodyId(anyString(), any(AbsoluteDate.class));
+    }
+
+    @Test
+    void horizonsMoonCoLocatesWithOrekitParent_heliocentric() {
+        assertHorizonsBodyCoLocatesWithSaturn("heliocentric");
+    }
+
+    @Test
+    void horizonsMoonCoLocatesWithOrekitParent_icrf() {
+        assertHorizonsBodyCoLocatesWithSaturn("icrf");
+    }
+
+    /**
+     * Two-sided cross-source contract: a body sourced from JPL Horizons
+     * (Sun-relative ICRF) must land in the SAME orientation as a body sourced
+     * from Orekit, in whatever frame the simulation runs. Regressing this is
+     * what made Jupiter's and Saturn's moons spawn several AU from their parent
+     * and immediately drift off: the factory used to add the Sun's position
+     * (expressed in the sim frame) to a vector still in ICRF axes, leaving
+     * Horizons bodies rotated relative to the Orekit planets by the frame's
+     * orientation (~26° for the Sun-equator "Heliocentric" frame, ~3.7 AU at
+     * Saturn's distance).
+     *
+     * <p>The test feeds MIMAS (NAIF 601) a synthetic Horizons state equal to
+     * Saturn's OWN Sun-relative ICRF state, then asserts the factory places it
+     * exactly on Orekit's Saturn in the sim frame. Placing the body at the
+     * planet (rather than one real moon-orbit away) makes the expected result
+     * unambiguous and the orientation-mismatch failure mode maximally visible.
+     * Frame-agnostic: it must hold for Heliocentric AND ICRF.
+     */
+    private void assertHorizonsBodyCoLocatesWithSaturn(String frameName) {
+        Frame icrf = FramesFactory.getICRF();
+        AbsoluteDate date = AbsoluteDate.J2000_EPOCH;
+
+        CelestialBody saturn = CelestialBodyFactory.getBody("SATURN");
+        CelestialBody sun = CelestialBodyFactory.getSun();
+        PVCoordinates satIcrf = saturn.getPVCoordinates(date, icrf);
+        PVCoordinates sunIcrf = sun.getPVCoordinates(date, icrf);
+
+        HorizonsResponseParser.State synthetic = new HorizonsResponseParser.State(
+            satIcrf.getPosition().subtract(sunIcrf.getPosition()),
+            satIcrf.getVelocity().subtract(sunIcrf.getVelocity()));
+
+        HorizonsClient mockClient = mock(HorizonsClient.class);
+        when(mockClient.fetchByMajorBodyId(eq("601"), any(AbsoluteDate.class)))
+            .thenReturn(synthetic);
+
+        HorizonsStateCache cache = new HorizonsStateCache(horizonsCacheDir);
+        CelestialBodyWrapperFactory factory =
+            new CelestialBodyWrapperFactory(mockClient, cache);
+
+        Frame frame = new personal.spacesim.simulation.frame.CustomFrameFactory()
+            .createFrame(frameName);
+        CelestialBodyWrapper moon =
+            factory.createCelestialBodyWrapper("MIMAS", frame, date);
+
+        PVCoordinates satInFrame = saturn.getPVCoordinates(date, frame);
+        double posErr = moon.getPosition().subtract(satInFrame.getPosition()).getNorm();
+        double velErr = moon.getVelocity().subtract(satInFrame.getVelocity()).getNorm();
+
+        // Transform is exact; allow only float round-off.
+        assertTrue(posErr < 1.0,
+            frameName + ": Horizons body must co-locate with Orekit Saturn; "
+                + "position error = " + posErr + " m (pre-fix this was ~5e11 m)");
+        assertTrue(velErr < 1e-3,
+            frameName + ": velocity must match too; error = " + velErr + " m/s");
+        assertEquals("SATURN", moon.getOrbitingBody());
     }
 }
