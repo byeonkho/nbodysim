@@ -7,7 +7,9 @@ import * as THREE from "three";
 import { RootState } from "@/app/store/Store";
 import {
   CelestialBodyProperties,
+  selectActiveBodyName,
   selectCelestialBodyPropertiesList,
+  selectIsBodyActive,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
 import { readBodyStateInto } from "@/app/store/chunkBuffer";
@@ -22,6 +24,7 @@ import {
   worldDistanceFromParent,
   worldRadius,
 } from "@/app/utils/scalePipeline";
+import { shouldShowMoonDetail } from "@/app/constants/BodyCatalog";
 
 interface OrbitPathProps {
   bodyName: string;
@@ -47,6 +50,17 @@ const OrbitPath: React.FC<OrbitPathProps> = ({
 }) => {
   const store = useStore<RootState>();
   const propsList = useSelector(selectCelestialBodyPropertiesList);
+
+  // Focus state for moon LOD gating. Subscribed (not read per-frame) so the
+  // uppercase conversion happens once per selection change, not once per
+  // frame — mirrors Camera.tsx. activeBodyName isn't guaranteed uppercase, so
+  // we can't drop the conversion, but we can hoist it off the hot path.
+  const activeBodyName = useSelector(selectActiveBodyName);
+  const isBodyActive = useSelector(selectIsBodyActive);
+  const activeBodyNameUpper = useMemo(
+    () => activeBodyName?.toUpperCase() ?? null,
+    [activeBodyName],
+  );
 
   const { ownRadiusM, parentBodyName } = useMemo(() => {
     const nameUpper = bodyName.toUpperCase();
@@ -125,6 +139,18 @@ const OrbitPath: React.FC<OrbitPathProps> = ({
   /* eslint-disable react-hooks/immutability */
   useFrame(() => {
     const state = store.getState();
+
+    // Focus-gated moon LOD: hide this orbit when it belongs to a collapsed
+    // moon system. Runs before the per-segment ellipse math, so collapsed
+    // moons cost almost nothing. Planets (parent SUN) and Earth's Moon are
+    // never gated. !isBodyActive means nothing is focused (deselect leaves
+    // activeBodyName set) → null → every gated system collapses.
+    const activeUpper = isBodyActive ? activeBodyNameUpper : null;
+    if (!shouldShowMoonDetail(parentBodyName, activeUpper)) {
+      lineObject.visible = false;
+      return;
+    }
+
     const buffer = state.simulation.chunkBuffer;
     const currentTimeStepIndex =
       state.simulation.timeState.currentTimeStepIndex;
