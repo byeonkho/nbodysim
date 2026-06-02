@@ -56,7 +56,12 @@ const SimConstants = {
     },
   },
   FPS: 60,
-  MAX_SPEED_MULTIPLIER: 128, // exponent of 2
+  // Cap on |speedMultiplier| (a power of 2; the speed control doubles/halves
+  // from ±1). Bounds the worst-case chunk-request rate: the prefetch threshold
+  // scales with speed (speed × FPS × fetch-latency × safety), so the higher the
+  // cap, the faster the buffer drains and the more aggressively we fetch.
+  // Capped at 16 to keep the upper bound on rate/bandwidth usage modest.
+  MAX_SPEED_MULTIPLIER: 16,
   // Minimum camera-to-active-body distance, expressed as a multiplier of
   // the body's currently rendered radius. 1.0 = touching the surface;
   // 2.5 = comfortable close-up where the body fills ~47° of the view at
