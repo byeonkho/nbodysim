@@ -4,8 +4,15 @@ import { parseBinaryChunk, parseBinaryChunkToTypedArrays } from "./parseBinaryCh
 // Helper: build a chunk-format byte array matching the spec in
 // parseBinaryChunk.ts (and BinaryResponseSerializer.java). This duplicates the
 // backend serializer in JS so the round-trip test below proves our parser
-// agrees with the documented format. Backend has its own test pinning the
-// same layout from the Java side; if either side drifts, one test fails first.
+// agrees with the documented format (version 2: delta-encoded, structure-of-
+// arrays). Backend has its own test pinning the same layout from the Java
+// side; if either side drifts, one test fails first.
+//
+// Fixtures use uniformly-spaced timesteps, so (start, gap) reconstructs each
+// timestamp exactly; and small-integer positions/deltas round-trip exactly
+// through float32.
+const WIRE_FORMAT_VERSION = 2;
+
 function buildChunkBytes(
   bodies: Array<{ name: string; mu: number }>,
   timesteps: Array<{
@@ -18,24 +25,37 @@ function buildChunkBytes(
 ): Uint8Array {
   const encoder = new TextEncoder();
   const encodedNames = bodies.map((b) => encoder.encode(b.name));
+  const B = bodies.length;
+  const T = timesteps.length;
+
   const headerSize =
-    2 +
+    1 + // formatVersion (uint8)
+    2 + // bodyCount
     encodedNames.reduce((sum, b) => sum + 2 + b.length + 8, 0) +
     8 + // dp853AvgStepSeconds (float64)
     4 + // dp853AcceptRate (float32)
     4;  // timestepCount
-  // timestamp(8) + deltaERelative(4) + per-body (3*8 + 3*4).
-  const perTimestep = 8 + 4 + bodies.length * (3 * 8 + 3 * 4);
-  const total = headerSize + timesteps.length * perTimestep;
+  const bodySection =
+    T === 0
+      ? 0
+      : 8 + // startMillis
+        8 + // gapMillis
+        T * 4 + // deltaERelative planar
+        B * 3 * 8 + // per-body f64 reference
+        T * B * 3 * 4 + // f32 position deltas (planar)
+        T * B * 3 * 4; // f32 velocity (planar)
+  const total = headerSize + bodySection;
 
   const buf = new ArrayBuffer(total);
   const view = new DataView(buf);
   const out = new Uint8Array(buf);
   let offset = 0;
 
-  view.setUint16(offset, bodies.length, true);
+  view.setUint8(offset, WIRE_FORMAT_VERSION);
+  offset += 1;
+  view.setUint16(offset, B, true);
   offset += 2;
-  for (let i = 0; i < bodies.length; i++) {
+  for (let i = 0; i < B; i++) {
     const nameBytes = encodedNames[i];
     view.setUint16(offset, nameBytes.length, true);
     offset += 2;
@@ -48,23 +68,56 @@ function buildChunkBytes(
   offset += 8;
   view.setFloat32(offset, dp853AcceptRate, true);
   offset += 4;
-  view.setUint32(offset, timesteps.length, true);
+  view.setUint32(offset, T, true);
   offset += 4;
 
-  for (const t of timesteps) {
-    view.setBigInt64(offset, BigInt(t.millis), true);
-    offset += 8;
-    view.setFloat32(offset, t.deltaERelative, true);
+  if (T === 0) return out;
+
+  const start = timesteps[0].millis;
+  const gap = T > 1 ? (timesteps[T - 1].millis - start) / (T - 1) : 0;
+  view.setBigInt64(offset, BigInt(start), true);
+  offset += 8;
+  view.setFloat64(offset, gap, true);
+  offset += 8;
+
+  // deltaERelative (planar).
+  for (let t = 0; t < T; t++) {
+    view.setFloat32(offset, timesteps[t].deltaERelative, true);
     offset += 4;
-    for (const body of t.bodies) {
-      view.setFloat64(offset, body.pos[0], true); offset += 8;
-      view.setFloat64(offset, body.pos[1], true); offset += 8;
-      view.setFloat64(offset, body.pos[2], true); offset += 8;
-      view.setFloat32(offset, body.vel[0], true); offset += 4;
-      view.setFloat32(offset, body.vel[1], true); offset += 4;
-      view.setFloat32(offset, body.vel[2], true); offset += 4;
+  }
+
+  // Per-body absolute reference (timestep 0).
+  for (let b = 0; b < B; b++) {
+    view.setFloat64(offset, timesteps[0].bodies[b].pos[0], true); offset += 8;
+    view.setFloat64(offset, timesteps[0].bodies[b].pos[1], true); offset += 8;
+    view.setFloat64(offset, timesteps[0].bodies[b].pos[2], true); offset += 8;
+  }
+
+  // Per-step position deltas, planar by axis (row 0 = 0).
+  for (let axis = 0; axis < 3; axis++) {
+    for (let t = 0; t < T; t++) {
+      for (let b = 0; b < B; b++) {
+        const d =
+          t === 0
+            ? 0
+            : timesteps[t].bodies[b].pos[axis] -
+              timesteps[t - 1].bodies[b].pos[axis];
+        view.setFloat32(offset, d, true);
+        offset += 4;
+      }
     }
   }
+
+  // Velocity, planar by axis, absolute float32.
+  for (let axis = 0; axis < 3; axis++) {
+    for (let t = 0; t < T; t++) {
+      for (let b = 0; b < B; b++) {
+        view.setFloat32(offset, timesteps[t].bodies[b].vel[axis], true);
+        offset += 4;
+      }
+    }
+  }
+
   return out;
 }
 

@@ -53,14 +53,17 @@ class BinaryResponseSerializerTest {
 
     @Test
     void emptyDataProducesHeaderOnly() {
-        // Empty/null inputs serialise to an 18-byte header:
-        //   bodyCount(2) + dp853AvgStep(8) + dp853AcceptRate(4) + timestepCount(4) = 18
+        // Empty/null inputs serialise to a 19-byte header:
+        //   version(1) + bodyCount(2) + dp853AvgStep(8) + dp853AcceptRate(4)
+        //   + timestepCount(4) = 19
+        // No start/gap/body sections are written when there are no timesteps.
         // DP853 telemetry fields are NaN-encoded when not applicable, kept
         // always-present so the parser can stay branchless.
         BinaryResponseSerializer ser = new BinaryResponseSerializer();
         byte[] empty = ser.serialize((ChunkResult) null, null);
-        assertEquals(18, empty.length);
+        assertEquals(19, empty.length);
         ByteBuffer buf = ByteBuffer.wrap(empty).order(ByteOrder.LITTLE_ENDIAN);
+        assertEquals(BinaryResponseSerializer.FORMAT_VERSION, buf.get() & 0xFF, "formatVersion");
         assertEquals(0, buf.getShort());
         assertTrue(Double.isNaN(buf.getDouble()), "avgStepSeconds must be NaN for empty data");
         assertTrue(Float.isNaN(buf.getFloat()),   "acceptRate must be NaN for empty data");
@@ -72,7 +75,8 @@ class BinaryResponseSerializerTest {
         // Construct a known input matching the frontend's parseBinaryChunk.test.ts
         // hand-crafted case (Earth + Moon at 2024-06-05T00:00:00Z). Read the
         // bytes back via ByteBuffer and verify each field — proves the
-        // serializer's output matches the format spec character for character.
+        // serializer's output matches the version-2 format spec character for
+        // character (delta-encoded, structure-of-arrays).
         TimeScale utc = TimeScalesFactory.getUTC();
         AbsoluteDate date = new AbsoluteDate(2024, 6, 5, 0, 0, 0.0, utc);
         long expectedMillis = date.toDate(utc).getTime();
@@ -109,6 +113,7 @@ class BinaryResponseSerializerTest {
         ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
 
         // Header
+        assertEquals(BinaryResponseSerializer.FORMAT_VERSION, buf.get() & 0xFF, "formatVersion");
         assertEquals(2, buf.getShort(), "bodyCount");
 
         int earthLen = buf.getShort();
@@ -132,22 +137,85 @@ class BinaryResponseSerializerTest {
 
         assertEquals(1, buf.getInt(), "timestepCount");
 
-        // Per-timestep — positions are float64 (precision matters for outer
-        // planet orbit-plane rendering), velocities are float32 (their
-        // precision-loss path damps by ~5 orders of magnitude before
-        // anything visible). Per-snapshot ΔE/E₀ is float32 (1-2 sig figs
-        // displayed in UI; extra precision wouldn't be used).
-        assertEquals(expectedMillis, buf.getLong(), "timestamp millis");
+        // Body section (version 2): start + gap, then planar fields.
+        assertEquals(expectedMillis, buf.getLong(), "startMillis");
+        assertEquals(0.0, buf.getDouble(), "gapMillis is 0 for a single timestep");
+
+        // deltaERelative planar (float32; UI readout shown to 1-2 sig figs).
         assertEquals(1.5e-12f, buf.getFloat(), 1e-18f, "per-snapshot ΔE/E₀");
-        // Earth — position float64, velocity float32.
+
+        // Per-body absolute reference (timestep 0), float64. Earth then Moon.
         assertEquals(1.0, buf.getDouble()); assertEquals(2.0, buf.getDouble()); assertEquals(3.0, buf.getDouble());
-        assertEquals(4.0f, buf.getFloat()); assertEquals(5.0f, buf.getFloat()); assertEquals(6.0f, buf.getFloat());
-        // Moon
         assertEquals(7.0, buf.getDouble()); assertEquals(8.0, buf.getDouble()); assertEquals(9.0, buf.getDouble());
-        assertEquals(10.0f, buf.getFloat()); assertEquals(11.0f, buf.getFloat()); assertEquals(12.0f, buf.getFloat());
+
+        // Position deltas, planar by axis (row 0 is all zeros — only one
+        // timestep). 2 bodies × 3 axes = 6 zero floats.
+        for (int i = 0; i < 6; i++) {
+            assertEquals(0.0f, buf.getFloat(), "row-0 delta is zero");
+        }
+
+        // Velocity, planar by axis (vx for [Earth, Moon], then vy, then vz),
+        // float32 (precision-loss path damps by ~5 orders before anything
+        // visible — it's the Hermite tangent client-side).
+        assertEquals(4.0f, buf.getFloat());  assertEquals(10.0f, buf.getFloat()); // vx
+        assertEquals(5.0f, buf.getFloat());  assertEquals(11.0f, buf.getFloat()); // vy
+        assertEquals(6.0f, buf.getFloat());  assertEquals(12.0f, buf.getFloat()); // vz
 
         // Buffer should be exactly consumed
         assertEquals(0, buf.remaining(), "no trailing bytes");
+    }
+
+    @Test
+    void temporalDeltasReconstructAbsolutePositions() {
+        // Two timesteps so the delta path is exercised: row 0 is the reference,
+        // row 1 carries per-step deltas that must sum back to the absolute
+        // position. Pins the version-2 delta semantics on the Java side.
+        TimeScale utc = TimeScalesFactory.getUTC();
+        AbsoluteDate t0 = new AbsoluteDate(2024, 6, 5, 0, 0, 0.0, utc);
+        AbsoluteDate t1 = new AbsoluteDate(2024, 6, 6, 0, 0, 0.0, utc);
+
+        CelestialBodySnapshot earth0 = new CelestialBodySnapshot(
+                "Earth", new Vector3D(1.0, 2.0, 3.0), new Vector3D(4.0, 5.0, 6.0));
+        CelestialBodySnapshot earth1 = new CelestialBodySnapshot(
+                "Earth", new Vector3D(13.0, 14.0, 15.0), new Vector3D(16.0, 17.0, 18.0));
+
+        Map<AbsoluteDate, List<CelestialBodySnapshot>> snapshots = new LinkedHashMap<>();
+        snapshots.put(t0, List.of(earth0));
+        snapshots.put(t1, List.of(earth1));
+        Map<AbsoluteDate, Double> deltaE = new LinkedHashMap<>();
+        deltaE.put(t0, 0.0);
+        deltaE.put(t1, 0.0);
+        ChunkResult chunk = new ChunkResult(snapshots, deltaE, null);
+
+        Map<String, Double> mu = Collections.singletonMap("Earth", 3.986004418e14);
+        byte[] bytes = new BinaryResponseSerializer().serialize(chunk, mu);
+        ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
+
+        buf.get();                                  // version
+        buf.getShort();                             // bodyCount
+        int nameLen = buf.getShort();
+        buf.position(buf.position() + nameLen);     // skip name
+        buf.getDouble();                            // mu
+        buf.getDouble();                            // dp853 avg (NaN)
+        buf.getFloat();                             // dp853 rate (NaN)
+        assertEquals(2, buf.getInt(), "timestepCount");
+
+        long startMillis = buf.getLong();
+        double gapMillis = buf.getDouble();
+        assertEquals(t0.toDate(utc).getTime(), startMillis, "startMillis");
+        assertEquals((double) (t1.toDate(utc).getTime() - startMillis), gapMillis, 1e-6,
+                "gapMillis = one day for two daily timesteps");
+
+        buf.getFloat(); buf.getFloat();             // deltaE planar (2 timesteps)
+
+        // Reference (timestep 0) for Earth.
+        assertEquals(1.0, buf.getDouble()); assertEquals(2.0, buf.getDouble()); assertEquals(3.0, buf.getDouble());
+
+        // Deltas planar by axis: x → [row0=0, row1=13-1=12], y → [0, 14-2=12],
+        // z → [0, 15-3=12].
+        assertEquals(0.0f, buf.getFloat());  assertEquals(12.0f, buf.getFloat()); // x
+        assertEquals(0.0f, buf.getFloat());  assertEquals(12.0f, buf.getFloat()); // y
+        assertEquals(0.0f, buf.getFloat());  assertEquals(12.0f, buf.getFloat()); // z
     }
 
     @Test
@@ -173,6 +241,7 @@ class BinaryResponseSerializerTest {
         byte[] bytes = new BinaryResponseSerializer().serialize(chunk, mu);
         ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
 
+        buf.get();                               // version
         buf.getShort();                          // bodyCount
         int nameLen = buf.getShort();
         buf.position(buf.position() + nameLen);  // skip name bytes
@@ -203,6 +272,7 @@ class BinaryResponseSerializerTest {
                 .serialize(chunk, Collections.emptyMap());
         ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
 
+        buf.get();                              // version
         assertEquals(1, buf.getShort()); // bodyCount
         int nameLen = buf.getShort();
         buf.position(buf.position() + nameLen); // skip name bytes
@@ -229,6 +299,7 @@ class BinaryResponseSerializerTest {
         byte[] bytes = new BinaryResponseSerializer().serialize(chunk, mu);
         ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
 
+        buf.get();                       // version
         assertEquals(1, buf.getShort()); // bodyCount
         assertEquals(2, buf.getShort(), "nameLength must be UTF-8 byte count");
     }

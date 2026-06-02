@@ -18,43 +18,73 @@ import java.util.Map;
  * Serializes a {@link ChunkResult} into a compact little-endian binary
  * layout. Replaces the JSON path for SIM_DATA frames.
  *
+ * <h2>Format version 2 — delta-encoded, structure-of-arrays</h2>
+ *
  * Layout (all little-endian):
- *   uint16  bodyCount
+ * <pre>
+ *   uint8   formatVersion (= 2)
+ *   uint16  bodyCount (B)
  *   per body: uint16 nameLength, UTF-8 name bytes, float64 mu
  *   float64 dp853AvgStepSeconds      (NaN if not DP853)
  *   float32 dp853AcceptRate          (NaN if not DP853)
- *   uint32  timestepCount
- *   per timestep:
- *     int64    timestamp (millis since UNIX epoch, UTC)
- *     float32  deltaERelative        (E - E₀) / |E₀| at this snapshot
- *     per body (header order):
- *       float64 × 3   (px, py, pz)
- *       float32 × 3   (vx, vy, vz)
+ *   uint32  timestepCount (T)
+ *   — the rest is present only when T &gt; 0 —
+ *   int64   startMillis              (timestamp of timestep 0, millis UTC)
+ *   float64 gapMillis                (uniform spacing; ts[i] = round(startMillis + i*gapMillis))
+ *   float32 deltaERelative[T]        (planar; one per timestep)
+ *   per body: float64 refX, refY, refZ   (absolute position at timestep 0)
+ *   float32 dPx[T*B]                 (per-step position deltas, planar by axis; row 0 = 0)
+ *   float32 dPy[T*B]
+ *   float32 dPz[T*B]
+ *   float32 vx[T*B], vy[T*B], vz[T*B]    (absolute velocity, planar by axis)
+ * </pre>
  *
- * Always-written DP853 fields (NaN-encoded when not applicable) keep the
- * parser branchless. ~0.4% overhead on chunk size for DP853 chunks
- * (12 B header + 4 B per snapshot, ~20 KB at 5000-snapshot chunks).
+ * <h2>Why this shape (bandwidth audit)</h2>
  *
- * Mixed precision (post trail-wobble investigation): positions need
- * float64 because their quantization is rendered directly — float32's
- * ~540 km cells at Neptune's 4.5×10¹² m radius dominated per-sample Z
- * motion at high fidelity, causing visible orbit-plane jitter. Velocities
- * are fine at float32: their use sites (Hermite tangent → position over
- * one gap-interval; Keplerian v² → semi-major axis) damp the precision
- * loss by ~5 orders of magnitude before anything visible. Per-snapshot
- * ΔE/E₀ is also float32 — it's a UI readout (1-2 sig figs).
+ * The previous interleaved float64-position layout was ~65% incompressible
+ * mantissa bytes, so zstd recovered only ~15% (a near-no-op). Three changes
+ * make the bytes compressible and smaller while keeping the on-screen result
+ * indistinguishable:
  *
- * Body names + µ (standard gravitational parameter, m³/s²) are sent once in
- * the header; per-timestep payloads use header-order indexing. µ is needed
- * client-side to derive Keplerian orbital elements from (r, v) state vectors;
- * inlining it avoids a separate metadata fetch and is constant per session
- * so resending per chunk costs only bodyCount × 8 bytes (~80 B for 10 bodies).
+ * <ul>
+ *   <li><b>Temporal delta in float32.</b> Positions are sent as a per-body
+ *       absolute float64 reference (timestep 0) plus per-step float32 deltas.
+ *       Each step's motion is tiny, so float32 describes the <i>delta</i> with
+ *       headroom to spare; the client reconstructs absolute positions by prefix
+ *       sum in float64. Worst-case accumulated error measured at &lt;1 km across
+ *       the full body catalog — ~700× finer than the ~540 km that absolute
+ *       float32 produced at Neptune's radius, and it manifests as slow sub-km
+ *       drift rather than the per-sample jitter that ruled out absolute
+ *       float32. Each chunk carries its own reference row, so chunks stay
+ *       independently decodable and the error resets per chunk (never
+ *       accumulates across chunk seams).</li>
+ *   <li><b>Structure-of-arrays (planar) layout.</b> Grouping like-magnitude
+ *       values into contiguous runs lets zstd find the redundancy the
+ *       interleaved layout hid.</li>
+ *   <li><b>Uniform-cadence timestamps.</b> Emission spacing is uniform, so a
+ *       single (startMillis, gapMillis) replaces a per-timestep int64. The
+ *       client reconstructs each timestamp by rounding; accurate to ~1 ms,
+ *       invisible everywhere it's used (date readout, Hermite interval).</li>
+ * </ul>
  *
- * Assumes a stable body order across timesteps within a chunk, which the
+ * Velocities stay float32 absolute (they're the Hermite tangent client-side;
+ * not the bandwidth target). Per-snapshot ΔE/E₀ stays float32 — a UI readout
+ * shown to 1-2 sig figs. Body names + µ are sent once in the header; µ is
+ * needed client-side to derive Keplerian elements from (r, v).
+ *
+ * <p>Assumes a stable body order across timesteps within a chunk, which the
  * integrator guarantees.
+ *
+ * <p>This is the hot serialization path (loops over all timesteps × all
+ * bodies). The first pass extracts primitive arrays once (pre-sized, no
+ * per-element allocation); subsequent passes write planar sections directly
+ * into a single pre-sized buffer.
  */
 @Component
 public class BinaryResponseSerializer {
+
+    /** Wire format version. Bump on any layout change; the parser branches on it. */
+    public static final int FORMAT_VERSION = 2;
 
     public byte[] serialize(ChunkResult chunk, Map<String, Double> muByName) {
         Map<AbsoluteDate, List<CelestialBodySnapshot>> data =
@@ -65,8 +95,10 @@ public class BinaryResponseSerializer {
                 chunk != null ? chunk.telemetry() : null;
 
         if (data == null || data.isEmpty()) {
-            // bodyCount(2) + dp853AvgStep(8) + dp853AcceptRate(4) + timestepCount(4) = 18
-            ByteBuffer empty = ByteBuffer.allocate(18).order(ByteOrder.LITTLE_ENDIAN);
+            // version(1) + bodyCount(2) + dp853AvgStep(8) + dp853AcceptRate(4)
+            // + timestepCount(4) = 19. No start/gap/body sections when T == 0.
+            ByteBuffer empty = ByteBuffer.allocate(19).order(ByteOrder.LITTLE_ENDIAN);
+            empty.put((byte) FORMAT_VERSION);
             empty.putShort((short) 0);
             empty.putDouble(Double.NaN);
             empty.putFloat(Float.NaN);
@@ -74,62 +106,136 @@ public class BinaryResponseSerializer {
             return empty.array();
         }
 
-        // Body order is taken from the first timestep — stable across timesteps within a chunk.
+        // Body order is taken from the first timestep — stable across timesteps.
         List<CelestialBodySnapshot> firstSnapshot = data.values().iterator().next();
         int bodyCount = firstSnapshot.size();
+        int timestepCount = data.size();
 
-        byte[][] nameBytes = new byte[bodyCount][];
-        // bodyCount(2) + bodies + dp853AvgStep(8) + dp853AcceptRate(4) + timestepCount(4)
-        int headerSize = 2 + 8 + 4 + 4;
-        for (int i = 0; i < bodyCount; i++) {
-            nameBytes[i] = firstSnapshot.get(i).name().getBytes(StandardCharsets.UTF_8);
-            // 2 (nameLen) + name bytes + 8 (µ as float64)
-            headerSize += 2 + nameBytes[i].length + 8;
+        // --- pass 1: extract flat primitive arrays (one allocation each) ---
+        // px[t*B + b], etc. Velocities cast to float here so the delta/ref math
+        // and the wire agree exactly on what the client will see.
+        double[] px = new double[timestepCount * bodyCount];
+        double[] py = new double[timestepCount * bodyCount];
+        double[] pz = new double[timestepCount * bodyCount];
+        float[] vx = new float[timestepCount * bodyCount];
+        float[] vy = new float[timestepCount * bodyCount];
+        float[] vz = new float[timestepCount * bodyCount];
+        long[] millis = new long[timestepCount];
+        float[] dE = new float[timestepCount];
+
+        int t = 0;
+        for (Map.Entry<AbsoluteDate, List<CelestialBodySnapshot>> entry : data.entrySet()) {
+            AbsoluteDate date = entry.getKey();
+            millis[t] = date.toDate(TimeScalesFactory.getUTC()).getTime();
+            Double d = deltaE != null ? deltaE.get(date) : null;
+            dE[t] = d != null ? d.floatValue() : 0.0f;
+
+            List<CelestialBodySnapshot> snapshot = entry.getValue();
+            for (int b = 0; b < bodyCount; b++) {
+                int idx = t * bodyCount + b;
+                Vector3D pos = snapshot.get(b).position();
+                Vector3D vel = snapshot.get(b).velocity();
+                px[idx] = pos.getX();
+                py[idx] = pos.getY();
+                pz[idx] = pos.getZ();
+                vx[idx] = (float) vel.getX();
+                vy[idx] = (float) vel.getY();
+                vz[idx] = (float) vel.getZ();
+            }
+            t++;
         }
 
-        int timestepCount = data.size();
-        // timestamp(8) + deltaERelative(4) + per body: 3 doubles (position) + 3 floats (velocity)
-        int perTimestepSize = 8 + 4 + bodyCount * (3 * 8 + 3 * 4);
-        int totalSize = headerSize + timestepCount * perTimestepSize;
+        long startMillis = millis[0];
+        // Best-fit uniform spacing (float64 ms). Averaging first→last cancels
+        // the per-date ms rounding; interior timestamps reconstruct within ~1 ms.
+        double gapMillis = timestepCount > 1
+                ? (double) (millis[timestepCount - 1] - startMillis) / (timestepCount - 1)
+                : 0.0;
 
-        ByteBuffer buf = ByteBuffer.allocate(totalSize).order(ByteOrder.LITTLE_ENDIAN);
+        // --- size + allocate the single output buffer ---
+        byte[][] nameBytes = new byte[bodyCount][];
+        int headerSize = 1 + 2 + 8 + 4 + 4;          // version, bodyCount, dp853 avg+rate, count
+        for (int b = 0; b < bodyCount; b++) {
+            nameBytes[b] = firstSnapshot.get(b).name().getBytes(StandardCharsets.UTF_8);
+            headerSize += 2 + nameBytes[b].length + 8;   // nameLen + name + mu
+        }
+        int bodySection =
+                8 + 8                                  // startMillis + gapMillis
+                + timestepCount * 4                    // deltaE planar
+                + bodyCount * 3 * 8                     // per-body f64 reference
+                + timestepCount * bodyCount * 3 * 4     // f32 position deltas (planar)
+                + timestepCount * bodyCount * 3 * 4;    // f32 velocity (planar)
+        ByteBuffer buf = ByteBuffer
+                .allocate(headerSize + bodySection)
+                .order(ByteOrder.LITTLE_ENDIAN);
 
-        // Header
+        // --- header ---
+        buf.put((byte) FORMAT_VERSION);
         buf.putShort((short) bodyCount);
-        for (int i = 0; i < bodyCount; i++) {
-            String bodyName = firstSnapshot.get(i).name();
-            buf.putShort((short) nameBytes[i].length);
-            buf.put(nameBytes[i]);
-            // µ for this body. Missing entries fall through to 0.0 — frontend
-            // treats µ=0 as "unknown" and skips Keplerian-element rendering
-            // for that body rather than producing NaN/inf cascades.
+        for (int b = 0; b < bodyCount; b++) {
+            buf.putShort((short) nameBytes[b].length);
+            buf.put(nameBytes[b]);
+            // µ for this body. Missing entries fall through to 0.0 — the frontend
+            // treats µ=0 as "unknown" and skips Keplerian-element rendering for
+            // that body rather than producing NaN/inf cascades.
+            String bodyName = firstSnapshot.get(b).name();
             Double mu = muByName != null ? muByName.get(bodyName) : null;
             buf.putDouble(mu != null ? mu : 0.0);
         }
-        // DP853 telemetry — NaN-encoded when not applicable so the parser
-        // can read the fields branchlessly and map NaN → null downstream.
+        // DP853 telemetry — NaN-encoded when not applicable so the parser reads
+        // the fields branchlessly and maps NaN → null downstream.
         buf.putDouble(telemetry != null ? telemetry.avgStepSeconds() : Double.NaN);
         buf.putFloat(telemetry != null ? (float) telemetry.acceptRate() : Float.NaN);
         buf.putInt(timestepCount);
 
-        // Per-timestep body
-        for (Map.Entry<AbsoluteDate, List<CelestialBodySnapshot>> entry : data.entrySet()) {
-            AbsoluteDate date = entry.getKey();
-            long millis = date.toDate(TimeScalesFactory.getUTC()).getTime();
-            buf.putLong(millis);
+        // --- body section (planar) ---
+        buf.putLong(startMillis);
+        buf.putDouble(gapMillis);
 
-            Double dE = deltaE != null ? deltaE.get(date) : null;
-            buf.putFloat(dE != null ? dE.floatValue() : 0.0f);
-
-            List<CelestialBodySnapshot> snapshot = entry.getValue();
-            for (int i = 0; i < bodyCount; i++) {
-                Vector3D pos = snapshot.get(i).position();
-                Vector3D vel = snapshot.get(i).velocity();
-                buf.putDouble(pos.getX()).putDouble(pos.getY()).putDouble(pos.getZ());
-                buf.putFloat((float) vel.getX()).putFloat((float) vel.getY()).putFloat((float) vel.getZ());
-            }
+        for (int i = 0; i < timestepCount; i++) {
+            buf.putFloat(dE[i]);
         }
 
+        // Per-body absolute reference (timestep 0).
+        for (int b = 0; b < bodyCount; b++) {
+            buf.putDouble(px[b]).putDouble(py[b]).putDouble(pz[b]);
+        }
+
+        // Per-step position deltas, planar by axis. Row 0 is zero (ref IS row 0).
+        putStepDeltas(buf, px, timestepCount, bodyCount);
+        putStepDeltas(buf, py, timestepCount, bodyCount);
+        putStepDeltas(buf, pz, timestepCount, bodyCount);
+
+        // Velocity, planar by axis, absolute float32.
+        putFloats(buf, vx);
+        putFloats(buf, vy);
+        putFloats(buf, vz);
+
         return buf.array();
+    }
+
+    /**
+     * Writes per-step deltas of {@code vals} (a flat {@code [t*B + b]} array)
+     * as float32, planar in (timestep, body) order. The first row is all zeros
+     * because the per-body reference already carries timestep 0's absolute
+     * value; the client reconstructs by prefix sum from that reference.
+     */
+    private static void putStepDeltas(ByteBuffer buf, double[] vals, int timestepCount, int bodyCount) {
+        for (int b = 0; b < bodyCount; b++) {
+            buf.putFloat(0.0f);
+        }
+        for (int i = 1; i < timestepCount; i++) {
+            int base = i * bodyCount;
+            int prev = base - bodyCount;
+            for (int b = 0; b < bodyCount; b++) {
+                buf.putFloat((float) (vals[base + b] - vals[prev + b]));
+            }
+        }
+    }
+
+    private static void putFloats(ByteBuffer buf, float[] vals) {
+        for (float v : vals) {
+            buf.putFloat(v);
+        }
     }
 }
