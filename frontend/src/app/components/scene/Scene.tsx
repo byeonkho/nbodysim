@@ -7,6 +7,7 @@ import Camera from "@/app/components/scene/Camera";
 import Sphere from "@/app/components/scene/Sphere";
 import Trail from "@/app/components/scene/Trail";
 import OrbitPath from "@/app/components/scene/OrbitPath";
+import MoonSystemRing from "@/app/components/scene/MoonSystemRing";
 import AnimationController from "@/app/components/scene/AnimationController";
 import { Skybox } from "@/app/components/scene/Skybox";
 import React, { useMemo } from "react";
@@ -16,6 +17,7 @@ import {
   CelestialBodyProperties,
   selectActiveBodyName,
   selectCelestialBodyPropertiesList,
+  selectIsBodyActive,
   selectShowAxes,
   selectShowGrid,
   selectShowOrbitPaths,
@@ -25,6 +27,11 @@ import {
   setIsBodyActive,
   SimulationScale,
 } from "@/app/store/slices/SimulationSlice";
+import {
+  isGatedMoonParent,
+  isMoonParentCollapsed,
+  shouldShowMoonDetail,
+} from "@/app/constants/BodyCatalog";
 import { Reticle } from "@/app/components/scene/Reticle";
 import { GhostLabel } from "@/app/components/scene/GhostLabel";
 import { bodyColorRgb01, toBodyKey } from "@/app/constants/BodyVisuals";
@@ -50,6 +57,7 @@ const Scene = () => {
     selectCelestialBodyPropertiesList,
   );
   const activeBodyName = useSelector(selectActiveBodyName);
+  const isBodyActive = useSelector(selectIsBodyActive);
 
   //////// SIM PARAMS ////////
   const showGrid: boolean = useSelector(selectShowGrid);
@@ -93,6 +101,60 @@ const Scene = () => {
       devSettings.logMinRadius,
     ],
   );
+
+  // Uppercased focused body, or null when nothing is actively selected
+  // (deselect leaves activeBodyName set but isBodyActive false → treat as no
+  // focus, so every moon system collapses). Scene re-renders only on selector
+  // changes, not per frame, so this render-time work is fine.
+  const activeUpper = isBodyActive
+    ? activeBodyName?.trim().toUpperCase() ?? null
+    : null;
+
+  // Count of each gated parent's moons present in the current sim. Drives the
+  // collapsed-state "☾N" chip. Rebuilds only when the body list changes.
+  const moonCountByParent = useMemo(() => {
+    const m = new Map<string, number>();
+    if (!celestialBodyPropertiesList) return m;
+    for (const props of celestialBodyPropertiesList) {
+      const parent = props.orbitingBody?.trim().toUpperCase();
+      if (parent && isGatedMoonParent(parent)) {
+        m.set(parent, (m.get(parent) ?? 0) + 1);
+      }
+    }
+    return m;
+  }, [celestialBodyPropertiesList]);
+
+  // Stable per-parent ring colors. bodyColorRgb01 returns a fresh array each
+  // call, so computing it inline in the render map would hand MoonSystemRing a
+  // new `color` identity every Scene re-render (selection / toggle changes),
+  // rebuilding its geometry + material each time. Memoizing here keeps the
+  // array identities stable as long as the parent set is stable.
+  const moonRingColors = useMemo(() => {
+    const m = new Map<string, [number, number, number]>();
+    for (const parentUpper of moonCountByParent.keys()) {
+      const key = toBodyKey(parentUpper);
+      m.set(parentUpper, key ? bodyColorRgb01(key) : [0.7, 0.7, 0.7]);
+    }
+    return m;
+  }, [moonCountByParent]);
+
+  // Stable per-body trail/orbit colors. bodyColorRgb01 returns a fresh array
+  // each call, so computing it inline in the body map would hand OrbitPath a
+  // new `color` identity every Scene re-render (selection / toggle / scale
+  // change), rebuilding its geometry + material each time (~30 instances).
+  // Memoizing here keeps the array identities stable across re-renders. Same
+  // pattern as moonRingColors above; Trail is unaffected (its geometry memo has
+  // no color dep) but reads from here too for consistency.
+  const bodyColors = useMemo(() => {
+    const m = new Map<string, [number, number, number]>();
+    if (!celestialBodyPropertiesList) return m;
+    for (const props of celestialBodyPropertiesList) {
+      if (!props.name) continue;
+      const key = toBodyKey(props.name);
+      if (key) m.set(props.name, bodyColorRgb01(key));
+    }
+    return m;
+  }, [celestialBodyPropertiesList]);
 
   return (
     <Canvas
@@ -174,10 +236,8 @@ const Scene = () => {
         const name = props.name;
         const radius: number = celestialBodyRadiusMap.get(name) ?? 1;
         const isSun = name.toUpperCase() === "SUN";
-        const bodyKey = toBodyKey(name);
-        const trailColor: [number, number, number] = bodyKey
-          ? bodyColorRgb01(bodyKey)
-          : [1, 1, 1];
+        const trailColor: [number, number, number] =
+          bodyColors.get(name) ?? [1, 1, 1];
 
         return (
           <React.Fragment key={name}>
@@ -202,21 +262,42 @@ const Scene = () => {
           </React.Fragment>
         );
       })}
+      {[...moonCountByParent.keys()].map((parentUpper) => (
+        <MoonSystemRing
+          key={parentUpper}
+          parentName={parentUpper}
+          color={moonRingColors.get(parentUpper) ?? [0.7, 0.7, 0.7]}
+        />
+      ))}
       <Reticle />
       {showPlanetInfoOverlay &&
         celestialBodyPropertiesList
           ?.filter(
+            // Exclude only the *actively* focused body (it shows in the
+            // inspector instead). Keyed on activeUpper, not raw activeBodyName,
+            // so deselect (isBodyActive false, activeBodyName persists) brings
+            // the body's own label back — same focus signal the moon gating
+            // below uses, so the two never disagree.
             (props: CelestialBodyProperties) =>
-              props.name &&
-              props.name.trim().toUpperCase() !==
-                (activeBodyName ?? "").trim().toUpperCase(),
+              props.name && props.name.trim().toUpperCase() !== activeUpper,
           )
-          .map((props: CelestialBodyProperties) => (
-            <GhostLabel
-              key={props.name}
-              bodyName={props.name as string}
-            />
-          ))}
+          .map((props: CelestialBodyProperties) => {
+            const upper = (props.name as string).trim().toUpperCase();
+            const parentUpper = props.orbitingBody?.trim().toUpperCase() ?? null;
+            // Drop a collapsed moon's label entirely (unmounts its <Html>).
+            if (!shouldShowMoonDetail(parentUpper, activeUpper)) return null;
+            // Collapsed gated parent gets the aggregate "☾N" chip.
+            const moonCount = isMoonParentCollapsed(upper, activeUpper)
+              ? moonCountByParent.get(upper) ?? 0
+              : 0;
+            return (
+              <GhostLabel
+                key={props.name}
+                bodyName={props.name as string}
+                moonCount={moonCount > 0 ? moonCount : undefined}
+              />
+            );
+          })}
     </Canvas>
   );
 };

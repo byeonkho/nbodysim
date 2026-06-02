@@ -6,6 +6,10 @@ import {
   SECTION_MEMBERS,
   PRESETS,
   DEFAULT_SELECTED,
+  focusedMoonSystemParent,
+  isGatedMoonParent,
+  shouldShowMoonDetail,
+  isMoonParentCollapsed,
 } from "./BodyCatalog";
 import type { BodyKey } from "./BodyVisuals";
 
@@ -56,5 +60,86 @@ describe("catalog data", () => {
   it("default selection is Sun + 8 planets + Moon (10)", () => {
     expect(DEFAULT_SELECTED).toHaveLength(10);
     expect(DEFAULT_SELECTED).toContain("MOON");
+  });
+});
+
+describe("focusedMoonSystemParent", () => {
+  it("maps a focused moon to its parent", () => {
+    expect(focusedMoonSystemParent("EUROPA")).toBe("JUPITER");
+    expect(focusedMoonSystemParent("CHARON")).toBe("PLUTO");
+    expect(focusedMoonSystemParent("MOON")).toBe("EARTH");
+  });
+  it("maps a focused moon-parent to itself", () => {
+    expect(focusedMoonSystemParent("JUPITER")).toBe("JUPITER");
+    expect(focusedMoonSystemParent("SATURN")).toBe("SATURN");
+    expect(focusedMoonSystemParent("MARS")).toBe("MARS");
+    expect(focusedMoonSystemParent("EARTH")).toBe("EARTH");
+  });
+  it("returns null for the Sun, moonless planets, asteroids, and null", () => {
+    expect(focusedMoonSystemParent("SUN")).toBeNull();
+    expect(focusedMoonSystemParent("VENUS")).toBeNull();
+    expect(focusedMoonSystemParent("MERCURY")).toBeNull();
+    expect(focusedMoonSystemParent("EROS")).toBeNull();
+    expect(focusedMoonSystemParent(null)).toBeNull();
+  });
+});
+
+describe("isGatedMoonParent", () => {
+  it("is true for the gated moon parents", () => {
+    for (const p of ["MARS", "JUPITER", "SATURN", "URANUS", "NEPTUNE", "PLUTO"]) {
+      expect(isGatedMoonParent(p)).toBe(true);
+    }
+  });
+  it("is false for the exempt parent (Earth)", () => {
+    expect(isGatedMoonParent("EARTH")).toBe(false);
+  });
+  it("is false for the Sun, a moon, a moonless planet, and null/undefined", () => {
+    expect(isGatedMoonParent("SUN")).toBe(false);
+    expect(isGatedMoonParent("EUROPA")).toBe(false);
+    expect(isGatedMoonParent("VENUS")).toBe(false);
+    expect(isGatedMoonParent(null)).toBe(false);
+    expect(isGatedMoonParent(undefined)).toBe(false);
+  });
+});
+
+describe("shouldShowMoonDetail", () => {
+  it("always shows non-gated parents (planet helio orbit, Earth's Moon)", () => {
+    expect(shouldShowMoonDetail("SUN", null)).toBe(true);
+    expect(shouldShowMoonDetail("SUN", "JUPITER")).toBe(true);
+    expect(shouldShowMoonDetail("EARTH", null)).toBe(true); // Moon exempt
+    expect(shouldShowMoonDetail("EARTH", "JUPITER")).toBe(true);
+  });
+  it("hides a gated moon when nothing or another system is focused", () => {
+    expect(shouldShowMoonDetail("JUPITER", null)).toBe(false);
+    expect(shouldShowMoonDetail("JUPITER", "VENUS")).toBe(false);
+    expect(shouldShowMoonDetail("JUPITER", "SATURN")).toBe(false);
+    expect(shouldShowMoonDetail("JUPITER", "TITAN")).toBe(false);
+  });
+  it("shows a gated moon when its own system is focused (parent or sibling)", () => {
+    expect(shouldShowMoonDetail("JUPITER", "JUPITER")).toBe(true);
+    expect(shouldShowMoonDetail("JUPITER", "EUROPA")).toBe(true);
+    expect(shouldShowMoonDetail("JUPITER", "GANYMEDE")).toBe(true);
+  });
+  it("treats an undefined parent as non-gated (always show)", () => {
+    expect(shouldShowMoonDetail(undefined, null)).toBe(true);
+    expect(shouldShowMoonDetail(undefined, "JUPITER")).toBe(true);
+  });
+});
+
+describe("isMoonParentCollapsed", () => {
+  it("is true for a gated parent whose system is not revealed", () => {
+    expect(isMoonParentCollapsed("JUPITER", null)).toBe(true);
+    expect(isMoonParentCollapsed("JUPITER", "SATURN")).toBe(true);
+  });
+  it("is false once the parent's own system is revealed", () => {
+    expect(isMoonParentCollapsed("JUPITER", "JUPITER")).toBe(false);
+    expect(isMoonParentCollapsed("JUPITER", "EUROPA")).toBe(false);
+  });
+  it("is false for the exempt parent and for non-parents", () => {
+    expect(isMoonParentCollapsed("EARTH", null)).toBe(false);
+    expect(isMoonParentCollapsed("VENUS", null)).toBe(false);
+  });
+  it("is false for an undefined parent", () => {
+    expect(isMoonParentCollapsed(undefined, null)).toBe(false);
   });
 });

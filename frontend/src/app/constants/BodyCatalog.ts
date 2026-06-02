@@ -196,3 +196,61 @@ export function matchesPreset(preset: Preset, selected: Set<BodyKey>): boolean {
   if (preset.keys.length !== selected.size) return false;
   return preset.keys.every((k) => selected.has(k));
 }
+
+// ─── Focus-gated moon level-of-detail ──────────────────────────────────────
+// A moon system (the moons of one parent) shows its per-moon orbits, trails,
+// and labels only when that system is "revealed" — i.e. the focused body is
+// the parent or one of its moons. Otherwise the system is collapsed to a single
+// aggregate indicator (count chip + extent ring) on the parent. Earth's Moon is
+// exempt: we always expect to see our own Moon, so Earth's system is never
+// gated and Earth gets no chip/ring.
+
+// Parents whose moon detail is never gated (always fully shown).
+export const LOD_EXEMPT_PARENTS = new Set<string>(["EARTH"]);
+
+// True when `name` is a moon-parent whose system participates in LOD gating
+// (a real moon parent, excluding the exempt ones). Accepts any string so
+// hot-path callers can pass an already-uppercased name with no cast.
+export function isGatedMoonParent(name: string | null | undefined): boolean {
+  return !!name && MOON_PARENT_SET.has(name) && !LOD_EXEMPT_PARENTS.has(name);
+}
+
+// The parent key of the moon system that should be revealed for the given
+// focused body (uppercased), or null if none. A focused moon reveals its
+// parent's system; a focused moon-parent reveals its own; anything else reveals
+// nothing. Earth/Moon resolve normally here — the exemption is applied by
+// consumers via isGatedMoonParent, keeping this a clean pure mapping.
+export function focusedMoonSystemParent(
+  activeBodyNameUpper: string | null,
+): string | null {
+  if (!activeBodyNameUpper) return null;
+  // Cast is safe: MOON_PARENT_OF is a Partial<Record<BodyKey,…>>, so an
+  // unknown key just reads back undefined, which the guard below handles.
+  const parent = MOON_PARENT_OF[activeBodyNameUpper as BodyKey];
+  if (parent) return parent;
+  if (MOON_PARENT_SET.has(activeBodyNameUpper)) return activeBodyNameUpper;
+  return null;
+}
+
+// Whether a body whose parent is `parentUpper` should show its individual
+// orbit/trail/label. Non-gated parents (the Sun for planets, Earth for the
+// Moon, or no parent) always show; gated moon systems show only when revealed.
+export function shouldShowMoonDetail(
+  parentUpper: string | null | undefined,
+  activeBodyNameUpper: string | null,
+): boolean {
+  if (!isGatedMoonParent(parentUpper)) return true;
+  return focusedMoonSystemParent(activeBodyNameUpper) === parentUpper;
+}
+
+// Whether a gated moon-parent is currently collapsed (its system not revealed).
+// Drives the aggregate indicator (count chip + extent ring).
+export function isMoonParentCollapsed(
+  parentUpper: string | null | undefined,
+  activeBodyNameUpper: string | null,
+): boolean {
+  return (
+    isGatedMoonParent(parentUpper) &&
+    focusedMoonSystemParent(activeBodyNameUpper) !== parentUpper
+  );
+}
