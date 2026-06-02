@@ -6,7 +6,6 @@ import Scene from "@/app/components/scene/Scene";
 import FirstLoadSpinner from "@/app/components/interface/misc/FirstLoadSpinner";
 import { BodySelector } from "@/app/components/chrome/BodySelector";
 import { FrameCompass } from "@/app/components/chrome/FrameCompass";
-import { LeftRail } from "@/app/components/chrome/LeftRail";
 import { RightColumn } from "@/app/components/chrome/RightColumn";
 import { SimSetupModal } from "@/app/components/chrome/simSetup/SimSetupModal";
 import { Timeline } from "@/app/components/chrome/Timeline";
@@ -66,7 +65,6 @@ const Layout: React.FC = () => {
           />
           <BodySelector />
           <FrameCompass />
-          <LeftRail />
           <RightColumn />
           <Timeline />
 

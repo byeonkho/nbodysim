@@ -19,7 +19,7 @@ import {
 // numerics). Holds the chunk-buffer metrics, camera tunable sliders,
 // and the trail-length tunable.
 //
-// Positioned bottom-left, right of the LeftRail and above the bottom
+// Positioned bottom-left, inset from the edge and above the bottom
 // timeline, so it never overlaps the right column (body card / event
 // log). Collapsible via the chevron — collapsed state hides the body
 // but keeps the header so re-expanding is a single click.
