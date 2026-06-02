@@ -138,6 +138,24 @@ const Scene = () => {
     return m;
   }, [moonCountByParent]);
 
+  // Stable per-body trail/orbit colors. bodyColorRgb01 returns a fresh array
+  // each call, so computing it inline in the body map would hand OrbitPath a
+  // new `color` identity every Scene re-render (selection / toggle / scale
+  // change), rebuilding its geometry + material each time (~30 instances).
+  // Memoizing here keeps the array identities stable across re-renders. Same
+  // pattern as moonRingColors above; Trail is unaffected (its geometry memo has
+  // no color dep) but reads from here too for consistency.
+  const bodyColors = useMemo(() => {
+    const m = new Map<string, [number, number, number]>();
+    if (!celestialBodyPropertiesList) return m;
+    for (const props of celestialBodyPropertiesList) {
+      if (!props.name) continue;
+      const key = toBodyKey(props.name);
+      if (key) m.set(props.name, bodyColorRgb01(key));
+    }
+    return m;
+  }, [celestialBodyPropertiesList]);
+
   return (
     <Canvas
       // `flat` disables tone mapping (sets renderer.toneMapping =
@@ -218,10 +236,8 @@ const Scene = () => {
         const name = props.name;
         const radius: number = celestialBodyRadiusMap.get(name) ?? 1;
         const isSun = name.toUpperCase() === "SUN";
-        const bodyKey = toBodyKey(name);
-        const trailColor: [number, number, number] = bodyKey
-          ? bodyColorRgb01(bodyKey)
-          : [1, 1, 1];
+        const trailColor: [number, number, number] =
+          bodyColors.get(name) ?? [1, 1, 1];
 
         return (
           <React.Fragment key={name}>
