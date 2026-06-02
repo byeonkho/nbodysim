@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import { useDispatch, useSelector } from "react-redux";
 import {
   cycleSimulationScale,
+  selectCameraPreset,
   selectCurrentTimeStepIndex,
   selectCurrentTimeStepIsoString,
   selectIsPaused,
@@ -25,6 +26,7 @@ import {
   selectTotalTimeSteps,
   setCurrentTimeStepIndex,
   setSpeedMultiplier,
+  toggleCameraPreset,
   togglePause,
   toggleShowAxes,
   toggleShowGrid,
@@ -283,6 +285,12 @@ function ViewToggles() {
   const labels = useSelector(selectShowPlanetInfoOverlay);
   const axes = useSelector(selectShowAxes);
   const scale = useSelector(selectSimulationScale);
+  const cameraPreset = useSelector(selectCameraPreset);
+
+  // Camera preset is a binary viewpoint toggle (top-down vs free orbit),
+  // grouped here with the other view controls. Shown as a value chip
+  // (like Scale) since neither state is "off".
+  const cameraLabel = cameraPreset === "top-down" ? "Top" : "Free";
 
   // Local-only toggle for now. Phase 2 (#58) decides what Info gates —
   // candidates: master toggle for the right column, or in-scene labels.
@@ -331,6 +339,12 @@ function ViewToggles() {
         label="Info"
         value={info ? "ON" : "OFF"}
         onClick={() => setInfo((p) => !p)}
+      />
+      <ToggleChip
+        label="Camera"
+        value={cameraLabel}
+        onClick={() => dispatch(toggleCameraPreset())}
+        tooltip="Switches between a straight-down map view and a free view you can orbit around the scene."
       />
     </div>
   );

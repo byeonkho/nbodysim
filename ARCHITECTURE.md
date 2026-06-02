@@ -102,7 +102,7 @@ Decisions made during the Tailwind + Radix + shadcn migration that shape what's 
 5. **Step accept %.** Hide row entirely for fixed-step integrators (Euler, RK4); show only for DP853.
 6. **REC indicator dropped.** Replaced with `BUFFER` + `CHUNK` status — surfaces a real engineering detail rather than mimicking a video recorder.
 7. **SimParams "Run" semantics.** Run always re-inits the session. A small set of fields may go live-editable later (Δt, frame, body toggles).
-8. **Reality drift overlay placement.** Dedicated left-rail icon, opens a small overlay card pinned near the active body. Keeps the right-column body card uncluttered.
+8. **Reality drift overlay placement.** Toggle lives as a chip in the bottom view-toggle panel (alongside Grid / Trails / Orbits / etc.); when on, it opens a small overlay card pinned near the active body. Keeps the right-column body card uncluttered. (Originally planned as a dedicated left-rail icon; the left rail was removed once its only live control, the camera preset, moved to the bottom view-toggle panel — a left rail holding a single working button plus dead stubs wasn't worth a whole surface. All view toggles now group in one place.)
 9. **Dev surfaces.** DevMetrics + dev-camera tweaker keep their slot, mounted only under `?dev=1`.
 10. **Mobile.** Responsive web only (no React Native / SwiftUI). Mobile flow at <1280px viewport using Radix Sheet for the iOS-style sheets.
 11. **Body graphics — toggleable.** UI chrome bodies use flat radial-gradient circles per the design's body color tokens. Scene 3D bodies ship realistic textures by default; a live-toggleable "stylized" variant renders flat-shaded matte spheres matching the chrome palette.
