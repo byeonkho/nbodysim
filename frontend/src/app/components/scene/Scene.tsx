@@ -7,6 +7,7 @@ import Camera from "@/app/components/scene/Camera";
 import Sphere from "@/app/components/scene/Sphere";
 import Trail from "@/app/components/scene/Trail";
 import OrbitPath from "@/app/components/scene/OrbitPath";
+import MoonSystemRing from "@/app/components/scene/MoonSystemRing";
 import AnimationController from "@/app/components/scene/AnimationController";
 import { Skybox } from "@/app/components/scene/Skybox";
 import React, { useMemo } from "react";
@@ -123,6 +124,20 @@ const Scene = () => {
     return m;
   }, [celestialBodyPropertiesList]);
 
+  // Stable per-parent ring colors. bodyColorRgb01 returns a fresh array each
+  // call, so computing it inline in the render map would hand MoonSystemRing a
+  // new `color` identity every Scene re-render (selection / toggle changes),
+  // rebuilding its geometry + material each time. Memoizing here keeps the
+  // array identities stable as long as the parent set is stable.
+  const moonRingColors = useMemo(() => {
+    const m = new Map<string, [number, number, number]>();
+    for (const parentUpper of moonCountByParent.keys()) {
+      const key = toBodyKey(parentUpper);
+      m.set(parentUpper, key ? bodyColorRgb01(key) : [0.7, 0.7, 0.7]);
+    }
+    return m;
+  }, [moonCountByParent]);
+
   return (
     <Canvas
       // `flat` disables tone mapping (sets renderer.toneMapping =
@@ -231,6 +246,13 @@ const Scene = () => {
           </React.Fragment>
         );
       })}
+      {[...moonCountByParent.keys()].map((parentUpper) => (
+        <MoonSystemRing
+          key={parentUpper}
+          parentName={parentUpper}
+          color={moonRingColors.get(parentUpper) ?? [0.7, 0.7, 0.7]}
+        />
+      ))}
       <Reticle />
       {showPlanetInfoOverlay &&
         celestialBodyPropertiesList
