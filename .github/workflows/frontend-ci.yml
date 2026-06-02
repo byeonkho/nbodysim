@@ -3,10 +3,10 @@ name: Frontend CI
 on:
   push:
     branches: [master]
-    paths: [frontend/**]
+    paths: [frontend/**, backend/openapi.json]
   pull_request:
     branches: [master]
-    paths: [frontend/**]
+    paths: [frontend/**, backend/openapi.json]
 
 jobs:
   build:
@@ -23,6 +23,12 @@ jobs:
 
       - name: Install dependencies
         run: cd frontend && npm ci
+
+      - name: Verify generated API types are up to date
+        run: |
+          cd frontend && npm run gen:api
+          git diff --exit-code src/app/generated/api.ts \
+            || (echo "::error::api.ts is stale vs backend/openapi.json. Run 'npm run gen:api' in frontend/ and commit." && exit 1)
 
       - name: Lint
         run: cd frontend && npm run lint
