@@ -21,6 +21,11 @@ import SimConstants, {
 } from "@/app/constants/SimConstants";
 import { StaticImageData } from "next/image";
 import { selectFetchLatencyEmaMs } from "@/app/store/slices/RequestSlice";
+import type { components } from "@/app/generated/api";
+
+/** Server wire shapes, generated from backend/openapi.json. */
+export type CelestialBodyWire = components["schemas"]["CelestialBodyWrapper"];
+export type SimulationResponse = components["schemas"]["SimulationResponseDTO"];
 
 interface TimeState {
   isPaused: boolean;
@@ -34,18 +39,17 @@ export interface Vector3Simple {
   z: number;
 }
 
-export interface CelestialBodyProperties {
-  mass?: number;
-  // Standard gravitational parameter µ = G·M, units m³/s². Populated from
-  // the binary chunk header on the first chunk dispatch (constant per
-  // session — backend value is sourced from Orekit's CelestialBody.getGM()).
-  // Used by orbital-element computation in the body card.
-  mu?: number;
-  radius?: number;
-  name?: string;
-  orbitingBody?: string;
+// Frontend view model for a body: the server's wire fields (mass, mu, radius,
+// name, orbitingBody) plus the frontend-only texture. Server fields are
+// derived from the generated wire schema (CelestialBodyWire), so a backend
+// rename of any of them surfaces as a compile error at every reader instead
+// of a silent undefined. Kept all-optional because they're populated
+// progressively: some from the /initialize JSON, mu from the binary chunk
+// header (sourced from Orekit's CelestialBody.getGM()), texture from local
+// assets — used by orbital-element computation in the body card.
+export type CelestialBodyProperties = Partial<CelestialBodyWire> & {
   texture?: StaticImageData;
-}
+};
 
 interface SimulationMetadata {
   sessionID: string;
@@ -177,7 +181,15 @@ export const simulationSlice = createSlice({
   name: "simulation",
   initialState,
   reducers: {
-    loadSimulation: (state, action: PayloadAction<SimulationParameters>) => {
+    loadSimulation: (
+      state,
+      action: PayloadAction<
+        Pick<
+          SimulationParameters,
+          "celestialBodyPropertiesList" | "simulationMetaData"
+        >
+      >,
+    ) => {
       // Atomic new-session swap. Wiping the chunk buffer + timeState +
       // activeBody alongside the new params prevents stale timesteps from
       // the prior session from rendering with the new scales/textures
