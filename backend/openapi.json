@@ -1,0 +1,149 @@
+{
+  "openapi" : "3.1.0",
+  "info" : {
+    "title" : "OpenAPI definition",
+    "version" : "v0"
+  },
+  "paths" : {
+    "/api/simulation/initialize" : {
+      "post" : {
+        "tags" : [ "simulation-controller" ],
+        "operationId" : "initializeSimulation",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SimulationRequestDTO"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SimulationResponseDTO"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/chunk" : {
+      "post" : {
+        "tags" : [ "simulation-controller" ],
+        "operationId" : "getNextChunk",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SimulationChunkRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/octet-stream" : {
+                "schema" : {
+                  "type" : "string",
+                  "format" : "byte"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components" : {
+    "schemas" : {
+      "SimulationRequestDTO" : {
+        "type" : "object",
+        "properties" : {
+          "celestialBodyNames" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "date" : {
+            "type" : "string"
+          },
+          "frame" : {
+            "type" : "string"
+          },
+          "integrator" : {
+            "type" : "string"
+          },
+          "timeStepUnit" : {
+            "type" : "string"
+          },
+          "fidelityBucket" : {
+            "type" : "string"
+          }
+        }
+      },
+      "CelestialBodyWrapper" : {
+        "type" : "object",
+        "properties" : {
+          "mass" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "mu" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "radius" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "orbitingBody" : {
+            "type" : "string"
+          }
+        }
+      },
+      "SimulationResponseDTO" : {
+        "type" : "object",
+        "properties" : {
+          "celestialBodyPropertiesList" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/CelestialBodyWrapper"
+            }
+          },
+          "simulationMetaData" : {
+            "$ref" : "#/components/schemas/SimulationResponseMetadata"
+          }
+        }
+      },
+      "SimulationResponseMetadata" : {
+        "type" : "object",
+        "properties" : {
+          "sessionID" : {
+            "type" : "string"
+          }
+        }
+      },
+      "SimulationChunkRequest" : {
+        "type" : "object",
+        "properties" : {
+          "sessionID" : {
+            "type" : "string"
+          }
+        }
+      }
+    }
+  }
+}

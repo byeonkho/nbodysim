@@ -1,25 +1,16 @@
 import { AppDispatch } from "@/app/store/Store";
-import {
-  loadSimulation,
-  SimulationParameters,
-} from "@/app/store/slices/SimulationSlice";
+import { loadSimulation } from "@/app/store/slices/SimulationSlice";
 import { REST_URL } from "@/app/utils/backendUrls";
+import type { components } from "@/app/generated/api";
 
-interface InitializeRequest {
-  celestialBodyNames: string[];
-  date: string;
-  frame: string;
-  integrator: string;
-  timeStepUnit: string;
-  /**
-   * Fidelity bucket — user-facing quality preset. Backend resolves to
-   * per-integrator K (fixed-step) or N (DP853). Optional — null/omitted
-   * → backend uses per-integrator landing default from
-   * {@code FidelityBucket.defaultFor()}. One of: "low" | "medLow" |
-   * "medium" | "medHigh" | "high".
-   */
-  fidelityBucket?: string;
-}
+// Request/response shapes are generated from the backend OpenAPI spec, so a
+// backend DTO change surfaces as a TypeScript error here rather than a silent
+// runtime undefined. The explicit field reads below
+// (data.celestialBodyPropertiesList, data.simulationMetaData.sessionID) are the
+// drift catch: a renamed wire field fails to compile at the access site. See
+// the API contract drift gate (todo #33).
+type InitializeRequest = components["schemas"]["SimulationRequestDTO"];
+type InitializeResponse = components["schemas"]["SimulationResponseDTO"];
 
 export const initializeCelestialBodies = async (
   dispatch: AppDispatch,
@@ -38,10 +29,16 @@ export const initializeCelestialBodies = async (
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    const data: SimulationParameters = await response.json();
+    const data: InitializeResponse = await response.json();
 
-    // Dispatch the loadSimulationData action with the fetched data
-    dispatch(loadSimulation(data));
+    dispatch(
+      loadSimulation({
+        celestialBodyPropertiesList: data.celestialBodyPropertiesList ?? [],
+        simulationMetaData: data.simulationMetaData
+          ? { sessionID: data.simulationMetaData.sessionID ?? "" }
+          : null,
+      }),
+    );
   } catch (error) {
     console.error("Failed to load celestial objects data:", error);
   }
