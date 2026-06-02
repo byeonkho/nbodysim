@@ -257,10 +257,13 @@ const Scene = () => {
       {showPlanetInfoOverlay &&
         celestialBodyPropertiesList
           ?.filter(
+            // Exclude only the *actively* focused body (it shows in the
+            // inspector instead). Keyed on activeUpper, not raw activeBodyName,
+            // so deselect (isBodyActive false, activeBodyName persists) brings
+            // the body's own label back — same focus signal the moon gating
+            // below uses, so the two never disagree.
             (props: CelestialBodyProperties) =>
-              props.name &&
-              props.name.trim().toUpperCase() !==
-                (activeBodyName ?? "").trim().toUpperCase(),
+              props.name && props.name.trim().toUpperCase() !== activeUpper,
           )
           .map((props: CelestialBodyProperties) => {
             const upper = (props.name as string).trim().toUpperCase();
