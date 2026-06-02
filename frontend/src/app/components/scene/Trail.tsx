@@ -7,7 +7,9 @@ import * as THREE from "three";
 import { RootState } from "@/app/store/Store";
 import {
   CelestialBodyProperties,
+  selectActiveBodyName,
   selectCelestialBodyPropertiesList,
+  selectIsBodyActive,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
 import { readBodyPositionInto } from "@/app/store/chunkBuffer";
@@ -15,6 +17,7 @@ import { writeBodyWorldPositionToArrayWithPreset } from "@/app/utils/coordinates
 import { findEarthBodyIndex, writePivotInto } from "@/app/utils/framePivot";
 import { worldDistance, worldRadius, worldDistanceFromParent } from "@/app/utils/scalePipeline";
 import { getDevSettings } from "@/app/dev/devSettingsStore";
+import { shouldShowMoonDetail } from "@/app/constants/BodyCatalog";
 
 interface TrailProps {
   bodyName: string;
@@ -42,6 +45,17 @@ const Trail: React.FC<TrailProps> = ({
 }) => {
   const store = useStore<RootState>();
   const propsList = useSelector(selectCelestialBodyPropertiesList);
+
+  // Focus state for moon LOD gating. Subscribed (not read per-frame) so the
+  // uppercase conversion happens once per selection change, not once per frame
+  // — mirrors Camera.tsx / OrbitPath.tsx. activeBodyName isn't guaranteed
+  // uppercase, so we hoist the conversion off the hot path rather than drop it.
+  const activeBodyName = useSelector(selectActiveBodyName);
+  const isBodyActive = useSelector(selectIsBodyActive);
+  const activeBodyNameUpper = useMemo(
+    () => activeBodyName?.toUpperCase() ?? null,
+    [activeBodyName],
+  );
 
   const { orbitingBodyNameUpper, ownRadiusM } = useMemo(() => {
     const nameUpper = bodyName.toUpperCase();
@@ -125,6 +139,17 @@ const Trail: React.FC<TrailProps> = ({
     const simulationScale =
       state.simulation.simulationParameters.simulationScale;
     const displayFrame = state.simulation.simulationParameters.displayFrame;
+
+    // Focus-gated moon LOD: skip this trail entirely when its moon system is
+    // collapsed. Runs before the per-point loop, so collapsed moons cost a
+    // couple of compares instead of the full trail walk. Planets (parent SUN)
+    // and Earth's Moon are never gated. !isBodyActive means nothing is focused
+    // (deselect leaves activeBodyName set) → null → gated systems collapse.
+    const activeUpper = isBodyActive ? activeBodyNameUpper : null;
+    if (!shouldShowMoonDetail(orbitingBodyNameUpper, activeUpper)) {
+      lineObject.geometry.setDrawRange(0, 0);
+      return;
+    }
 
     const geom = lineObject.geometry;
     const positions = geom.attributes.position.array as Float32Array;
