@@ -46,10 +46,26 @@ import personal.spacesim.simulation.body.CelestialBodyWrapper;
 @EnabledIfSystemProperty(named = "pos.experiment", matches = "true")
 class PositionEncodingExperiment {
 
-    private static final List<String> BODIES = List.of(
+    private static final List<String> BODIES_10 = List.of(
         "Sun", "Mercury", "Venus", "Earth", "Moon",
         "Mars", "Jupiter", "Saturn", "Uranus", "Neptune"
     );
+
+    // ~Full catalog (39): planets + Pluto + Earth's Moon (Orekit, local) plus
+    // 20 major moons + 7 dwarf/minor bodies (Horizons, disk-cached for the
+    // 2026-01-01 epoch this harness uses, so the run stays offline).
+    private static final List<String> BODIES_FULL = List.of(
+        "Sun", "Mercury", "Venus", "Earth", "Moon",
+        "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto",
+        "Phobos", "Deimos",
+        "Io", "Europa", "Ganymede", "Callisto",
+        "Mimas", "Enceladus", "Tethys", "Dione", "Rhea", "Titan", "Iapetus",
+        "Ariel", "Umbriel", "Titania", "Oberon", "Miranda",
+        "Triton", "Nereid",
+        "Ceres", "Vesta", "Pallas", "Hygiea", "Eros", "Apophis", "Bennu", "Ryugu"
+    );
+
+    private static final List<List<String>> BODY_SETS = List.of(BODIES_10, BODIES_FULL);
     private static final String FRAME = "ICRF";
     private static final String TIME_STEP_UNIT = "hours";
 
@@ -78,59 +94,76 @@ class PositionEncodingExperiment {
         AbsoluteDate startDate =
             new AbsoluteDate(2026, 1, 1, 0, 0, 0.0, TimeScalesFactory.getUTC());
 
-        System.out.println();
-        System.out.println("Position-encoding experiment — " + BODIES.size()
-            + " bodies, " + TIME_STEP_UNIT + " step, ICRF. Body-section bytes only.");
-        System.out.println("All sizes in KB. %base = vs baseline zstd-3 (the production number).");
-        System.out.println();
-
-        for (Scenario s : SCENARIOS) {
-            Simulation sim = simulationFactory.createSimulation(
-                "pos-exp-" + s.integrator + "-" + (s.n > 0 ? "N" + s.n : "K" + s.k),
-                BODIES, FRAME, s.integrator, startDate, TIME_STEP_UNIT, s.k, s.n);
-            ChunkResult chunk = sim.run();
-            ChunkArrays arr = extract(chunk);
-
-            System.out.println("== " + s.label + "  (T=" + arr.t + ", B=" + arr.b + ") ==");
-            System.out.printf("  %-34s %10s %10s %10s %12s%n",
-                "encoder", "raw KB", "zstd3 KB", "zstd19 KB", "max err (m)");
-            System.out.println("  " + "-".repeat(80));
-
-            byte[] base = encodeBaseline(arr);
-            long baseZ3 = Zstd.compress(base, 3).length;
-
-            report("baseline (interleaved f64 pos)", base, 0.0, baseZ3);
-            report("SoA (planar f64 pos)", encodeSoA(arr), 0.0, baseZ3);
-            report("SoA + byte-shuffle f64 pos", encodeSoAShuffle(arr), 0.0, baseZ3);
-            report("SoA temporal-delta f64 pos", encodeTemporalDeltaF64(arr), 0.0, baseZ3);
-            report("SoA + shuffle temporal-delta f64", encodeTemporalDeltaF64Shuffle(arr), 0.0, baseZ3);
-            reportLossy("SoA f32 delta-from-ref pos", encodeF32DeltaRef(arr), errF32DeltaRef(arr), baseZ3);
-            reportLossy("SoA f32 temporal-delta pos", encodeF32TemporalDelta(arr), errF32TemporalDelta(arr), baseZ3);
-
+        for (List<String> bodies : BODY_SETS) {
             System.out.println();
+            System.out.println("################  " + bodies.size()
+                + " BODIES  ################");
+            System.out.println("(" + TIME_STEP_UNIT + " step, ICRF; body-section bytes only; sizes in KB)");
+
+            for (Scenario s : SCENARIOS) {
+                Simulation sim = simulationFactory.createSimulation(
+                    "pos-exp-" + bodies.size() + "-" + s.integrator
+                        + "-" + (s.n > 0 ? "N" + s.n : "K" + s.k),
+                    bodies, FRAME, s.integrator, startDate, TIME_STEP_UNIT, s.k, s.n);
+                ChunkResult chunk = sim.run();
+                ChunkArrays arr = extract(chunk);
+
+                byte[] base = encodeBaseline(arr);
+                long baseZ3 = Zstd.compress(base, 3).length;
+
+                // --- where the savings come from (progression, zstd-3, no riders) ---
+                System.out.println();
+                System.out.println("== " + s.label + "  (T=" + arr.t + ", B=" + arr.b + ") ==");
+                System.out.printf("  %-36s %10s %10s %10s%n",
+                    "encoder (progression, zstd-3)", "raw KB", "zstd3 KB", "% base");
+                System.out.println("  " + "-".repeat(70));
+                prog("baseline (interleaved f64) — TODAY", base, baseZ3);
+                prog("SoA (planar f64)", encodeSoA(arr), baseZ3);
+                prog("SoA + byte-shuffle f64", encodeSoAShuffle(arr), baseZ3);
+                prog("SoA + temporal-delta f64", encodeTemporalDeltaF64(arr), baseZ3);
+                prog("SoA + shuffle + temporal-delta f64", encodeTemporalDeltaF64Shuffle(arr), baseZ3);
+                prog("SoA + f32 temporal-delta", encodeF32TemporalDelta(arr), baseZ3);
+
+                // --- final candidates WITH riders (drop timestamps + zstd-19) + timing + error ---
+                System.out.println();
+                System.out.printf("  %-36s %10s %8s %10s %10s%n",
+                    "FINAL CANDIDATE (riders on)", "zstd19 KB", "% base", "comp ms", "max err m");
+                System.out.println("  " + "-".repeat(80));
+                finalRow("baseline TODAY (zstd-3, no riders)", base, 3, 0.0, baseZ3);
+                byte[] lossless = encodeLosslessFinal(arr);   // shuffle+temporal f64, no timestamps
+                finalRow("LOSSLESS: shuffle+delta, -ts, z19", lossless, 19, 0.0, baseZ3);
+                byte[] lossy = encodeLossyFinal(arr);          // f32 temporal-delta, no timestamps
+                finalRow("LOSSY: f32 delta, -ts, z19", lossy, 19, errF32TemporalDelta(arr), baseZ3);
+            }
         }
 
+        System.out.println();
         System.out.println("Notes:");
         System.out.println("  - Velocity is float32 in every variant (Hermite tangent; not the target).");
-        System.out.println("  - Position is ~2/3 of the body-section; these deltas scale ~linearly with body count.");
-        System.out.println("  - 'max err' is max abs position-component error vs the f64 baseline, over all T*B*3.");
+        System.out.println("  - 'riders on' = per-timestep timestamps dropped (uniform cadence) + zstd level 19.");
+        System.out.println("  - 'comp ms' = wall time to compress this chunk once (warmed). This runs on the");
+        System.out.println("    precompute thread off the request path, so it's latency the user never waits on.");
+        System.out.println("  - 'max err' = worst abs position-component error vs f64 baseline over all T*B*3.");
         System.out.println();
     }
 
-    private void report(String name, byte[] raw, double maxErr, long baseZ3) {
+    // Progression row: raw + zstd-3 only, % vs production baseline.
+    private void prog(String name, byte[] raw, long baseZ3) {
         long z3 = Zstd.compress(raw, 3).length;
-        long z19 = Zstd.compress(raw, 19).length;
-        System.out.printf("  %-34s %10.1f %10.1f %10.1f %12s   (%.0f%% base)%n",
-            name, raw.length / 1024.0, z3 / 1024.0, z19 / 1024.0,
-            "lossless", 100.0 * z3 / baseZ3);
+        System.out.printf("  %-36s %10.1f %10.1f %8.0f%%%n",
+            name, raw.length / 1024.0, z3 / 1024.0, 100.0 * z3 / baseZ3);
     }
 
-    private void reportLossy(String name, byte[] raw, double maxErr, long baseZ3) {
-        long z3 = Zstd.compress(raw, 3).length;
-        long z19 = Zstd.compress(raw, 19).length;
-        System.out.printf("  %-34s %10.1f %10.1f %10.1f %12.1f   (%.0f%% base)%n",
-            name, raw.length / 1024.0, z3 / 1024.0, z19 / 1024.0,
-            maxErr, 100.0 * z3 / baseZ3);
+    // Final-candidate row: compress at the given level, time it (1 warmup +
+    // 1 measured), report size / %base / compression ms / max error.
+    private void finalRow(String name, byte[] raw, int level, double maxErr, long baseZ3) {
+        Zstd.compress(raw, level);                 // warmup (JIT + native)
+        long t0 = System.nanoTime();
+        long sz = Zstd.compress(raw, level).length;
+        double ms = (System.nanoTime() - t0) / 1_000_000.0;
+        String err = maxErr == 0.0 ? "lossless" : String.format("%.1f", maxErr);
+        System.out.printf("  %-36s %10.1f %7.0f%% %10.1f %10s%n",
+            name, sz / 1024.0, 100.0 * sz / baseZ3, ms, err);
     }
 
     // ---- extraction ----
@@ -173,6 +206,16 @@ class PositionEncodingExperiment {
         for (int i = 0; i < a.t; i++) buf.putLong(a.ts[i]);
         for (int i = 0; i < a.t; i++) buf.putFloat(a.dE[i]);
     }
+
+    // Timestamp-drop rider: emission cadence is uniform, so per-timestep
+    // timestamps reconstruct from (start, gap, count) in the header. Only
+    // deltaE remains per-timestep here. (start/gap/count is ~20 header bytes,
+    // negligible — omitted from the body-section measurement.)
+    private void putScalarsNoTs(ByteBuffer buf, ChunkArrays a) {
+        for (int i = 0; i < a.t; i++) buf.putFloat(a.dE[i]);
+    }
+
+    private int scalarBytesNoTs(ChunkArrays a) { return a.t * 4; }
 
     private void putVelSoA(ByteBuffer buf, ChunkArrays a) {
         for (float v : a.vx) buf.putFloat(v);
@@ -355,6 +398,39 @@ class PositionEncodingExperiment {
     private double errF32TemporalDelta(ChunkArrays a) {
         return Math.max(Math.max(
             errStep(a.px, a.t, a.b), errStep(a.py, a.t, a.b)), errStep(a.pz, a.t, a.b));
+    }
+
+    // ---- final candidates (riders applied: timestamps dropped) ----
+
+    // Lossless final: SoA + byte-shuffle + f64 temporal-delta, no timestamps.
+    private byte[] encodeLosslessFinal(ChunkArrays a) {
+        byte[] sx = shuffleDoubles(temporalDelta(a.px, a.t, a.b));
+        byte[] sy = shuffleDoubles(temporalDelta(a.py, a.t, a.b));
+        byte[] sz = shuffleDoubles(temporalDelta(a.pz, a.t, a.b));
+        int size = scalarBytesNoTs(a) + sx.length + sy.length + sz.length + velBytes(a);
+        ByteBuffer buf = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN);
+        putScalarsNoTs(buf, a);
+        buf.put(sx).put(sy).put(sz);
+        putVelSoA(buf, a);
+        return buf.array();
+    }
+
+    // Lossy final: SoA + per-body f64 ref + f32 per-step deltas, no timestamps.
+    private byte[] encodeLossyFinal(ChunkArrays a) {
+        int size = scalarBytesNoTs(a)
+            + a.b * 3 * 8
+            + a.t * a.b * 3 * 4
+            + velBytes(a);
+        ByteBuffer buf = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN);
+        putScalarsNoTs(buf, a);
+        for (int bi = 0; bi < a.b; bi++) {
+            buf.putDouble(a.px[bi]).putDouble(a.py[bi]).putDouble(a.pz[bi]);
+        }
+        putF32StepDeltas(buf, a.px, a.t, a.b);
+        putF32StepDeltas(buf, a.py, a.t, a.b);
+        putF32StepDeltas(buf, a.pz, a.t, a.b);
+        putVelSoA(buf, a);
+        return buf.array();
     }
 
     private double errStep(double[] vals, int t, int b) {
