@@ -16,6 +16,7 @@ import {
   CelestialBodyProperties,
   selectActiveBodyName,
   selectCelestialBodyPropertiesList,
+  selectIsBodyActive,
   selectShowAxes,
   selectShowGrid,
   selectShowOrbitPaths,
@@ -25,6 +26,11 @@ import {
   setIsBodyActive,
   SimulationScale,
 } from "@/app/store/slices/SimulationSlice";
+import {
+  isGatedMoonParent,
+  isMoonParentCollapsed,
+  shouldShowMoonDetail,
+} from "@/app/constants/BodyCatalog";
 import { Reticle } from "@/app/components/scene/Reticle";
 import { GhostLabel } from "@/app/components/scene/GhostLabel";
 import { bodyColorRgb01, toBodyKey } from "@/app/constants/BodyVisuals";
@@ -50,6 +56,7 @@ const Scene = () => {
     selectCelestialBodyPropertiesList,
   );
   const activeBodyName = useSelector(selectActiveBodyName);
+  const isBodyActive = useSelector(selectIsBodyActive);
 
   //////// SIM PARAMS ////////
   const showGrid: boolean = useSelector(selectShowGrid);
@@ -93,6 +100,28 @@ const Scene = () => {
       devSettings.logMinRadius,
     ],
   );
+
+  // Uppercased focused body, or null when nothing is actively selected
+  // (deselect leaves activeBodyName set but isBodyActive false → treat as no
+  // focus, so every moon system collapses). Scene re-renders only on selector
+  // changes, not per frame, so this render-time work is fine.
+  const activeUpper = isBodyActive
+    ? activeBodyName?.trim().toUpperCase() ?? null
+    : null;
+
+  // Count of each gated parent's moons present in the current sim. Drives the
+  // collapsed-state "☾N" chip. Rebuilds only when the body list changes.
+  const moonCountByParent = useMemo(() => {
+    const m = new Map<string, number>();
+    if (!celestialBodyPropertiesList) return m;
+    for (const props of celestialBodyPropertiesList) {
+      const parent = props.orbitingBody?.trim().toUpperCase();
+      if (parent && isGatedMoonParent(parent)) {
+        m.set(parent, (m.get(parent) ?? 0) + 1);
+      }
+    }
+    return m;
+  }, [celestialBodyPropertiesList]);
 
   return (
     <Canvas
@@ -211,12 +240,23 @@ const Scene = () => {
               props.name.trim().toUpperCase() !==
                 (activeBodyName ?? "").trim().toUpperCase(),
           )
-          .map((props: CelestialBodyProperties) => (
-            <GhostLabel
-              key={props.name}
-              bodyName={props.name as string}
-            />
-          ))}
+          .map((props: CelestialBodyProperties) => {
+            const upper = (props.name as string).trim().toUpperCase();
+            const parentUpper = props.orbitingBody?.trim().toUpperCase() ?? null;
+            // Drop a collapsed moon's label entirely (unmounts its <Html>).
+            if (!shouldShowMoonDetail(parentUpper, activeUpper)) return null;
+            // Collapsed gated parent gets the aggregate "☾N" chip.
+            const moonCount = isMoonParentCollapsed(upper, activeUpper)
+              ? moonCountByParent.get(upper) ?? 0
+              : 0;
+            return (
+              <GhostLabel
+                key={props.name}
+                bodyName={props.name as string}
+                moonCount={moonCount > 0 ? moonCount : undefined}
+              />
+            );
+          })}
     </Canvas>
   );
 };

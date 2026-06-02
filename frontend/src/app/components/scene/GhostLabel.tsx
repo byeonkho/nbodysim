@@ -26,7 +26,14 @@ import { BODY_DISPLAY, toBodyKey } from "@/app/constants/BodyVisuals";
 
 const TEXT_THROTTLE_FRAMES = 30;
 
-export function GhostLabel({ bodyName }: { bodyName: string }) {
+export function GhostLabel({
+  bodyName,
+  moonCount,
+}: {
+  bodyName: string;
+  /** When set (collapsed moon-parent), render a "☾N" aggregate chip. */
+  moonCount?: number;
+}) {
   const propsList = useSelector(selectCelestialBodyPropertiesList);
   const simulationScale = useSelector(selectSimulationScale);
   const store = useStore<RootState>();
@@ -174,6 +181,14 @@ export function GhostLabel({ bodyName }: { bodyName: string }) {
             className="tabular mt-0.5 font-mono text-[8.5px]"
             style={{ color: "rgba(220,221,227,0.32)" }}
           />
+          {moonCount != null && moonCount > 0 && (
+            <div
+              className="mt-0.5 font-mono text-[8.5px] normal-case"
+              style={{ color: "rgba(220,221,227,0.40)", letterSpacing: "0.05em" }}
+            >
+              {`☾ ${moonCount} ${moonCount === 1 ? "moon" : "moons"}`}
+            </div>
+          )}
         </div>
       </Html>
     </group>
