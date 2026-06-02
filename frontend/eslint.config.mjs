@@ -7,7 +7,12 @@ const config = [
   ...nextTypescript,
   prettier,
   {
-    ignores: [".next/**", "node_modules/**", "next-env.d.ts"],
+    ignores: [
+      ".next/**",
+      "node_modules/**",
+      "next-env.d.ts",
+      "src/app/generated/**",
+    ],
   },
 ];
 
