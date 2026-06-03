@@ -49,6 +49,10 @@ export function buildTrueTrack(
   predicted: ChunkBuffer,
   bodyName: string,
 ): ChunkBuffer {
+  if (anchors.length === 0) {
+    return createChunkBuffer([bodyName], Math.max(1, predicted.capacity));
+  }
+
   const n = predicted.totalTimesteps;
   const track = createChunkBuffer([bodyName], Math.max(1, predicted.capacity));
 

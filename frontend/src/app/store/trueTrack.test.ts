@@ -57,6 +57,20 @@ describe("buildTrueTrack", () => {
     readBodyPositionInto(out, track, 0, 0);
     expect(out.x).toBeCloseTo(0, 9); // anchor0 position, no extrapolation
   });
+
+  it("clamps to the last anchor after the anchor window ends", () => {
+    const predicted = predictedWithTimestamps([1500]);
+    const track = buildTrueTrack(anchors, predicted, "EARTH");
+    const out = new Vector3();
+    readBodyPositionInto(out, track, 0, 0);
+    expect(out.x).toBeCloseTo(1, 9); // anchors[last].position[0]
+  });
+
+  it("returns an empty (totalTimesteps 0) buffer when there are no anchors", () => {
+    const predicted = predictedWithTimestamps([0, 1000]);
+    const track = buildTrueTrack([], predicted, "EARTH");
+    expect(track.totalTimesteps).toBe(0);
+  });
 });
 
 describe("shouldExtendWindow", () => {
@@ -67,5 +81,8 @@ describe("shouldExtendWindow", () => {
   });
   it("is false when the window is unset", () => {
     expect(shouldExtendWindow(999, null, null)).toBe(false);
+  });
+  it("is true exactly at the 75% threshold (inclusive)", () => {
+    expect(shouldExtendWindow(750, 0, 1000)).toBe(true);
   });
 });
