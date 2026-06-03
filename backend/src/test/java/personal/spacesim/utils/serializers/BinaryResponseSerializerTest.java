@@ -70,13 +70,29 @@ class BinaryResponseSerializerTest {
         assertEquals(0, buf.getInt());
     }
 
+    /** Reverse one shuffled float32 plane of n values starting at buf's current position. */
+    private static float[] readShuffledPlane(ByteBuffer buf, int n) {
+        int base = buf.position();
+        byte[] bytes = new byte[n * 4];
+        for (int p = 0; p < 4; p++) {
+            for (int i = 0; i < n; i++) {
+                bytes[i * 4 + p] = buf.get(base + p * n + i);
+            }
+        }
+        buf.position(base + n * 4);
+        float[] out = new float[n];
+        ByteBuffer fb = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
+        for (int i = 0; i < n; i++) out[i] = fb.getFloat();
+        return out;
+    }
+
     @Test
     void serialisedBytesMatchDocumentedLayout() {
         // Construct a known input matching the frontend's parseBinaryChunk.test.ts
         // hand-crafted case (Earth + Moon at 2024-06-05T00:00:00Z). Read the
         // bytes back via ByteBuffer and verify each field — proves the
-        // serializer's output matches the version-2 format spec character for
-        // character (delta-encoded, structure-of-arrays).
+        // serializer's output matches the version-3 format spec (byte-shuffled planes,
+        // velocity temporal-delta).
         TimeScale utc = TimeScalesFactory.getUTC();
         AbsoluteDate date = new AbsoluteDate(2024, 6, 5, 0, 0, 0.0, utc);
         long expectedMillis = date.toDate(utc).getTime();
@@ -137,7 +153,7 @@ class BinaryResponseSerializerTest {
 
         assertEquals(1, buf.getInt(), "timestepCount");
 
-        // Body section (version 2): start + gap, then planar fields.
+        // Body section (version 3): start + gap, then planar fields.
         assertEquals(expectedMillis, buf.getLong(), "startMillis");
         assertEquals(0.0, buf.getDouble(), "gapMillis is 0 for a single timestep");
 
@@ -148,20 +164,23 @@ class BinaryResponseSerializerTest {
         assertEquals(1.0, buf.getDouble()); assertEquals(2.0, buf.getDouble()); assertEquals(3.0, buf.getDouble());
         assertEquals(7.0, buf.getDouble()); assertEquals(8.0, buf.getDouble()); assertEquals(9.0, buf.getDouble());
 
-        // Position deltas, planar by axis (row 0 is all zeros — only one
-        // timestep). 2 bodies × 3 axes = 6 zero floats.
-        for (int i = 0; i < 6; i++) {
-            assertEquals(0.0f, buf.getFloat(), "row-0 delta is zero");
+        // Position deltas: 3 shuffled planes (x, y, z), each T*B = 2 floats. One
+        // timestep => all deltas are row-0 zeros.
+        for (int axis = 0; axis < 3; axis++) {
+            float[] plane = readShuffledPlane(buf, 2); // T*B = 1*2
+            assertEquals(0.0f, plane[0], "row-0 delta is zero");
+            assertEquals(0.0f, plane[1], "row-0 delta is zero");
         }
 
-        // Velocity, planar by axis (vx for [Earth, Moon], then vy, then vz),
-        // float32 (precision-loss path damps by ~5 orders before anything
-        // visible — it's the Hermite tangent client-side).
-        assertEquals(4.0f, buf.getFloat());  assertEquals(10.0f, buf.getFloat()); // vx
-        assertEquals(5.0f, buf.getFloat());  assertEquals(11.0f, buf.getFloat()); // vy
-        assertEquals(6.0f, buf.getFloat());  assertEquals(12.0f, buf.getFloat()); // vz
+        // Velocity: 3 shuffled planes, temporal-delta. One timestep => row 0 holds
+        // the absolute velocity. vx=[Earth 4, Moon 10], vy=[5,11], vz=[6,12].
+        float[] vx = readShuffledPlane(buf, 2);
+        assertEquals(4.0f, vx[0]);  assertEquals(10.0f, vx[1]);
+        float[] vy = readShuffledPlane(buf, 2);
+        assertEquals(5.0f, vy[0]);  assertEquals(11.0f, vy[1]);
+        float[] vz = readShuffledPlane(buf, 2);
+        assertEquals(6.0f, vz[0]);  assertEquals(12.0f, vz[1]);
 
-        // Buffer should be exactly consumed
         assertEquals(0, buf.remaining(), "no trailing bytes");
     }
 
@@ -169,7 +188,7 @@ class BinaryResponseSerializerTest {
     void temporalDeltasReconstructAbsolutePositions() {
         // Two timesteps so the delta path is exercised: row 0 is the reference,
         // row 1 carries per-step deltas that must sum back to the absolute
-        // position. Pins the version-2 delta semantics on the Java side.
+        // position. Pins the version-3 delta semantics (position + velocity) on the Java side.
         TimeScale utc = TimeScalesFactory.getUTC();
         AbsoluteDate t0 = new AbsoluteDate(2024, 6, 5, 0, 0, 0.0, utc);
         AbsoluteDate t1 = new AbsoluteDate(2024, 6, 6, 0, 0, 0.0, utc);
@@ -208,14 +227,35 @@ class BinaryResponseSerializerTest {
 
         buf.getFloat(); buf.getFloat();             // deltaE planar (2 timesteps)
 
-        // Reference (timestep 0) for Earth.
-        assertEquals(1.0, buf.getDouble()); assertEquals(2.0, buf.getDouble()); assertEquals(3.0, buf.getDouble());
+        // Reference (timestep 0) for Earth, unchanged.
+        double refX = buf.getDouble(), refY = buf.getDouble(), refZ = buf.getDouble();
+        assertEquals(1.0, refX); assertEquals(2.0, refY); assertEquals(3.0, refZ);
 
-        // Deltas planar by axis: x → [row0=0, row1=13-1=12], y → [0, 14-2=12],
-        // z → [0, 15-3=12].
-        assertEquals(0.0f, buf.getFloat());  assertEquals(12.0f, buf.getFloat()); // x
-        assertEquals(0.0f, buf.getFloat());  assertEquals(12.0f, buf.getFloat()); // y
-        assertEquals(0.0f, buf.getFloat());  assertEquals(12.0f, buf.getFloat()); // z
+        // Shuffled position-delta planes: x=[0,12], y=[0,12], z=[0,12].
+        float[] dx = readShuffledPlane(buf, 2);
+        float[] dy = readShuffledPlane(buf, 2);
+        float[] dz = readShuffledPlane(buf, 2);
+        assertEquals(0.0f, dx[0]); assertEquals(12.0f, dx[1]);
+        assertEquals(0.0f, dy[0]); assertEquals(12.0f, dy[1]);
+        assertEquals(0.0f, dz[0]); assertEquals(12.0f, dz[1]);
+        // Reconstructed absolute = ref + prefix sum.
+        assertEquals(13.0, refX + dx[0] + dx[1], 1e-6);
+        assertEquals(14.0, refY + dy[0] + dy[1], 1e-6);
+        assertEquals(15.0, refZ + dz[0] + dz[1], 1e-6);
+
+        // Velocity: row 0 absolute, row 1 step delta. vx:[4, 16-4=12], vy:[5,12], vz:[6,12].
+        float[] vx = readShuffledPlane(buf, 2);
+        float[] vy = readShuffledPlane(buf, 2);
+        float[] vz = readShuffledPlane(buf, 2);
+        assertEquals(4.0f, vx[0]); assertEquals(12.0f, vx[1]);
+        assertEquals(5.0f, vy[0]); assertEquals(12.0f, vy[1]);
+        assertEquals(6.0f, vz[0]); assertEquals(12.0f, vz[1]);
+        // Reconstructed absolute velocity = prefix sum from 0 (row 0 is the absolute).
+        assertEquals(16.0, vx[0] + vx[1], 1e-6);
+        assertEquals(17.0, vy[0] + vy[1], 1e-6);
+        assertEquals(18.0, vz[0] + vz[1], 1e-6);
+
+        assertEquals(0, buf.remaining(), "no trailing bytes");
     }
 
     @Test
