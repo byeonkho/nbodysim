@@ -97,23 +97,24 @@ describe("simulationUpdateDataMiddleware — speed-aware prefetch threshold", ()
     expect(dispatchChunkRequest).not.toHaveBeenCalled();
   });
 
-  it("speed=128, default EMA: threshold scales to 11520 (128 × 60 × 1.0 × 1.5)", () => {
+  it("speed=16 (the cap), default EMA: threshold scales to 1440 (16 × 60 × 1.0 × 1.5)", () => {
     const store = buildStore();
     seedSession(store, 100_000);
-    // 1 → 2 → 4 → 8 → 16 → 32 → 64 → 128 (seven "increase" dispatches).
-    for (let i = 0; i < 7; i++) store.dispatch(setSpeedMultiplier("increase"));
+    // 1 → 2 → 4 → 8 → 16, then clamped at MAX_SPEED_MULTIPLIER=16. Six
+    // "increase" dispatches (one past the cap) also proves the clamp holds.
+    for (let i = 0; i < 6; i++) store.dispatch(setSpeedMultiplier("increase"));
 
-    // Remaining = 100_000 - 88_480 = 11_520 → threshold reached at speed=128.
-    store.dispatch(setCurrentTimeStepIndex(88_480));
+    // Remaining = 100_000 - 98_560 = 1_440 → threshold reached at speed=16.
+    store.dispatch(setCurrentTimeStepIndex(98_560));
     expect(dispatchChunkRequest).toHaveBeenCalledTimes(1);
   });
 
-  it("speed=128, default EMA: does NOT fire at remaining=11521", () => {
+  it("speed=16 (the cap), default EMA: does NOT fire at remaining=1441", () => {
     const store = buildStore();
     seedSession(store, 100_000);
-    for (let i = 0; i < 7; i++) store.dispatch(setSpeedMultiplier("increase"));
+    for (let i = 0; i < 6; i++) store.dispatch(setSpeedMultiplier("increase"));
 
-    store.dispatch(setCurrentTimeStepIndex(88_479));
+    store.dispatch(setCurrentTimeStepIndex(98_559));
     expect(dispatchChunkRequest).not.toHaveBeenCalled();
   });
 
@@ -127,11 +128,12 @@ describe("simulationUpdateDataMiddleware — speed-aware prefetch threshold", ()
     store.dispatch(recordFetchLatency(5000));
     store.dispatch(recordFetchLatency(5000));
 
-    // At speed=32, EMA=3040ms: 32 × 60 × (3040/1000) × 1.5 = 8755.2 → ceil = 8756.
+    // At speed=16 (the cap), EMA=3040ms: 16 × 60 × (3040/1000) × 1.5 = 4377.6
+    // → ceil = 4378. Five "increase" dispatches saturate the cap.
     for (let i = 0; i < 5; i++) store.dispatch(setSpeedMultiplier("increase"));
 
-    // Remaining = 100_000 - 91_244 = 8756 → fires.
-    store.dispatch(setCurrentTimeStepIndex(91_244));
+    // Remaining = 100_000 - 95_622 = 4378 → fires.
+    store.dispatch(setCurrentTimeStepIndex(95_622));
     expect(dispatchChunkRequest).toHaveBeenCalledTimes(1);
   });
 
