@@ -294,6 +294,8 @@ export function BodyCard() {
       }
 
       // Reality drift — predicted vs true position of the active body.
+      // gt.overlayEnabled is read imperatively here (like the rest of tick);
+      // the JSX section gates on the driftOverlayEnabled selector separately.
       const gt = state.groundTruth;
       if (
         gt.overlayEnabled &&
@@ -310,7 +312,7 @@ export function BodyCard() {
           driftKmRef.current.textContent =
             km >= 1e6
               ? `${(km / 1e6).toFixed(2)}M km`
-              : `${Math.round(km).toLocaleString()} km`;
+              : `${Math.round(km).toLocaleString("en-US")} km`;
         }
         if (driftAngleRef.current) {
           driftAngleRef.current.textContent = `${angleDeg.toFixed(2)}°`;
