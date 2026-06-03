@@ -89,6 +89,21 @@
             "type" : "integer",
             "format" : "int64"
           }
+        }, {
+          "name" : "body",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "stepSeconds",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "number",
+            "format" : "double"
+          }
         } ],
         "responses" : {
           "200" : {

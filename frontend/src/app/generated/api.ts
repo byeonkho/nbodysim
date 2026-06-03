@@ -160,6 +160,8 @@ export interface operations {
                 sessionId: string;
                 fromEpoch: number;
                 toEpoch: number;
+                body?: string;
+                stepSeconds?: number;
             };
             header?: never;
             path?: never;

@@ -39,37 +39,49 @@ import java.util.List;
 @Component
 public class GroundTruthProvider {
 
-    /** 1 sample per day. A smooth orbit reconstructs to far below a pixel from
-     *  daily anchors plus client-side Hermite interpolation. */
-    private static final double DAILY_CADENCE_SECONDS = 86_400.0;
+    /** Default cadence when the caller doesn't specify one: 1 sample per day.
+     *  A smooth orbit reconstructs to far below a pixel from daily anchors plus
+     *  client-side Hermite interpolation. The client drives a finer/coarser
+     *  cadence sized to the visible window. */
+    public static final double DAILY_CADENCE_SECONDS = 86_400.0;
+
+    /** Hard cap on anchors per body per request, so a tiny cadence over a large
+     *  window can't blow up the response. The client already sizes the cadence
+     *  to stay well under this; this is the safety net. */
+    private static final int MAX_ANCHORS_PER_BODY = 5_000;
 
     public GroundTruthResponse sampleTracks(
             List<CelestialBodyWrapper> bodies,
             Frame frame,
             AbsoluteDate from,
-            AbsoluteDate to
+            AbsoluteDate to,
+            double stepSeconds
     ) {
         List<BodyGroundTruthTrack> tracks = new ArrayList<>();
         for (CelestialBodyWrapper body : bodies) {
             if (isSupported(body)) {
-                tracks.add(sampleBody(body.getName(), frame, from, to));
+                tracks.add(sampleBody(body.getName(), frame, from, to, stepSeconds));
             }
         }
         return new GroundTruthResponse(tracks);
     }
 
     private BodyGroundTruthTrack sampleBody(
-            String name, Frame frame, AbsoluteDate from, AbsoluteDate to
+            String name, Frame frame, AbsoluteDate from, AbsoluteDate to, double stepSeconds
     ) {
         CelestialBody body = CelestialBodyFactory.getBody(name);
         CelestialBody sun = CelestialBodyFactory.getSun();
 
+        // Guard against a non-positive cadence (would loop forever / divide by
+        // zero); fall back to daily.
+        double cadence = stepSeconds > 0 ? stepSeconds : DAILY_CADENCE_SECONDS;
         double totalSeconds = to.durationFrom(from);
-        int steps = totalSeconds <= 0 ? 0 : (int) Math.floor(totalSeconds / DAILY_CADENCE_SECONDS);
+        int steps = totalSeconds <= 0 ? 0 : (int) Math.floor(totalSeconds / cadence);
+        steps = Math.min(steps, MAX_ANCHORS_PER_BODY - 1);
 
         List<GroundTruthAnchor> anchors = new ArrayList<>(steps + 1);
         for (int i = 0; i <= steps; i++) {
-            AbsoluteDate date = from.shiftedBy(i * DAILY_CADENCE_SECONDS);
+            AbsoluteDate date = from.shiftedBy(i * cadence);
             PVCoordinates bodyPv = body.getPVCoordinates(date, frame);
             PVCoordinates sunPv = sun.getPVCoordinates(date, frame);
             Vector3D pos = bodyPv.getPosition().subtract(sunPv.getPosition());

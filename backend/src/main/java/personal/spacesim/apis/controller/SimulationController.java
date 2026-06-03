@@ -140,7 +140,15 @@ public class SimulationController {
     public ResponseEntity<GroundTruthResponse> getGroundTruth(
             @RequestParam String sessionId,
             @RequestParam long fromEpoch,
-            @RequestParam long toEpoch
+            @RequestParam long toEpoch,
+            // Optional: restrict to a single body (the client requests only the
+            // focused body, since that is all the overlay renders). Absent → all
+            // supported bodies (kept for backward compatibility).
+            @RequestParam(required = false) String body,
+            // Optional cadence in seconds between samples. Absent → daily. The
+            // client sizes this to the visible window so the anchor count stays
+            // bounded regardless of the simulation's time-per-step.
+            @RequestParam(required = false) Double stepSeconds
     ) {
         Simulation simulation = simulationSessionService.getSimulation(sessionId);
         if (simulation == null) {
@@ -148,14 +156,24 @@ public class SimulationController {
         }
         // Reject malformed windows (reversed or implausibly large) with 400
         // rather than letting an out-of-range step count overflow downstream.
-        // The client always requests <= 1-year windows; this is the safety net.
         if (toEpoch <= fromEpoch || (toEpoch - fromEpoch) > MAX_GROUND_TRUTH_WINDOW_MS) {
             return ResponseEntity.badRequest().build();
         }
         AbsoluteDate from = new AbsoluteDate(new Date(fromEpoch), TimeScalesFactory.getUTC());
         AbsoluteDate to = new AbsoluteDate(new Date(toEpoch), TimeScalesFactory.getUTC());
+
+        var bodies = simulation.getCelestialBodies();
+        if (body != null && !body.isBlank()) {
+            bodies = bodies.stream()
+                    .filter(b -> b.getName().equalsIgnoreCase(body))
+                    .toList();
+        }
+        double cadence = (stepSeconds != null && stepSeconds > 0)
+                ? stepSeconds
+                : GroundTruthProvider.DAILY_CADENCE_SECONDS;
+
         GroundTruthResponse response = groundTruthProvider.sampleTracks(
-                simulation.getCelestialBodies(), simulation.getFrame(), from, to);
+                bodies, simulation.getFrame(), from, to, cadence);
         return ResponseEntity.ok(response);
     }
 

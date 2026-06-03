@@ -62,7 +62,7 @@ class GroundTruthProviderTest {
         CelestialBodyWrapper earth = new CelestialBodyWrapper("EARTH", frame, from);
         earth.setOrbitingBody("SUN");
 
-        GroundTruthResponse resp = provider.sampleTracks(List.of(earth), frame, from, to);
+        GroundTruthResponse resp = provider.sampleTracks(List.of(earth), frame, from, to, 86_400.0);
 
         assertEquals(1, resp.tracks().size());
         BodyGroundTruthTrack track = resp.tracks().get(0);
@@ -98,7 +98,24 @@ class GroundTruthProviderTest {
         CelestialBodyWrapper moon = new CelestialBodyWrapper("MOON", frame, from);
         moon.setOrbitingBody("EARTH");
 
-        GroundTruthResponse resp = provider.sampleTracks(List.of(moon), frame, from, to);
+        GroundTruthResponse resp = provider.sampleTracks(List.of(moon), frame, from, to, 86_400.0);
         assertTrue(resp.tracks().isEmpty());
+    }
+
+    @Test
+    void honorsCustomCadence() {
+        Frame frame = FramesFactory.getICRF();
+        AbsoluteDate from = new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC());
+        AbsoluteDate to = from.shiftedBy(10 * 86_400.0); // 10 days
+
+        CelestialBodyWrapper earth = new CelestialBodyWrapper("EARTH", frame, from);
+        earth.setOrbitingBody("SUN");
+
+        // 2-day cadence over a 10-day window → i = 0..5 → 6 anchors.
+        GroundTruthResponse resp =
+                provider.sampleTracks(List.of(earth), frame, from, to, 2 * 86_400.0);
+
+        assertEquals(1, resp.tracks().size());
+        assertEquals(6, resp.tracks().get(0).anchors().size());
     }
 }
