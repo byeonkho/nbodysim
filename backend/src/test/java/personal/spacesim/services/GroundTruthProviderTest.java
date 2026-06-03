@@ -80,6 +80,11 @@ class GroundTruthProviderTest {
         assertEquals(expected.getY(), a0.position()[1], 1.0);
         assertEquals(expected.getZ(), a0.position()[2], 1.0);
         assertEquals(from.toDate(TimeScalesFactory.getUTC()).getTime(), a0.epochMillis());
+
+        Vector3D expectedVel = bodyPv.getVelocity().subtract(sunPv.getVelocity());
+        assertEquals(expectedVel.getX(), a0.velocity()[0], 1e-3); // 1 mm/s tolerance
+        assertEquals(expectedVel.getY(), a0.velocity()[1], 1e-3);
+        assertEquals(expectedVel.getZ(), a0.velocity()[2], 1e-3);
     }
 
     @Test
