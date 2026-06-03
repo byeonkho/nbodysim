@@ -115,12 +115,6 @@ const DriftOverlay: React.FC = () => {
   const resolvedBufferRef = useRef<object | null>(null);
 
   /* eslint-disable react-hooks/immutability */
-  const hideAll = () => {
-    trailLine.geometry.setDrawRange(0, 0);
-    markerMesh.visible = false;
-    connectorLine.visible = false;
-  };
-
   useFrame(() => {
     const state = store.getState();
     const gt = state.groundTruth;
@@ -137,13 +131,22 @@ const DriftOverlay: React.FC = () => {
       predicted.totalTimesteps === 0 ||
       trueTrack.totalTimesteps === 0
     ) {
-      hideAll();
+      trailLine.geometry.setDrawRange(0, 0);
+      markerMesh.visible = false;
+      connectorLine.visible = false;
       return;
     }
 
     const idx = state.simulation.timeState.currentTimeStepIndex;
     const preset = state.simulation.simulationParameters.simulationScale.preset;
     const displayFrame = state.simulation.simulationParameters.displayFrame;
+
+    if (idx >= predicted.totalTimesteps || idx >= trueTrack.totalTimesteps) {
+      trailLine.geometry.setDrawRange(0, 0);
+      markerMesh.visible = false;
+      connectorLine.visible = false;
+      return;
+    }
 
     // Resolve / re-resolve the predicted index for the active body.
     if (resolvedBufferRef.current !== predicted) {
@@ -161,7 +164,9 @@ const DriftOverlay: React.FC = () => {
     }
     const predIdx = predIdxRef.current;
     if (predIdx < 0) {
-      hideAll();
+      trailLine.geometry.setDrawRange(0, 0);
+      markerMesh.visible = false;
+      connectorLine.visible = false;
       return;
     }
 
