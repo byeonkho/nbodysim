@@ -26,6 +26,11 @@ public class SimulationController {
 
     private final Logger logger = LoggerFactory.getLogger(SimulationController.class);
 
+    // Upper bound on a single ground-truth window. Comfortably above the
+    // client's 1-year request window, below any value that would overflow
+    // the provider's day-count. ~800 days.
+    private static final long MAX_GROUND_TRUTH_WINDOW_MS = 800L * 24 * 60 * 60 * 1000;
+
     private final SimulationSessionService simulationSessionService;
     private final GroundTruthProvider groundTruthProvider;
 
@@ -140,6 +145,12 @@ public class SimulationController {
         Simulation simulation = simulationSessionService.getSimulation(sessionId);
         if (simulation == null) {
             return ResponseEntity.notFound().build();
+        }
+        // Reject malformed windows (reversed or implausibly large) with 400
+        // rather than letting an out-of-range step count overflow downstream.
+        // The client always requests <= 1-year windows; this is the safety net.
+        if (toEpoch <= fromEpoch || (toEpoch - fromEpoch) > MAX_GROUND_TRUTH_WINDOW_MS) {
+            return ResponseEntity.badRequest().build();
         }
         AbsoluteDate from = new AbsoluteDate(new Date(fromEpoch), TimeScalesFactory.getUTC());
         AbsoluteDate to = new AbsoluteDate(new Date(toEpoch), TimeScalesFactory.getUTC());

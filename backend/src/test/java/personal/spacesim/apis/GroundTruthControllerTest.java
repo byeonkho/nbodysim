@@ -80,4 +80,38 @@ class GroundTruthControllerTest {
                         .param("toEpoch", "86400000"))
                 .andExpect(status().isNotFound());
     }
+
+    @Test
+    void reversedWindowReturns400() throws Exception {
+        AbsoluteDate start = new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC());
+        String sessionId = sessionService.createSimulation(
+                List.of("Sun", "Earth", "Mars"), "ICRF", "EULER", start, "seconds", 1, 5000);
+
+        long fromMs = start.toDate(TimeScalesFactory.getUTC()).getTime();
+        long toMs = start.shiftedBy(10 * 86_400.0).toDate(TimeScalesFactory.getUTC()).getTime();
+
+        // fromEpoch > toEpoch — reversed window should be rejected
+        mockMvc.perform(get("/api/simulation/ground-truth")
+                        .param("sessionId", sessionId)
+                        .param("fromEpoch", String.valueOf(toMs))
+                        .param("toEpoch", String.valueOf(fromMs)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void oversizedWindowReturns400() throws Exception {
+        AbsoluteDate start = new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC());
+        String sessionId = sessionService.createSimulation(
+                List.of("Sun", "Earth", "Mars"), "ICRF", "EULER", start, "seconds", 1, 5000);
+
+        long fromMs = start.toDate(TimeScalesFactory.getUTC()).getTime();
+        // ~900 days — well above the 800-day cap
+        long toMs = fromMs + 900L * 24 * 60 * 60 * 1000;
+
+        mockMvc.perform(get("/api/simulation/ground-truth")
+                        .param("sessionId", sessionId)
+                        .param("fromEpoch", String.valueOf(fromMs))
+                        .param("toEpoch", String.valueOf(toMs)))
+                .andExpect(status().isBadRequest());
+    }
 }
