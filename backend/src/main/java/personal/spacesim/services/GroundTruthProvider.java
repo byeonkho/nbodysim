@@ -76,8 +76,11 @@ public class GroundTruthProvider {
         // zero); fall back to daily.
         double cadence = stepSeconds > 0 ? stepSeconds : DAILY_CADENCE_SECONDS;
         double totalSeconds = to.durationFrom(from);
-        int steps = totalSeconds <= 0 ? 0 : (int) Math.floor(totalSeconds / cadence);
-        steps = Math.min(steps, MAX_ANCHORS_PER_BODY - 1);
+        // Compare as a double BEFORE the int cast: a huge window with a tiny
+        // cadence would otherwise overflow `(int)` to a negative value and then
+        // throw NegativeArraySizeException. The cap bounds the response.
+        double rawSteps = totalSeconds <= 0 ? 0 : Math.floor(totalSeconds / cadence);
+        int steps = rawSteps >= MAX_ANCHORS_PER_BODY ? MAX_ANCHORS_PER_BODY - 1 : (int) rawSteps;
 
         List<GroundTruthAnchor> anchors = new ArrayList<>(steps + 1);
         for (int i = 0; i <= steps; i++) {

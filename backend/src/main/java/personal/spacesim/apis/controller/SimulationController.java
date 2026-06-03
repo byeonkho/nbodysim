@@ -26,10 +26,12 @@ public class SimulationController {
 
     private final Logger logger = LoggerFactory.getLogger(SimulationController.class);
 
-    // Upper bound on a single ground-truth window. Comfortably above the
-    // client's 1-year request window, below any value that would overflow
-    // the provider's day-count. ~800 days.
-    private static final long MAX_GROUND_TRUTH_WINDOW_MS = 800L * 24 * 60 * 60 * 1000;
+    // Sanity upper bound on a single ground-truth window. The client sizes the
+    // window to the visible trail span, which can legitimately reach centuries
+    // at large time-steps, so this is generous; the provider's anchor cap and
+    // overflow-safe step count are what actually bound the response. Rejects
+    // only absurd/garbage inputs (and reversed windows, checked alongside).
+    private static final long MAX_GROUND_TRUTH_WINDOW_MS = 3000L * 365 * 24 * 60 * 60 * 1000;
 
     private final SimulationSessionService simulationSessionService;
     private final GroundTruthProvider groundTruthProvider;
