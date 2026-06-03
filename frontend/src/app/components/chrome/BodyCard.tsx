@@ -11,7 +11,7 @@ import {
   selectIsBodyActive,
   type Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
-import { readBodyStateInto, readDeltaERelativeAt } from "@/app/store/chunkBuffer";
+import { readBodyStateInto, readBodyPositionInto, readDeltaERelativeAt } from "@/app/store/chunkBuffer";
 import type { RootState } from "@/app/store/Store";
 import {
   calculateDistance,
@@ -29,6 +29,9 @@ import {
   AVG_STEP_COPY,
   RESIDUAL_CONCEPT_COPY,
 } from "@/app/constants/residualTooltipCopy";
+import { selectOverlayEnabled } from "@/app/store/slices/GroundTruthSlice";
+import { driftMetrics } from "@/app/utils/driftMetrics";
+import { DRIFT_READOUT_COPY } from "@/app/constants/driftTooltipCopy";
 import { BodySphere } from "@/app/components/chrome/BodySphere";
 import { InfoTooltip } from "@/app/components/chrome/InfoTooltip";
 
@@ -101,6 +104,11 @@ export function BodyCard() {
   const avgStepRef = useRef<HTMLSpanElement>(null);
   const acceptRateRef = useRef<HTMLSpanElement>(null);
 
+  const driftKmRef = useRef<HTMLSpanElement>(null);
+  const driftAngleRef = useRef<HTMLSpanElement>(null);
+
+  const driftOverlayEnabled = useSelector(selectOverlayEnabled);
+
   // Visibility flag for the DP853 rows. Sourced reactively — flips at
   // chunk boundaries (not 5 Hz) so a normal useSelector is fine. The
   // values *inside* those rows are written to refs (no React rerender
@@ -149,6 +157,7 @@ export function BodyCard() {
     const stateRefVel = new THREE.Vector3();
     const orbitingPos = new THREE.Vector3();
     const orbitingVel = new THREE.Vector3();
+    const trueScratch = new THREE.Vector3();
 
     const findIdx = (
       buffer: { bodyNameToIndex: ReadonlyMap<string, number> },
@@ -283,6 +292,33 @@ export function BodyCard() {
       if (buffer.dp853AcceptRate != null && acceptRateRef.current) {
         acceptRateRef.current.textContent = `${(buffer.dp853AcceptRate * 100).toFixed(1)}%`;
       }
+
+      // Reality drift — predicted vs true position of the active body.
+      const gt = state.groundTruth;
+      if (
+        gt.overlayEnabled &&
+        gt.trueTrack &&
+        gt.trueTrackBody === upperName &&
+        idx < gt.trueTrack.totalTimesteps
+      ) {
+        readBodyPositionInto(trueScratch, gt.trueTrack, idx, 0); // single-body buffer
+        const { km, angleDeg } = driftMetrics(
+          { x: bodyPos.x, y: bodyPos.y, z: bodyPos.z },
+          { x: trueScratch.x, y: trueScratch.y, z: trueScratch.z },
+        );
+        if (driftKmRef.current) {
+          driftKmRef.current.textContent =
+            km >= 1e6
+              ? `${(km / 1e6).toFixed(2)}M km`
+              : `${Math.round(km).toLocaleString()} km`;
+        }
+        if (driftAngleRef.current) {
+          driftAngleRef.current.textContent = `${angleDeg.toFixed(2)}°`;
+        }
+      } else {
+        if (driftKmRef.current) driftKmRef.current.textContent = "—";
+        if (driftAngleRef.current) driftAngleRef.current.textContent = "—";
+      }
     };
 
     tick();
@@ -381,6 +417,20 @@ export function BodyCard() {
             }
             valueRef={acceptRateRef}
           />
+        </>
+      )}
+      {driftOverlayEnabled && (
+        <>
+          <SectionLabel>
+            <span className="inline-flex items-center gap-1">
+              Reality drift
+              <InfoTooltip label="What is reality drift?">
+                {DRIFT_READOUT_COPY}
+              </InfoTooltip>
+            </span>
+          </SectionLabel>
+          <KvRow k="Off by" valueRef={driftKmRef} accent />
+          <KvRow k="Angle off" valueRef={driftAngleRef} />
         </>
       )}
     </div>
