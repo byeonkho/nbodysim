@@ -36,6 +36,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/simulation/ground-truth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getGroundTruth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -67,6 +83,19 @@ export interface components {
         };
         SimulationChunkRequest: {
             sessionID?: string;
+        };
+        BodyGroundTruthTrack: {
+            name?: string;
+            anchors?: components["schemas"]["GroundTruthAnchor"][];
+        };
+        GroundTruthAnchor: {
+            /** Format: int64 */
+            epochMillis?: number;
+            position?: number[];
+            velocity?: number[];
+        };
+        GroundTruthResponse: {
+            tracks?: components["schemas"]["BodyGroundTruthTrack"][];
         };
     };
     responses: never;
@@ -121,6 +150,30 @@ export interface operations {
                 };
                 content: {
                     "application/octet-stream": string;
+                };
+            };
+        };
+    };
+    getGroundTruth: {
+        parameters: {
+            query: {
+                sessionId: string;
+                fromEpoch: number;
+                toEpoch: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["GroundTruthResponse"];
                 };
             };
         };

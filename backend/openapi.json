@@ -61,6 +61,48 @@
           }
         }
       }
+    },
+    "/api/simulation/ground-truth" : {
+      "get" : {
+        "tags" : [ "simulation-controller" ],
+        "operationId" : "getGroundTruth",
+        "parameters" : [ {
+          "name" : "sessionId",
+          "in" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "fromEpoch",
+          "in" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }, {
+          "name" : "toEpoch",
+          "in" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/GroundTruthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components" : {
@@ -141,6 +183,54 @@
         "properties" : {
           "sessionID" : {
             "type" : "string"
+          }
+        }
+      },
+      "BodyGroundTruthTrack" : {
+        "type" : "object",
+        "properties" : {
+          "name" : {
+            "type" : "string"
+          },
+          "anchors" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/GroundTruthAnchor"
+            }
+          }
+        }
+      },
+      "GroundTruthAnchor" : {
+        "type" : "object",
+        "properties" : {
+          "epochMillis" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "position" : {
+            "type" : "array",
+            "items" : {
+              "type" : "number",
+              "format" : "double"
+            }
+          },
+          "velocity" : {
+            "type" : "array",
+            "items" : {
+              "type" : "number",
+              "format" : "double"
+            }
+          }
+        }
+      },
+      "GroundTruthResponse" : {
+        "type" : "object",
+        "properties" : {
+          "tracks" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/BodyGroundTruthTrack"
+            }
           }
         }
       }

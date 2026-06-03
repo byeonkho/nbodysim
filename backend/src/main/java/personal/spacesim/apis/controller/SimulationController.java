@@ -14,7 +14,11 @@ import personal.spacesim.dtos.SimulationRequestDTO;
 import personal.spacesim.dtos.SimulationResponseDTO;
 import personal.spacesim.services.SimulationSessionService;
 
+import java.util.Date;
 import java.util.List;
+import personal.spacesim.dtos.GroundTruthResponse;
+import personal.spacesim.services.GroundTruthProvider;
+import personal.spacesim.simulation.Simulation;
 
 @RestController
 @RequestMapping("/api/simulation")
@@ -22,11 +26,21 @@ public class SimulationController {
 
     private final Logger logger = LoggerFactory.getLogger(SimulationController.class);
 
+    // Upper bound on a single ground-truth window. Comfortably above the
+    // client's 1-year request window, below any value that would overflow
+    // the provider's day-count. ~800 days.
+    private static final long MAX_GROUND_TRUTH_WINDOW_MS = 800L * 24 * 60 * 60 * 1000;
+
     private final SimulationSessionService simulationSessionService;
+    private final GroundTruthProvider groundTruthProvider;
 
     @Autowired
-    public SimulationController(SimulationSessionService simulationSessionService) {
+    public SimulationController(
+            SimulationSessionService simulationSessionService,
+            GroundTruthProvider groundTruthProvider
+    ) {
         this.simulationSessionService = simulationSessionService;
+        this.groundTruthProvider = groundTruthProvider;
     }
 
     /**
@@ -114,6 +128,35 @@ public class SimulationController {
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .body(compressedData);
+    }
+
+    /**
+     * Returns sparse, Sun-relative true-position tracks (from local DE-440)
+     * for the planets + Pluto in the given session, across [fromEpoch, toEpoch]
+     * (millis since the Unix epoch, UTC). Powers the reality-drift overlay.
+     * Read-only and idempotent; does not advance the session.
+     */
+    @GetMapping("/ground-truth")
+    public ResponseEntity<GroundTruthResponse> getGroundTruth(
+            @RequestParam String sessionId,
+            @RequestParam long fromEpoch,
+            @RequestParam long toEpoch
+    ) {
+        Simulation simulation = simulationSessionService.getSimulation(sessionId);
+        if (simulation == null) {
+            return ResponseEntity.notFound().build();
+        }
+        // Reject malformed windows (reversed or implausibly large) with 400
+        // rather than letting an out-of-range step count overflow downstream.
+        // The client always requests <= 1-year windows; this is the safety net.
+        if (toEpoch <= fromEpoch || (toEpoch - fromEpoch) > MAX_GROUND_TRUTH_WINDOW_MS) {
+            return ResponseEntity.badRequest().build();
+        }
+        AbsoluteDate from = new AbsoluteDate(new Date(fromEpoch), TimeScalesFactory.getUTC());
+        AbsoluteDate to = new AbsoluteDate(new Date(toEpoch), TimeScalesFactory.getUTC());
+        GroundTruthResponse response = groundTruthProvider.sampleTracks(
+                simulation.getCelestialBodies(), simulation.getFrame(), from, to);
+        return ResponseEntity.ok(response);
     }
 
 }
