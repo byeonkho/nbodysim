@@ -12,23 +12,51 @@ export interface GroundTruthAnchorLike {
   velocity: number[]; // [vx, vy, vz] m/s, Sun-relative
 }
 
-// Fraction of the fetched window at which we start fetching the next window.
-const EXTEND_AT_FRACTION = 0.75;
+export interface TrueTrackRequest {
+  fromMs: number;
+  toMs: number;
+  stepSeconds: number;
+}
 
 /**
- * True once playback's latest buffered timestamp has passed EXTEND_AT_FRACTION
- * of the currently-fetched ground-truth window, so the next window should be
- * fetched before the true track runs out of anchors. False when no window is
- * fetched yet.
+ * Computes the ground-truth fetch window + cadence for the active body, scoped
+ * to the VISIBLE read window: the trail keyframes behind the playback head plus
+ * a lookahead ahead of it. Sizing the window to what's on screen (rather than
+ * the whole, potentially decades-deep, buffer) keeps the anchor count bounded
+ * AND keeps the cadence fine enough that the marker/trail interpolate smoothly,
+ * at any simulation time-step.
+ *
+ * The cadence is the larger of (a) the average keyframe spacing — no point
+ * sampling truth finer than the keyframes we interpolate onto — and (b) the
+ * span divided by `targetAnchors`, so a wide window stays under the anchor
+ * budget. Returns null when the buffer is too small to fetch for.
+ *
+ * Window bounds are read straight from the predicted buffer's timestamps, so
+ * they share the wire's millis-UTC scale (anchors will align to keyframes).
  */
-export function shouldExtendWindow(
-  latestBufferedMillis: number,
-  fetchedFromMs: number | null,
-  fetchedToMs: number | null,
-): boolean {
-  if (fetchedFromMs === null || fetchedToMs === null) return false;
-  const threshold = fetchedFromMs + (fetchedToMs - fetchedFromMs) * EXTEND_AT_FRACTION;
-  return latestBufferedMillis >= threshold;
+export function computeTrueTrackRequest(
+  buffer: ChunkBuffer,
+  currentIdx: number,
+  trailLength: number,
+  lookaheadKeyframes: number,
+  targetAnchors: number,
+): TrueTrackRequest | null {
+  const n = buffer.totalTimesteps;
+  if (n < 2) return null;
+  const idxFloor = Math.max(0, Math.min(n - 1, Math.floor(currentIdx)));
+  const lo = Math.max(0, idxFloor - trailLength);
+  const hi = Math.min(n - 1, idxFloor + lookaheadKeyframes);
+  if (hi <= lo) return null;
+
+  const fromMs = Number(buffer.timestamps[lo]);
+  const toMs = Number(buffer.timestamps[hi]);
+  const spanMs = toMs - fromMs;
+  if (spanMs <= 0) return null;
+
+  const keyframeSpanMs = spanMs / (hi - lo); // average keyframe spacing
+  const targetStepMs = spanMs / targetAnchors;
+  const stepMs = Math.max(keyframeSpanMs, targetStepMs);
+  return { fromMs, toMs, stepSeconds: stepMs / 1000 };
 }
 
 /**

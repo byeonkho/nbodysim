@@ -1,45 +1,57 @@
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import { REST_URL } from "@/app/utils/backendUrls";
-import { mergeAnchors } from "@/app/store/slices/GroundTruthSlice";
+import { setBodyAnchors } from "@/app/store/slices/GroundTruthSlice";
 import type { components } from "@/app/generated/api";
 import type { AppDispatch, RootState } from "@/app/store/Store";
 
 type GroundTruthResponse = components["schemas"]["GroundTruthResponse"];
 
-// One year per fetched window. Bounded memory; extended lazily as playback
-// approaches the edge (see groundTruthMiddleware / shouldExtendWindow).
-export const GROUND_TRUTH_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
-
 interface FetchArgs {
   sessionID: string;
+  body: string; // single focused body (active-only fetching)
   fromMs: number;
   toMs: number;
+  stepSeconds: number; // cadence sized to the visible window by the caller
 }
 
+// Fetches the active body's true track for a visible window and REPLACES that
+// body's anchors. Active-body-only keeps the recurring fetch small; replace
+// (not merge) means a stale or overlapping response can't corrupt the anchor
+// ordering. A failure is a no-op on the core sim (side channel).
 export const fetchGroundTruth = createAsyncThunk<
   void,
   FetchArgs,
   { state: RootState; dispatch: AppDispatch }
->("groundTruth/fetch", async ({ sessionID, fromMs, toMs }, { dispatch }) => {
-  const url = `${REST_URL}/ground-truth?sessionId=${encodeURIComponent(sessionID)}`
-    + `&fromEpoch=${fromMs}&toEpoch=${toMs}`;
-  const response = await fetch(url, { method: "GET" });
-  if (!response.ok) {
-    // Side channel: a failure leaves the core sim untouched. Log, don't toast.
-    console.warn(`ground-truth fetch failed: HTTP ${response.status}`);
+>("groundTruth/fetch", async ({ sessionID, body, fromMs, toMs, stepSeconds }, { dispatch }) => {
+  const url =
+    `${REST_URL}/ground-truth?sessionId=${encodeURIComponent(sessionID)}` +
+    `&body=${encodeURIComponent(body)}` +
+    `&fromEpoch=${fromMs}&toEpoch=${toMs}&stepSeconds=${stepSeconds}`;
+
+  let data: GroundTruthResponse;
+  try {
+    const response = await fetch(url, { method: "GET" });
+    if (!response.ok) {
+      console.warn(`ground-truth fetch failed: HTTP ${response.status}`);
+      return;
+    }
+    data = await response.json();
+  } catch (err) {
+    // Network-level failure (offline, reset). The simulation carries on.
+    console.warn("ground-truth fetch failed:", err);
     return;
   }
-  const data: GroundTruthResponse = await response.json();
-  dispatch(mergeAnchors({
-    tracks: (data.tracks ?? []).map((t) => ({
-      name: t.name ?? "",
-      anchors: (t.anchors ?? []).map((a) => ({
-        epochMillis: a.epochMillis ?? 0,
-        position: a.position ?? [0, 0, 0],
-        velocity: a.velocity ?? [0, 0, 0],
-      })),
-    })),
-    fromMs,
-    toMs,
+
+  const track = (data.tracks ?? []).find(
+    (t) => (t.name ?? "").toUpperCase() === body.toUpperCase(),
+  );
+  // Empty anchors when the body is unsupported (moon / minor body): we still
+  // record the covered window so the middleware doesn't refetch on every chunk.
+  const anchors = (track?.anchors ?? []).map((a) => ({
+    epochMillis: a.epochMillis ?? 0,
+    position: a.position ?? [0, 0, 0],
+    velocity: a.velocity ?? [0, 0, 0],
   }));
+
+  dispatch(setBodyAnchors({ body, anchors, fromMs, toMs }));
 });
