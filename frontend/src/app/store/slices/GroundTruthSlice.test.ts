@@ -46,6 +46,27 @@ describe("GroundTruthSlice", () => {
     expect(s.trueTrackBody).toBe("MARS");
   });
 
+  it("is idempotent against an overlapping re-fetched window (drops all anchors <= last stored epoch)", () => {
+    const first = reducer(initial, mergeAnchors({
+      tracks: [{ name: "EARTH", anchors: [
+        { epochMillis: 0, position: [0, 0, 0], velocity: [0, 0, 0] },
+        { epochMillis: 1000, position: [1, 0, 0], velocity: [0, 0, 0] },
+      ] }],
+      fromMs: 0, toMs: 1000,
+    }));
+    // A redundant fetch whose window overlaps everything already stored, plus one new anchor.
+    const second = reducer(first, mergeAnchors({
+      tracks: [{ name: "EARTH", anchors: [
+        { epochMillis: 0, position: [0, 0, 0], velocity: [0, 0, 0] },
+        { epochMillis: 1000, position: [1, 0, 0], velocity: [0, 0, 0] },
+        { epochMillis: 2000, position: [2, 0, 0], velocity: [0, 0, 0] },
+      ] }],
+      fromMs: 0, toMs: 2000,
+    }));
+    // No duplicates, strictly ascending.
+    expect(second.anchorsByBody["EARTH"].map((a) => a.epochMillis)).toEqual([0, 1000, 2000]);
+  });
+
   it("reset clears anchors, window, and Tier-2 but preserves the overlay flag", () => {
     let s = reducer(initial, setOverlayEnabled(true));
     s = reducer(s, mergeAnchors({

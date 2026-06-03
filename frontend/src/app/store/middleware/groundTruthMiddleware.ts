@@ -50,6 +50,8 @@ export const groundTruthMiddleware: Middleware =
 
     // New simulation submitted: reset, then eager-fetch the first window.
     if (setLastSimRequest.match(action)) {
+      // setLastSimRequest fires after initializeCelestialBodies() has resolved,
+      // so simulationMetaData.sessionID is already populated in state here.
       const state = typedStore.getState();
       const sessionID =
         state.simulation.simulationParameters?.simulationMetaData?.sessionID;

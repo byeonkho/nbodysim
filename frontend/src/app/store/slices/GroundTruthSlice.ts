@@ -56,9 +56,12 @@ export const groundTruthSlice = createSlice({
           continue;
         }
         const lastEpoch = existing[existing.length - 1].epochMillis;
-        const incoming = track.anchors[0]?.epochMillis === lastEpoch
-          ? track.anchors.slice(1)
-          : track.anchors;
+        // Drop every incoming anchor at or before the last stored epoch. The
+        // normal case drops just the shared boundary anchor; this also makes the
+        // merge idempotent if an overlapping window is fetched (e.g. two
+        // extension fetches race), preventing duplicate, out-of-order anchors
+        // that would break buildTrueTrack's monotonic cursor.
+        const incoming = track.anchors.filter((a) => a.epochMillis > lastEpoch);
         state.anchorsByBody[key] = existing.concat(incoming);
       }
       state.fetchedFromMs = state.fetchedFromMs ?? action.payload.fromMs;
