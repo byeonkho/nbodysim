@@ -134,6 +134,28 @@ class PositionEncodingExperiment {
                 finalRow("LOSSLESS: shuffle+delta, -ts, z19", lossless, 19, 0.0, baseZ3);
                 byte[] lossy = encodeLossyFinal(arr);          // f32 temporal-delta, no timestamps
                 finalRow("LOSSY: f32 delta, -ts, z19", lossy, 19, errF32TemporalDelta(arr), baseZ3);
+
+                // --- f32-plane levers: byte-shuffle + velocity-delta, the two
+                // untested directions on TODAY's lossy wire. Measured at z3 AND
+                // z19 against the EXACT production layout (encodeLossyFinal @ z3)
+                // as the honest denominator — not the stale interleaved baseline,
+                // which the v2 redesign already replaced.
+                byte[] prodExact = encodeLossyFinal(arr);
+                long prodZ3 = Zstd.compress(prodExact, 3).length;
+                double posErrM = errF32TemporalDelta(arr);
+                System.out.println();
+                System.out.printf("  %-40s %9s %9s %9s %8s %9s %12s%n",
+                    "f32-plane lever (vs PROD z3)", "raw KB", "z3 KB", "z19 KB",
+                    "%prod3", "z19 ms", "vel err m/s");
+                System.out.println("  " + "-".repeat(100));
+                System.out.printf("  (position f32-delta error constant at %.1f m across all rows; "
+                    + "vel err column is velocity m/s)%n", posErrM);
+                leverRow("PROD today (f32 delta, vel abs)", prodExact, prodZ3, 0.0);
+                leverRow("+ shuffle pos planes", encodePosShuffle(arr), prodZ3, 0.0);
+                leverRow("+ shuffle pos + vel planes", encodePosShuffleVelShuffle(arr), prodZ3, 0.0);
+                leverRow("+ vel temporal-delta", encodeVelDelta(arr), prodZ3, velDeltaErr(arr));
+                leverRow("+ shuffle pos + vel-delta shuffle",
+                    encodePosShuffleVelDeltaShuffle(arr), prodZ3, velDeltaErr(arr));
             }
         }
 
@@ -442,6 +464,151 @@ class PositionEncodingExperiment {
         for (int i = 1; i < t; i++) {
             for (int bi = 0; bi < b; bi++) {
                 float d = (float) (vals[i * b + bi] - vals[(i - 1) * b + bi]);
+                recon[bi] += d;
+                maxErr = Math.max(maxErr, Math.abs(recon[bi] - vals[i * b + bi]));
+            }
+        }
+        return maxErr;
+    }
+
+    // ---- f32-plane levers (shuffle / velocity-delta) ----
+
+    // f32-lever row: compress at z3 and z19 (z19 timed after 1 warmup), report
+    // raw / z3 / z19 / %prod(z3) / z19 comp ms / velocity reconstruction error.
+    // velErr == 0 means velocity bytes are unchanged from today (exact).
+    private void leverRow(String name, byte[] raw, long prodZ3, double velErr) {
+        long z3 = Zstd.compress(raw, 3).length;
+        Zstd.compress(raw, 19);                    // warmup (JIT + native)
+        long t0 = System.nanoTime();
+        long z19 = Zstd.compress(raw, 19).length;
+        double ms = (System.nanoTime() - t0) / 1_000_000.0;
+        String e = velErr == 0.0 ? "exact" : String.format("%.2e", velErr);
+        System.out.printf("  %-40s %9.1f %9.1f %9.1f %7.0f%% %9.1f %12s%n",
+            name, raw.length / 1024.0, z3 / 1024.0, z19 / 1024.0,
+            100.0 * z3 / prodZ3, ms, e);
+    }
+
+    // Byte-plane shuffle for float32: 4 planes (all byte0s, then byte1s, ...),
+    // the f32 analogue of shuffleDoubles. Groups same-significance bytes into
+    // long runs so zstd finds the structure the interleaved layout hides.
+    private byte[] shuffleFloats(float[] vals) {
+        int n = vals.length;
+        byte[] out = new byte[n * 4];
+        for (int i = 0; i < n; i++) {
+            int bits = Float.floatToRawIntBits(vals[i]);
+            for (int p = 0; p < 4; p++) {
+                out[p * n + i] = (byte) (bits >>> (8 * p));
+            }
+        }
+        return out;
+    }
+
+    // Per-step deltas of a flat [t*B + b] position array, as float32, planar.
+    // Row 0 is zero (the per-body f64 reference carries timestep 0); identical
+    // bytes to putF32StepDeltas, but returned as a float[] so it can be shuffled.
+    private float[] posStepDeltasF32(double[] vals, int t, int b) {
+        float[] out = new float[t * b];                 // row 0 already 0.0f
+        for (int i = 1; i < t; i++) {
+            for (int bi = 0; bi < b; bi++) {
+                out[i * b + bi] = (float) (vals[i * b + bi] - vals[(i - 1) * b + bi]);
+            }
+        }
+        return out;
+    }
+
+    // Temporal delta on a float[] in (t, b) order: row 0 absolute, rest step
+    // deltas. Velocity is smooth, so consecutive deltas are tiny.
+    private float[] temporalDeltaFloat(float[] vals, int t, int b) {
+        float[] out = new float[vals.length];
+        for (int bi = 0; bi < b; bi++) out[bi] = vals[bi];
+        for (int i = 1; i < t; i++) {
+            for (int bi = 0; bi < b; bi++) {
+                int idx = i * b + bi;
+                out[idx] = vals[idx] - vals[idx - b];
+            }
+        }
+        return out;
+    }
+
+    // Shared prologue: production scalar layout (no ts) + per-body f64 reference.
+    private ByteBuffer leverBuf(ChunkArrays a, int size) {
+        ByteBuffer buf = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN);
+        putScalarsNoTs(buf, a);
+        for (int bi = 0; bi < a.b; bi++) {
+            buf.putDouble(a.px[bi]).putDouble(a.py[bi]).putDouble(a.pz[bi]);
+        }
+        return buf;
+    }
+
+    // L1: pos-delta byte-shuffled; velocity absolute f32 (unchanged from today).
+    private byte[] encodePosShuffle(ChunkArrays a) {
+        byte[] dx = shuffleFloats(posStepDeltasF32(a.px, a.t, a.b));
+        byte[] dy = shuffleFloats(posStepDeltasF32(a.py, a.t, a.b));
+        byte[] dz = shuffleFloats(posStepDeltasF32(a.pz, a.t, a.b));
+        ByteBuffer buf = leverBuf(a, scalarBytesNoTs(a) + a.b * 3 * 8
+            + dx.length + dy.length + dz.length + velBytes(a));
+        buf.put(dx).put(dy).put(dz);
+        putVelSoA(buf, a);
+        return buf.array();
+    }
+
+    // L2: pos-delta byte-shuffled + velocity (absolute) byte-shuffled.
+    private byte[] encodePosShuffleVelShuffle(ChunkArrays a) {
+        byte[] dx = shuffleFloats(posStepDeltasF32(a.px, a.t, a.b));
+        byte[] dy = shuffleFloats(posStepDeltasF32(a.py, a.t, a.b));
+        byte[] dz = shuffleFloats(posStepDeltasF32(a.pz, a.t, a.b));
+        byte[] svx = shuffleFloats(a.vx), svy = shuffleFloats(a.vy), svz = shuffleFloats(a.vz);
+        return leverBuf(a, scalarBytesNoTs(a) + a.b * 3 * 8
+            + dx.length + dy.length + dz.length + svx.length + svy.length + svz.length)
+            .put(dx).put(dy).put(dz).put(svx).put(svy).put(svz)
+            .array();
+    }
+
+    // L3: pos-delta (unshuffled) + velocity temporal-delta (unshuffled).
+    private byte[] encodeVelDelta(ChunkArrays a) {
+        float[] dvx = temporalDeltaFloat(a.vx, a.t, a.b);
+        float[] dvy = temporalDeltaFloat(a.vy, a.t, a.b);
+        float[] dvz = temporalDeltaFloat(a.vz, a.t, a.b);
+        ByteBuffer buf = leverBuf(a, scalarBytesNoTs(a) + a.b * 3 * 8
+            + a.t * a.b * 3 * 4 + velBytes(a));
+        putF32StepDeltas(buf, a.px, a.t, a.b);
+        putF32StepDeltas(buf, a.py, a.t, a.b);
+        putF32StepDeltas(buf, a.pz, a.t, a.b);
+        for (float v : dvx) buf.putFloat(v);
+        for (float v : dvy) buf.putFloat(v);
+        for (float v : dvz) buf.putFloat(v);
+        return buf.array();
+    }
+
+    // L4: pos-delta byte-shuffled + velocity temporal-delta byte-shuffled.
+    private byte[] encodePosShuffleVelDeltaShuffle(ChunkArrays a) {
+        byte[] dx = shuffleFloats(posStepDeltasF32(a.px, a.t, a.b));
+        byte[] dy = shuffleFloats(posStepDeltasF32(a.py, a.t, a.b));
+        byte[] dz = shuffleFloats(posStepDeltasF32(a.pz, a.t, a.b));
+        byte[] svx = shuffleFloats(temporalDeltaFloat(a.vx, a.t, a.b));
+        byte[] svy = shuffleFloats(temporalDeltaFloat(a.vy, a.t, a.b));
+        byte[] svz = shuffleFloats(temporalDeltaFloat(a.vz, a.t, a.b));
+        return leverBuf(a, scalarBytesNoTs(a) + a.b * 3 * 8
+            + dx.length + dy.length + dz.length + svx.length + svy.length + svz.length)
+            .put(dx).put(dy).put(dz).put(svx).put(svy).put(svz)
+            .array();
+    }
+
+    // Worst-case velocity reconstruction error (m/s) when velocity is shipped as
+    // float32 temporal deltas and prefix-summed in float64 on the client — the
+    // same accumulation the position path uses, measured against today's f32 wire.
+    private double velDeltaErr(ChunkArrays a) {
+        return Math.max(Math.max(
+            velStepErr(a.vx, a.t, a.b), velStepErr(a.vy, a.t, a.b)), velStepErr(a.vz, a.t, a.b));
+    }
+
+    private double velStepErr(float[] vals, int t, int b) {
+        double maxErr = 0;
+        double[] recon = new double[b];
+        for (int bi = 0; bi < b; bi++) recon[bi] = vals[bi];
+        for (int i = 1; i < t; i++) {
+            for (int bi = 0; bi < b; bi++) {
+                float d = vals[i * b + bi] - vals[(i - 1) * b + bi];
                 recon[bi] += d;
                 maxErr = Math.max(maxErr, Math.abs(recon[bi] - vals[i * b + bi]));
             }

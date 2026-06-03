@@ -4,14 +4,26 @@ import { parseBinaryChunk, parseBinaryChunkToTypedArrays } from "./parseBinaryCh
 // Helper: build a chunk-format byte array matching the spec in
 // parseBinaryChunk.ts (and BinaryResponseSerializer.java). This duplicates the
 // backend serializer in JS so the round-trip test below proves our parser
-// agrees with the documented format (version 2: delta-encoded, structure-of-
-// arrays). Backend has its own test pinning the same layout from the Java
-// side; if either side drifts, one test fails first.
+// agrees with the documented format (version 3: delta-encoded, structure-of-
+// arrays, byte-plane shuffled position and velocity planes, velocity temporal-
+// delta encoded). Backend has its own test pinning the same layout from the
+// Java side; if either side drifts, one test fails first.
 //
 // Fixtures use uniformly-spaced timesteps, so (start, gap) reconstructs each
 // timestamp exactly; and small-integer positions/deltas round-trip exactly
 // through float32.
-const WIRE_FORMAT_VERSION = 2;
+const WIRE_FORMAT_VERSION = 3;
+
+// Byte-plane shuffle of a float32 plane: byte p of value i → out[p*n + i].
+function writeShuffledFloatPlane(view: DataView, offset: number, values: number[]): number {
+  const n = values.length;
+  const scratch = new DataView(new ArrayBuffer(4));
+  for (let i = 0; i < n; i++) {
+    scratch.setFloat32(0, values[i], true);
+    for (let p = 0; p < 4; p++) view.setUint8(offset + p * n + i, scratch.getUint8(p));
+  }
+  return offset + n * 4;
+}
 
 function buildChunkBytes(
   bodies: Array<{ name: string; mu: number }>,
@@ -93,29 +105,34 @@ function buildChunkBytes(
     view.setFloat64(offset, timesteps[0].bodies[b].pos[2], true); offset += 8;
   }
 
-  // Per-step position deltas, planar by axis (row 0 = 0).
+  // Per-step position deltas, planar by axis (row 0 = 0), byte-shuffled.
   for (let axis = 0; axis < 3; axis++) {
+    const plane: number[] = [];
     for (let t = 0; t < T; t++) {
       for (let b = 0; b < B; b++) {
-        const d =
+        plane.push(
           t === 0
             ? 0
-            : timesteps[t].bodies[b].pos[axis] -
-              timesteps[t - 1].bodies[b].pos[axis];
-        view.setFloat32(offset, d, true);
-        offset += 4;
+            : timesteps[t].bodies[b].pos[axis] - timesteps[t - 1].bodies[b].pos[axis],
+        );
       }
     }
+    offset = writeShuffledFloatPlane(view, offset, plane);
   }
 
-  // Velocity, planar by axis, absolute float32.
+  // Velocity, planar by axis, temporal-delta (row 0 absolute), byte-shuffled.
   for (let axis = 0; axis < 3; axis++) {
+    const plane: number[] = [];
     for (let t = 0; t < T; t++) {
       for (let b = 0; b < B; b++) {
-        view.setFloat32(offset, timesteps[t].bodies[b].vel[axis], true);
-        offset += 4;
+        plane.push(
+          t === 0
+            ? timesteps[0].bodies[b].vel[axis]
+            : timesteps[t].bodies[b].vel[axis] - timesteps[t - 1].bodies[b].vel[axis],
+        );
       }
     }
+    offset = writeShuffledFloatPlane(view, offset, plane);
   }
 
   return out;
