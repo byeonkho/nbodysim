@@ -18,6 +18,14 @@ import {
 } from "@/app/store/middleware/fetchGroundTruth";
 import { buildTrueTrack, shouldExtendWindow } from "@/app/store/trueTrack";
 
+// Guards against dispatching a second window-extension fetch while one is
+// already in flight. `fetchedToMs` only advances once the extension's
+// mergeAnchors lands, so without this guard every chunk arriving during the
+// network round-trip would fire another identical fetch. Cleared when the
+// thunk settles (success or failure), so a failed extension auto-retries on
+// the next chunk. Module-level is safe: there is a single store.
+let extensionFetchInFlight = false;
+
 // Rebuilds the Tier-2 buffer for the active body from Tier-1 anchors + the
 // current predicted buffer, when the overlay is on and the active body is
 // supported (has anchors). Otherwise clears it.
@@ -57,6 +65,7 @@ export const groundTruthMiddleware: Middleware =
         state.simulation.simulationParameters?.simulationMetaData?.sessionID;
       const dateIso = action.payload?.date;
       if (sessionID && dateIso) {
+        extensionFetchInFlight = false;
         typedStore.dispatch(resetGroundTruth());
         const fromMs = Date.parse(dateIso);
         typedStore.dispatch(
@@ -78,14 +87,22 @@ export const groundTruthMiddleware: Middleware =
         state.simulation.simulationParameters?.simulationMetaData?.sessionID;
       if (buffer && buffer.totalTimesteps > 0 && sessionID) {
         const latest = Number(buffer.timestamps[buffer.totalTimesteps - 1]);
-        if (shouldExtendWindow(latest, fetchedFromMs, fetchedToMs) && fetchedToMs !== null) {
-          typedStore.dispatch(
+        if (
+          !extensionFetchInFlight &&
+          fetchedToMs !== null &&
+          shouldExtendWindow(latest, fetchedFromMs, fetchedToMs)
+        ) {
+          extensionFetchInFlight = true;
+          const dispatched = typedStore.dispatch(
             fetchGroundTruth({
               sessionID,
               fromMs: fetchedToMs,
               toMs: fetchedToMs + GROUND_TRUTH_WINDOW_MS,
             }) as never,
-          );
+          ) as unknown as Promise<unknown>;
+          dispatched.finally(() => {
+            extensionFetchInFlight = false;
+          });
         }
       }
       return result;
