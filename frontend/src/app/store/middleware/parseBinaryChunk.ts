@@ -2,8 +2,8 @@
 // backend BinaryResponseSerializer.java. If you change one, change the other —
 // there are tests on each side that pin the format.
 //
-// Wire format version 2 (after zstd, all little-endian):
-//   uint8    formatVersion (= 2)
+// Wire format version 3 (after zstd, all little-endian):
+//   uint8    formatVersion (= 3)
 //   uint16   bodyCount (B)
 //   per body: uint16 nameLength, UTF-8 name bytes, float64 mu
 //   float64  dp853AvgStepSeconds       (NaN if not DP853)
@@ -12,10 +12,18 @@
 //   — present only when T > 0 —
 //   int64    startMillis               (timestamp of timestep 0, millis UTC)
 //   float64  gapMillis                 (uniform spacing; ts[i] = round(start + i*gap))
-//   float32  deltaERelative[T]         (planar)
-//   per body: float64 refX, refY, refZ (absolute position at timestep 0)
-//   float32  dPx[T*B], dPy[T*B], dPz[T*B]   (per-step position deltas, planar; row 0 = 0)
-//   float32  vx[T*B], vy[T*B], vz[T*B]      (absolute velocity, planar)
+//   float32  deltaERelative[T]         (planar, UNSHUFFLED)
+//   per body: float64 refX, refY, refZ (absolute position at timestep 0, UNSHUFFLED)
+//   SHUFFLED float32 dPx[T*B]          (per-step position deltas, planar; row 0 = 0)
+//   SHUFFLED float32 dPy[T*B]
+//   SHUFFLED float32 dPz[T*B]
+//   SHUFFLED float32 vx[T*B]           (velocity temporal-delta: row 0 absolute, rows 1..T-1 = step deltas)
+//   SHUFFLED float32 vy[T*B]
+//   SHUFFLED float32 vz[T*B]
+//
+// "SHUFFLED float32 plane of N values": byte p (0..3) of value i is at offset
+// p*N + i within the plane region. To un-shuffle: gather the 4 bytes at
+// p*N + i back into value i's natural little-endian order, reinterpret as float32.
 //
 // Positions are delta-encoded: a per-body float64 reference (timestep 0) plus
 // per-step float32 deltas. We reconstruct absolute positions by prefix sum in
@@ -24,11 +32,16 @@
 // jitter that ruled out absolute float32. Each chunk has its own reference, so
 // the error never crosses chunk seams.
 //
+// Velocities are temporal-delta encoded: row 0 holds the absolute value, rows
+// 1..T-1 hold per-step deltas. Reconstruction is a prefix sum seeded from 0
+// (0 + absolute = absolute for row 0; later rows add deltas). Worst-case
+// accumulated error is ~0.02 m/s — invisible in the Hermite tangent at the
+// zoom levels this project uses.
+//
 // Timestamps are reconstructed from (start, gap) by rounding — accurate to
 // ~1 ms, invisible in the date readout and the Hermite interval.
 //
-// Velocities stay float32 (Hermite tangent client-side; not the bandwidth
-// target). Per-snapshot ΔE/E₀ is float32: a UI readout shown to 1-2 sig figs.
+// Per-snapshot ΔE/E₀ is float32: a UI readout shown to 1-2 sig figs.
 //
 // `mu` is the standard gravitational parameter (G·M, m³/s²) for each body —
 // constant per session, sent once with names. Used client-side to derive
@@ -40,7 +53,7 @@
 // maps NaN → null for cleaner downstream handling than threading NaN checks
 // through every consumer.
 
-export const WIRE_FORMAT_VERSION = 2;
+export const WIRE_FORMAT_VERSION = 3;
 
 export interface CelestialBody {
   name: string;
@@ -145,6 +158,24 @@ function parseHeader(view: DataView, bytes: Uint8Array): ParsedHeader {
   };
 }
 
+// Un-shuffle one byte-plane-shuffled float32 plane of `n` values starting at
+// `offset` (relative to the chunk start, i.e. an index into `bytes`). The four
+// byte-planes are contiguous, so we view each as a subarray and pack them back
+// into native little-endian float32 words. Host is little-endian (every browser
+// target), matching the wire; the same assumption the prior code made via
+// `new Float32Array(buffer)`.
+function unshufflePlane(bytes: Uint8Array, offset: number, n: number): Float32Array {
+  const words = new Uint32Array(n);
+  const p0 = bytes.subarray(offset, offset + n);
+  const p1 = bytes.subarray(offset + n, offset + 2 * n);
+  const p2 = bytes.subarray(offset + 2 * n, offset + 3 * n);
+  const p3 = bytes.subarray(offset + 3 * n, offset + 4 * n);
+  for (let i = 0; i < n; i++) {
+    words[i] = (p0[i] | (p1[i] << 8) | (p2[i] << 16) | (p3[i] << 24)) >>> 0;
+  }
+  return new Float32Array(words.buffer);
+}
+
 export function parseBinaryChunkToTypedArrays(
   bytes: Uint8Array,
 ): ParsedChunkTypedArrays {
@@ -187,19 +218,40 @@ export function parseBinaryChunkToTypedArrays(
     accZ[b] = view.getFloat64(offset, true); offset += 8;
   }
 
-  // Position deltas, planar by axis (row 0 = 0). Reconstruct absolute
-  // positions by prefix sum in float64 and scatter into the interleaved layout.
-  reconstructAxis(view, offset, accX, timestepCount, bodyCount, positions, 0);
-  offset += timestepCount * bodyCount * 4;
-  reconstructAxis(view, offset, accY, timestepCount, bodyCount, positions, 1);
-  offset += timestepCount * bodyCount * 4;
-  reconstructAxis(view, offset, accZ, timestepCount, bodyCount, positions, 2);
-  offset += timestepCount * bodyCount * 4;
+  const planeLen = timestepCount * bodyCount;
 
-  // Velocity, planar by axis, absolute float32 — widens into the f64 slot.
-  offset = readVelocityAxis(view, offset, timestepCount, bodyCount, positions, 3);
-  offset = readVelocityAxis(view, offset, timestepCount, bodyCount, positions, 4);
-  offset = readVelocityAxis(view, offset, timestepCount, bodyCount, positions, 5);
+  // Positions: un-shuffle each axis plane, prefix-sum onto the f64 reference.
+  for (let comp = 0; comp < 3; comp++) {
+    const acc = comp === 0 ? accX : comp === 1 ? accY : accZ;
+    const plane = unshufflePlane(bytes, offset, planeLen);
+    offset += planeLen * 4;
+    const stride = bodyCount * 6;
+    for (let t = 0; t < timestepCount; t++) {
+      const tBase = t * stride;
+      const pBase = t * bodyCount;
+      for (let b = 0; b < bodyCount; b++) {
+        acc[b] += plane[pBase + b];               // row 0 delta is 0
+        positions[tBase + b * 6 + comp] = acc[b];
+      }
+    }
+  }
+
+  // Velocity: un-shuffle, prefix-sum from 0 (row 0 holds the absolute value).
+  const vacc = new Float64Array(bodyCount);
+  for (let comp = 3; comp < 6; comp++) {
+    vacc.fill(0);
+    const plane = unshufflePlane(bytes, offset, planeLen);
+    offset += planeLen * 4;
+    const stride = bodyCount * 6;
+    for (let t = 0; t < timestepCount; t++) {
+      const tBase = t * stride;
+      const pBase = t * bodyCount;
+      for (let b = 0; b < bodyCount; b++) {
+        vacc[b] += plane[pBase + b];               // row 0 = absolute
+        positions[tBase + b * 6 + comp] = vacc[b];
+      }
+    }
+  }
 
   // Timestamps from (start, gap) — round to nearest ms.
   for (let t = 0; t < timestepCount; t++) {
@@ -212,49 +264,6 @@ export function parseBinaryChunkToTypedArrays(
     dp853AvgStepSeconds: header.dp853AvgStepSeconds,
     dp853AcceptRate: header.dp853AcceptRate,
   };
-}
-
-// Prefix-sums one axis of per-step deltas onto the seeded accumulator and
-// writes each result into the interleaved positions array at component `comp`.
-function reconstructAxis(
-  view: DataView,
-  startOffset: number,
-  acc: Float64Array,
-  timestepCount: number,
-  bodyCount: number,
-  positions: Float64Array,
-  comp: number,
-): void {
-  let offset = startOffset;
-  const stride = bodyCount * 6;
-  for (let t = 0; t < timestepCount; t++) {
-    const tBase = t * stride;
-    for (let b = 0; b < bodyCount; b++) {
-      acc[b] += view.getFloat32(offset, true); // row 0 delta is 0
-      offset += 4;
-      positions[tBase + b * 6 + comp] = acc[b];
-    }
-  }
-}
-
-function readVelocityAxis(
-  view: DataView,
-  startOffset: number,
-  timestepCount: number,
-  bodyCount: number,
-  positions: Float64Array,
-  comp: number,
-): number {
-  let offset = startOffset;
-  const stride = bodyCount * 6;
-  for (let t = 0; t < timestepCount; t++) {
-    const tBase = t * stride;
-    for (let b = 0; b < bodyCount; b++) {
-      positions[tBase + b * 6 + comp] = view.getFloat32(offset, true);
-      offset += 4;
-    }
-  }
-  return offset;
 }
 
 // Object-keyed view of a chunk. Thin adapter over the typed-array parser so the
