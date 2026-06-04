@@ -62,6 +62,7 @@ function PortraitSphere({ body }: { body: BodyKey }) {
   const meshRef = useRef<THREE.Mesh>(null!);
   const lightRef = useRef<THREE.DirectionalLight>(null!);
   const store = useStore<RootState>();
+  const isSun = body === "SUN";
 
   const texture = useLoader(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -83,6 +84,7 @@ function PortraitSphere({ body }: { body: BodyKey }) {
 
   useFrame((_, delta) => {
     if (meshRef.current) meshRef.current.rotation.y += SPIN_RATE * delta;
+    if (isSun) return; // emissive — no phase, and self-difference is a zero vector
     const light = lightRef.current;
     if (!light) return;
 
@@ -143,7 +145,11 @@ function PortraitSphere({ body }: { body: BodyKey }) {
       <directionalLight ref={lightRef} intensity={DIR_LIGHT_INTENSITY} />
       <mesh ref={meshRef}>
         <sphereGeometry args={[SPHERE_RADIUS, 48, 48]} />
-        <meshStandardMaterial map={texture} />
+        {isSun ? (
+          <meshBasicMaterial map={texture} />
+        ) : (
+          <meshStandardMaterial map={texture} />
+        )}
       </mesh>
     </>
   );
