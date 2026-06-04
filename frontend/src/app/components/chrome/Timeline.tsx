@@ -35,6 +35,8 @@ import {
   toggleShowTrails,
 } from "@/app/store/slices/SimulationSlice";
 import { formatTPlus, isoToDateOrNull } from "@/app/utils/dateMath";
+import { setOverlayEnabled, selectOverlayEnabled } from "@/app/store/slices/GroundTruthSlice";
+import { DRIFT_CHIP_TOOLTIP } from "@/app/constants/driftTooltipCopy";
 
 // Bottom timeline: transport + rate + scrubber + view toggles. Replaces
 // TimeControls.tsx + MiscActionBar.tsx + ControlsContainer.tsx. Scrubber
@@ -286,6 +288,7 @@ function ViewToggles() {
   const axes = useSelector(selectShowAxes);
   const scale = useSelector(selectSimulationScale);
   const cameraPreset = useSelector(selectCameraPreset);
+  const drift = useSelector(selectOverlayEnabled);
 
   // Camera preset is a binary viewpoint toggle (top-down vs free orbit),
   // grouped here with the other view controls. Shown as a value chip
@@ -345,6 +348,12 @@ function ViewToggles() {
         value={cameraLabel}
         onClick={() => dispatch(toggleCameraPreset())}
         tooltip="Switches between a straight-down map view and a free view you can orbit around the scene."
+      />
+      <ToggleChip
+        label="Drift"
+        on={drift}
+        onClick={() => dispatch(setOverlayEnabled(!drift))}
+        tooltip={DRIFT_CHIP_TOOLTIP}
       />
     </div>
   );

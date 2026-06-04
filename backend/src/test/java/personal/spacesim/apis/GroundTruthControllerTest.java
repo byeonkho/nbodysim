@@ -105,8 +105,8 @@ class GroundTruthControllerTest {
                 List.of("Sun", "Earth", "Mars"), "ICRF", "EULER", start, "seconds", 1, 5000);
 
         long fromMs = start.toDate(TimeScalesFactory.getUTC()).getTime();
-        // ~900 days — well above the 800-day cap
-        long toMs = fromMs + 900L * 24 * 60 * 60 * 1000;
+        // ~4000 years — above the generous sanity cap (garbage input)
+        long toMs = fromMs + 4000L * 365 * 24 * 60 * 60 * 1000;
 
         mockMvc.perform(get("/api/simulation/ground-truth")
                         .param("sessionId", sessionId)

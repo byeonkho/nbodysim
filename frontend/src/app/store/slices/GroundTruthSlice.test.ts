@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import reducer, {
   setOverlayEnabled,
-  mergeAnchors,
+  setBodyAnchors,
   setTrueTrack,
   resetGroundTruth,
   type GroundTruthState,
@@ -16,27 +16,46 @@ describe("GroundTruthSlice", () => {
     expect(s.overlayEnabled).toBe(true);
   });
 
-  it("merges anchors and advances the window, deduping the boundary anchor", () => {
-    const first = reducer(initial, mergeAnchors({
-      tracks: [{ name: "EARTH", anchors: [
+  it("stores a body's anchors (keyed upper) and records the covered window", () => {
+    const s = reducer(initial, setBodyAnchors({
+      body: "earth",
+      anchors: [
         { epochMillis: 0, position: [0, 0, 0], velocity: [0, 0, 0] },
         { epochMillis: 1000, position: [1, 0, 0], velocity: [0, 0, 0] },
-      ] }],
+      ],
       fromMs: 0,
       toMs: 1000,
     }));
-    const second = reducer(first, mergeAnchors({
-      tracks: [{ name: "EARTH", anchors: [
-        // boundary anchor at 1000 duplicates the prior window's last anchor
+    expect(s.anchorsByBody["EARTH"].map((a) => a.epochMillis)).toEqual([0, 1000]);
+    expect(s.coveredBody).toBe("EARTH");
+    expect(s.coveredFromMs).toBe(0);
+    expect(s.coveredToMs).toBe(1000);
+  });
+
+  it("REPLACES a body's anchors on each fetch (no accumulation)", () => {
+    const first = reducer(initial, setBodyAnchors({
+      body: "EARTH",
+      anchors: [
+        { epochMillis: 0, position: [0, 0, 0], velocity: [0, 0, 0] },
         { epochMillis: 1000, position: [1, 0, 0], velocity: [0, 0, 0] },
         { epochMillis: 2000, position: [2, 0, 0], velocity: [0, 0, 0] },
-      ] }],
-      fromMs: 1000,
+      ],
+      fromMs: 0,
       toMs: 2000,
     }));
-    expect(second.anchorsByBody["EARTH"].map((a) => a.epochMillis)).toEqual([0, 1000, 2000]);
-    expect(second.fetchedFromMs).toBe(0);
-    expect(second.fetchedToMs).toBe(2000);
+    // A later fetch for a slid window replaces, not appends.
+    const second = reducer(first, setBodyAnchors({
+      body: "EARTH",
+      anchors: [
+        { epochMillis: 3000, position: [3, 0, 0], velocity: [0, 0, 0] },
+        { epochMillis: 4000, position: [4, 0, 0], velocity: [0, 0, 0] },
+      ],
+      fromMs: 3000,
+      toMs: 4000,
+    }));
+    expect(second.anchorsByBody["EARTH"].map((a) => a.epochMillis)).toEqual([3000, 4000]);
+    expect(second.coveredFromMs).toBe(3000);
+    expect(second.coveredToMs).toBe(4000);
   });
 
   it("stores the Tier-2 buffer with its body name", () => {
@@ -46,36 +65,18 @@ describe("GroundTruthSlice", () => {
     expect(s.trueTrackBody).toBe("MARS");
   });
 
-  it("is idempotent against an overlapping re-fetched window (drops all anchors <= last stored epoch)", () => {
-    const first = reducer(initial, mergeAnchors({
-      tracks: [{ name: "EARTH", anchors: [
-        { epochMillis: 0, position: [0, 0, 0], velocity: [0, 0, 0] },
-        { epochMillis: 1000, position: [1, 0, 0], velocity: [0, 0, 0] },
-      ] }],
-      fromMs: 0, toMs: 1000,
-    }));
-    // A redundant fetch whose window overlaps everything already stored, plus one new anchor.
-    const second = reducer(first, mergeAnchors({
-      tracks: [{ name: "EARTH", anchors: [
-        { epochMillis: 0, position: [0, 0, 0], velocity: [0, 0, 0] },
-        { epochMillis: 1000, position: [1, 0, 0], velocity: [0, 0, 0] },
-        { epochMillis: 2000, position: [2, 0, 0], velocity: [0, 0, 0] },
-      ] }],
-      fromMs: 0, toMs: 2000,
-    }));
-    // No duplicates, strictly ascending.
-    expect(second.anchorsByBody["EARTH"].map((a) => a.epochMillis)).toEqual([0, 1000, 2000]);
-  });
-
-  it("reset clears anchors, window, and Tier-2 but preserves the overlay flag", () => {
+  it("reset clears anchors, covered window, and Tier-2 but preserves the overlay flag", () => {
     let s = reducer(initial, setOverlayEnabled(true));
-    s = reducer(s, mergeAnchors({
-      tracks: [{ name: "EARTH", anchors: [{ epochMillis: 0, position: [0, 0, 0], velocity: [0, 0, 0] }] }],
-      fromMs: 0, toMs: 1000,
+    s = reducer(s, setBodyAnchors({
+      body: "EARTH",
+      anchors: [{ epochMillis: 0, position: [0, 0, 0], velocity: [0, 0, 0] }],
+      fromMs: 0,
+      toMs: 1000,
     }));
     s = reducer(s, resetGroundTruth());
     expect(s.anchorsByBody).toEqual({});
-    expect(s.fetchedFromMs).toBeNull();
+    expect(s.coveredBody).toBeNull();
+    expect(s.coveredFromMs).toBeNull();
     expect(s.trueTrack).toBeNull();
     expect(s.overlayEnabled).toBe(true); // user preference survives a resubmit
   });

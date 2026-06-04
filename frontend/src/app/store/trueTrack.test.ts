@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createChunkBuffer, readBodyPositionInto } from "@/app/store/chunkBuffer";
-import { buildTrueTrack, shouldExtendWindow, type GroundTruthAnchorLike } from "@/app/store/trueTrack";
+import { buildTrueTrack, computeTrueTrackRequest, type GroundTruthAnchorLike } from "@/app/store/trueTrack";
 import { Vector3 } from "three";
 
 // Build a predicted single-body buffer with explicit timestamps so we can
@@ -73,16 +73,42 @@ describe("buildTrueTrack", () => {
   });
 });
 
-describe("shouldExtendWindow", () => {
-  it("is true once the buffer's latest timestamp passes 75% of the window", () => {
-    // window [0, 1000]; 75% threshold at 750.
-    expect(shouldExtendWindow(760, 0, 1000)).toBe(true);
-    expect(shouldExtendWindow(740, 0, 1000)).toBe(false);
+describe("computeTrueTrackRequest", () => {
+  it("scopes the window to [idx - trail, idx + lookahead] and reads its timestamps", () => {
+    const buf = predictedWithTimestamps([0, 1000, 2000, 3000, 4000]);
+    // idx 2, trail 1, lookahead 1 → lo=1, hi=3 → [1000, 3000].
+    const req = computeTrueTrackRequest(buf, 2, 1, 1, /*target*/ 100);
+    expect(req).not.toBeNull();
+    expect(req!.fromMs).toBe(1000);
+    expect(req!.toMs).toBe(3000);
   });
-  it("is false when the window is unset", () => {
-    expect(shouldExtendWindow(999, null, null)).toBe(false);
+
+  it("clamps the window to the buffer bounds", () => {
+    const buf = predictedWithTimestamps([0, 1000, 2000, 3000, 4000]);
+    // Big trail + lookahead → clamps to [0, 4000].
+    const req = computeTrueTrackRequest(buf, 0, 999, 999, 100);
+    expect(req!.fromMs).toBe(0);
+    expect(req!.toMs).toBe(4000);
   });
-  it("is true exactly at the 75% threshold (inclusive)", () => {
-    expect(shouldExtendWindow(750, 0, 1000)).toBe(true);
+
+  it("uses the average keyframe spacing as the cadence floor (no oversampling)", () => {
+    const buf = predictedWithTimestamps([0, 1000, 2000]);
+    // span 2000ms over 2 intervals → keyframe spacing 1000ms = 1s. A generous
+    // target would ask for finer, but cadence floors at the keyframe spacing.
+    const req = computeTrueTrackRequest(buf, 1, 1, 1, /*target*/ 1000);
+    expect(req!.stepSeconds).toBeCloseTo(1, 9); // 1000ms / 1000
+  });
+
+  it("uses span/target as the cadence when that's coarser than keyframe spacing", () => {
+    // 11 keyframes 1000ms apart (span 10000ms). target 5 → span/target = 2000ms,
+    // coarser than the 1000ms keyframe spacing, so cadence = 2000ms = 2s.
+    const buf = predictedWithTimestamps([0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]);
+    const req = computeTrueTrackRequest(buf, 0, 0, 10, /*target*/ 5);
+    expect(req!.stepSeconds).toBeCloseTo(2, 9);
+  });
+
+  it("returns null for a buffer with fewer than 2 timesteps", () => {
+    const buf = predictedWithTimestamps([0]);
+    expect(computeTrueTrackRequest(buf, 0, 100, 100, 100)).toBeNull();
   });
 });

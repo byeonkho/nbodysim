@@ -3,19 +3,19 @@ import type { RootState } from "@/app/store/Store";
 import type { ChunkBuffer } from "@/app/store/chunkBuffer";
 import type { GroundTruthAnchorLike } from "@/app/store/trueTrack";
 
-export interface GroundTruthTrack {
-  name: string;
-  anchors: GroundTruthAnchorLike[];
-}
-
 export interface GroundTruthState {
   // User toggle for the drift overlay. Persists across resubmits.
   overlayEnabled: boolean;
   // Tier 1: sparse true-position anchors per body, keyed by UPPER-CASE name.
+  // Only the active body is populated (the overlay renders one body at a time);
+  // a prior body's anchors may linger harmlessly until overwritten or reset.
   anchorsByBody: Record<string, GroundTruthAnchorLike[]>;
-  // Bounds of the fetched window (millis UTC), or null before the first fetch.
-  fetchedFromMs: number | null;
-  fetchedToMs: number | null;
+  // The body + window (millis UTC) most recently fetched. The middleware skips
+  // a refetch while the visible window is already within [coveredFrom, coveredTo]
+  // for the active body. null before the first fetch / after reset.
+  coveredBody: string | null;
+  coveredFromMs: number | null;
+  coveredToMs: number | null;
   // Tier 2: dense, keyframe-aligned single-body buffer for the active body.
   // Held like simulation.chunkBuffer (typed-array-backed, reassigned on
   // rebuild). serializableCheck is disabled store-wide.
@@ -26,8 +26,9 @@ export interface GroundTruthState {
 const initialState: GroundTruthState = {
   overlayEnabled: false,
   anchorsByBody: {},
-  fetchedFromMs: null,
-  fetchedToMs: null,
+  coveredBody: null,
+  coveredFromMs: null,
+  coveredToMs: null,
   trueTrack: null,
   trueTrackBody: null,
 };
@@ -40,32 +41,24 @@ export const groundTruthSlice = createSlice({
       state.overlayEnabled = action.payload;
     },
 
-    // Appends a freshly-fetched window's anchors to each body's track,
-    // dropping a leading anchor that duplicates the prior window's final
-    // anchor (the two windows share their boundary epoch). Updates the
-    // fetched-window bounds.
-    mergeAnchors: (
+    // Replaces a single body's anchors with a freshly-fetched window's worth,
+    // and records the covered window. Replace (not merge): each fetch returns
+    // the full set for the requested visible window, so a stale/overlapping
+    // response can't accumulate duplicate or out-of-order anchors.
+    setBodyAnchors: (
       state,
-      action: PayloadAction<{ tracks: GroundTruthTrack[]; fromMs: number; toMs: number }>,
+      action: PayloadAction<{
+        body: string;
+        anchors: GroundTruthAnchorLike[];
+        fromMs: number;
+        toMs: number;
+      }>,
     ) => {
-      for (const track of action.payload.tracks) {
-        const key = track.name.toUpperCase();
-        const existing = state.anchorsByBody[key];
-        if (!existing || existing.length === 0) {
-          state.anchorsByBody[key] = track.anchors;
-          continue;
-        }
-        const lastEpoch = existing[existing.length - 1].epochMillis;
-        // Drop every incoming anchor at or before the last stored epoch. The
-        // normal case drops just the shared boundary anchor; this also makes the
-        // merge idempotent if an overlapping window is fetched (e.g. two
-        // extension fetches race), preventing duplicate, out-of-order anchors
-        // that would break buildTrueTrack's monotonic cursor.
-        const incoming = track.anchors.filter((a) => a.epochMillis > lastEpoch);
-        state.anchorsByBody[key] = existing.concat(incoming);
-      }
-      state.fetchedFromMs = state.fetchedFromMs ?? action.payload.fromMs;
-      state.fetchedToMs = action.payload.toMs;
+      const key = action.payload.body.toUpperCase();
+      state.anchorsByBody[key] = action.payload.anchors;
+      state.coveredBody = key;
+      state.coveredFromMs = action.payload.fromMs;
+      state.coveredToMs = action.payload.toMs;
     },
 
     setTrueTrack: (
@@ -85,8 +78,9 @@ export const groundTruthSlice = createSlice({
     // like showTrails survives a resubmit in SimulationSlice).
     resetGroundTruth: (state) => {
       state.anchorsByBody = {};
-      state.fetchedFromMs = null;
-      state.fetchedToMs = null;
+      state.coveredBody = null;
+      state.coveredFromMs = null;
+      state.coveredToMs = null;
       state.trueTrack = null;
       state.trueTrackBody = null;
     },
@@ -95,7 +89,7 @@ export const groundTruthSlice = createSlice({
 
 export const {
   setOverlayEnabled,
-  mergeAnchors,
+  setBodyAnchors,
   setTrueTrack,
   clearTrueTrack,
   resetGroundTruth,
@@ -110,5 +104,6 @@ export const selectTrueTrack = (state: RootState): ChunkBuffer | null =>
   state.groundTruth.trueTrack;
 export const selectTrueTrackBody = (state: RootState): string | null =>
   state.groundTruth.trueTrackBody;
-export const selectAnchorsByBody = (state: RootState): Record<string, GroundTruthAnchorLike[]> =>
-  state.groundTruth.anchorsByBody;
+export const selectAnchorsByBody = (
+  state: RootState,
+): Record<string, GroundTruthAnchorLike[]> => state.groundTruth.anchorsByBody;

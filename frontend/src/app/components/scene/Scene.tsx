@@ -34,6 +34,8 @@ import {
 } from "@/app/constants/BodyCatalog";
 import { Reticle } from "@/app/components/scene/Reticle";
 import { GhostLabel } from "@/app/components/scene/GhostLabel";
+import DriftOverlay from "@/app/components/scene/DriftOverlay";
+import { selectOverlayEnabled } from "@/app/store/slices/GroundTruthSlice";
 import { bodyColorRgb01, toBodyKey } from "@/app/constants/BodyVisuals";
 import { worldDistance, worldRadius } from "@/app/utils/scalePipeline";
 import { useDevSettings } from "@/app/dev/devSettingsStore";
@@ -52,6 +54,7 @@ import { useDevSettings } from "@/app/dev/devSettingsStore";
 
 const Scene = () => {
   const showPlanetInfoOverlay = useSelector(selectShowPlanetInfoOverlay);
+  const driftOverlayEnabled = useSelector(selectOverlayEnabled);
   const dispatch = useDispatch();
   const celestialBodyPropertiesList = useSelector(
     selectCelestialBodyPropertiesList,
@@ -270,6 +273,7 @@ const Scene = () => {
         />
       ))}
       <Reticle />
+      {driftOverlayEnabled && <DriftOverlay />}
       {showPlanetInfoOverlay &&
         celestialBodyPropertiesList
           ?.filter(

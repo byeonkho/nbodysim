@@ -12,24 +12,27 @@ import {
   setTrueTrack,
   clearTrueTrack,
 } from "@/app/store/slices/GroundTruthSlice";
-import {
-  fetchGroundTruth,
-  GROUND_TRUTH_WINDOW_MS,
-} from "@/app/store/middleware/fetchGroundTruth";
-import { buildTrueTrack, shouldExtendWindow } from "@/app/store/trueTrack";
+import { fetchGroundTruth } from "@/app/store/middleware/fetchGroundTruth";
+import { buildTrueTrack, computeTrueTrackRequest } from "@/app/store/trueTrack";
+import { getDevSettings } from "@/app/dev/devSettingsStore";
 
-// Guards against dispatching a second window-extension fetch while one is
-// already in flight. `fetchedToMs` only advances once the extension's
-// mergeAnchors lands, so without this guard every chunk arriving during the
-// network round-trip would fire another identical fetch. Cleared when the
-// thunk settles (success or failure), so a failed extension auto-retries on
-// the next chunk. Module-level is safe: there is a single store.
-let extensionFetchInFlight = false;
+// Keyframes of lookahead beyond the playback head when sizing the fetch window,
+// so coverage stays ahead of playback between chunk arrivals.
+const LOOKAHEAD_KEYFRAMES = 4000;
+// Target anchor count per fetch (active body). The cadence is sized so the
+// visible window yields ~this many anchors: bounded payload, fine enough for
+// smooth interpolation in the watchable regime.
+const TARGET_ANCHORS = 400;
 
-// Rebuilds the Tier-2 buffer for the active body from Tier-1 anchors + the
-// current predicted buffer, when the overlay is on and the active body is
-// supported (has anchors). Otherwise clears it.
-function rebuildTrueTrack(store: { getState: () => RootState; dispatch: AppDispatch }): void {
+// One fetch in flight at a time. Cleared when the thunk settles, so a failed or
+// superseded fetch is retried on the next trigger. Module-level is safe: single store.
+let fetchInFlight = false;
+
+type Store = { getState: () => RootState; dispatch: AppDispatch };
+
+// Rebuilds the Tier-2 buffer for the active body from its anchors + the current
+// predicted buffer, when the overlay is on and the body has anchors. Else clears.
+function rebuildTrueTrack(store: Store): void {
   const state = store.getState();
   const { overlayEnabled, anchorsByBody } = state.groundTruth;
   const activeBody = state.simulation.activeBodyState.activeBodyName;
@@ -48,74 +51,84 @@ function rebuildTrueTrack(store: { getState: () => RootState; dispatch: AppDispa
   store.dispatch(setTrueTrack({ buffer, body: activeBody.toUpperCase() }));
 }
 
+// Fetches the active body's true track for the current visible window, unless
+// the overlay is off, no body is focused, a fetch is already in flight, or the
+// window is already covered. Rebuilds Tier-2 when the fetch lands.
+function maybeFetch(store: Store, immediate: boolean): void {
+  const state = store.getState();
+  const { overlayEnabled, coveredBody, coveredFromMs, coveredToMs } =
+    state.groundTruth;
+  const activeBody = state.simulation.activeBodyState.activeBodyName;
+  const predicted = state.simulation.chunkBuffer;
+  const sessionID =
+    state.simulation.simulationParameters?.simulationMetaData?.sessionID;
+
+  // Chunk-driven refetches respect the in-flight guard (storm prevention during
+  // window slides). User-driven changes (focus / overlay) bypass it so the new
+  // body's drift appears after a single fetch round-trip instead of waiting for
+  // the next chunk — clicks are infrequent, so they carry no storm risk.
+  if (!immediate && fetchInFlight) return;
+  if (!overlayEnabled || !activeBody || !predicted || !sessionID) return;
+
+  const idx = state.simulation.timeState.currentTimeStepIndex;
+  const trailLength = getDevSettings().trailLength;
+  const req = computeTrueTrackRequest(
+    predicted,
+    idx,
+    trailLength,
+    LOOKAHEAD_KEYFRAMES,
+    TARGET_ANCHORS,
+  );
+  if (!req) return;
+
+  const activeUpper = activeBody.toUpperCase();
+  const covered =
+    coveredBody === activeUpper &&
+    coveredFromMs !== null &&
+    coveredToMs !== null &&
+    coveredFromMs <= req.fromMs &&
+    coveredToMs >= req.toMs;
+  if (covered) return;
+
+  fetchInFlight = true;
+  const dispatched = store.dispatch(
+    fetchGroundTruth({ sessionID, body: activeUpper, ...req }) as never,
+  ) as unknown as Promise<unknown>;
+  dispatched.finally(() => {
+    fetchInFlight = false;
+    rebuildTrueTrack(store); // pick up the freshly-fetched anchors
+  });
+}
+
 export const groundTruthMiddleware: Middleware =
   (store) => (next) => (action) => {
     const result = next(action);
-    const typedStore = store as unknown as {
-      getState: () => RootState;
-      dispatch: AppDispatch;
-    };
+    const typedStore = store as unknown as Store;
 
-    // New simulation submitted: reset, then eager-fetch the first window.
+    // New simulation: reset and clear any in-flight guard. No eager fetch — the
+    // first fetch fires once a body is focused with the overlay on (below).
     if (setLastSimRequest.match(action)) {
-      // setLastSimRequest fires after initializeCelestialBodies() has resolved,
-      // so simulationMetaData.sessionID is already populated in state here.
-      const state = typedStore.getState();
-      const sessionID =
-        state.simulation.simulationParameters?.simulationMetaData?.sessionID;
-      const dateIso = action.payload?.date;
-      if (sessionID && dateIso) {
-        extensionFetchInFlight = false;
-        typedStore.dispatch(resetGroundTruth());
-        const fromMs = Date.parse(dateIso);
-        typedStore.dispatch(
-          fetchGroundTruth({ sessionID, fromMs, toMs: fromMs + GROUND_TRUTH_WINDOW_MS }) as never,
-        );
-      }
+      fetchInFlight = false;
+      typedStore.dispatch(resetGroundTruth());
       return result;
     }
 
-    // A new chunk landed: rebuild Tier-2 (keyframes changed / evicted), and
-    // extend the window if playback is nearing the fetched edge.
+    // New chunk: rebuild Tier-2 against the new keyframes, then fetch if the
+    // visible window has slid past current coverage.
     if (appendChunkToBuffer.match(action)) {
       rebuildTrueTrack(typedStore);
-
-      const state = typedStore.getState();
-      const buffer = state.simulation.chunkBuffer;
-      const { fetchedFromMs, fetchedToMs } = state.groundTruth;
-      const sessionID =
-        state.simulation.simulationParameters?.simulationMetaData?.sessionID;
-      if (buffer && buffer.totalTimesteps > 0 && sessionID) {
-        const latest = Number(buffer.timestamps[buffer.totalTimesteps - 1]);
-        if (
-          !extensionFetchInFlight &&
-          fetchedToMs !== null &&
-          shouldExtendWindow(latest, fetchedFromMs, fetchedToMs)
-        ) {
-          extensionFetchInFlight = true;
-          const dispatched = typedStore.dispatch(
-            fetchGroundTruth({
-              sessionID,
-              fromMs: fetchedToMs,
-              toMs: fetchedToMs + GROUND_TRUTH_WINDOW_MS,
-            }) as never,
-          ) as unknown as Promise<unknown>;
-          dispatched.finally(() => {
-            extensionFetchInFlight = false;
-          });
-        }
-      }
+      maybeFetch(typedStore, /* immediate */ false);
       return result;
     }
 
-    // Active body changed or overlay toggled: rebuild (or clear) Tier-2.
+    // Active body changed or overlay toggled: rebuild (or clear), then fetch.
     if (setActiveBody.match(action) || setOverlayEnabled.match(action)) {
       rebuildTrueTrack(typedStore);
+      maybeFetch(typedStore, /* immediate */ true);
       return result;
     }
 
-    // Fresh /initialize JSON (new session): clear stale Tier-2 immediately so
-    // the old body's true track doesn't linger before the eager fetch lands.
+    // Fresh /initialize JSON (new session): clear stale Tier-2 immediately.
     if (loadSimulation.match(action)) {
       typedStore.dispatch(clearTrueTrack());
       return result;
