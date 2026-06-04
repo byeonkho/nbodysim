@@ -9,7 +9,7 @@ import { EventLogCard } from "@/app/components/chrome/EventLogCard";
 export function RightColumn() {
   return (
     <div
-      className="pointer-events-auto absolute top-[128px] right-6 flex w-[316px] flex-col gap-3"
+      className="pointer-events-auto absolute top-[148px] right-6 flex w-[316px] flex-col gap-3"
       style={{ bottom: 114 }}
     >
       <BodyCard />
