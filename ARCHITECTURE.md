@@ -91,6 +91,16 @@ The catalog gained 21 named major moons (Mars: Phobos, Deimos; Jupiter's four Ga
 
 **Per-parent render scale.** Heliocentric log compression (the Stylized preset's `A=60`, `r_ref=1 AU`) crushes parent-relative moon distances to a tiny fraction of a world unit, so every moon would clamp to the min-separation floor and pile on top of its parent. The scale pipeline now consults a `MOON_LOG_SCALE` map keyed by parent planet; when a body's parent isn't the Sun, `worldDistanceFromParent` applies that parent's own log curve (`A=5`, `r_ref` = the parent's innermost-moon real distance) instead of the heliocentric one, so each planet system spreads into its own readable cluster rather than collapsing to a ring. The per-parent anchors (all `A=5`, `r_ref` = innermost-moon real distance in metres): Earth 3.84e8 (Moon), Mars 9.38e6 (Phobos), Jupiter 4.218e8 (Io), Saturn 1.855e8 (Mimas), Uranus 1.297e8 (Miranda), Neptune 3.5476e8 (Triton), Pluto 1.96e7 (Charon). The parent name is resolved once per scene component (memoized, with a cached body index) so the per-frame render path stays allocation-free.
 
+### Reality-drift overlay: independent truth, visible-window fetching, model-vs-method drift
+
+The drift overlay renders the integrator's **predicted** position for the focused body next to its **true** position at the same simulated date, with a ghost marker, a true trail, a connector line, and an "off by" km/angle readout. Three decisions shape it.
+
+**Truth is independent of the integrator.** True positions come from Orekit's bundled DE-440 ephemeris (`CelestialBodyFactory.getPVCoordinates`), sampled Sun-relative in the session frame to match `snapshotFromState`, and seeded from the same t=0 state the integrator starts from. Because the true track is a genuinely separate source, the overlay's correctness is self-evident: Euler visibly diverges while RK4 stays glued, which couldn't happen if "true" and "predicted" were the same data. Truth is sourced for planets + Pluto only (the bodies in DE-440 that orbit the Sun); moons and Horizons-sourced minor bodies are out of v1.
+
+**Ground truth is fetched for the visible window, not a fixed window.** The first design fetched a fixed 1-year window and extended it; this froze the marker because **simulation-time-per-chunk is decoupled from wall-clock** — one 10k-step chunk spans ~1.14 years at the default 1-hour step (and decades at days/weeks steps), so a 1-year window was overrun almost immediately and `buildTrueTrack` clamped the marker to the last anchor. The shipped model instead scopes each fetch to the **visible read window** (the trail keyframes around the playback head plus a lookahead), for the **active body only**, at a cadence sized so the span yields a bounded anchor count (`span / ~400`, floored at the keyframe spacing so it never oversamples), and **replaces** the anchors per fetch (no merge/extension bookkeeping). Coverage therefore tracks whatever is on screen at any time-step, the payload stays ~tens of KB per refetch with zero external (JPL) calls, and the render loop is untouched. User-driven focus/overlay changes bypass the in-flight guard so a focus switch refetches immediately rather than waiting for the next chunk.
+
+**The overlay measures model error, not just method error.** For an accurate integrator the truncation error is negligible (RK4 at a 1-hour step is ~10⁻²² per orbit for an outer planet), so the residual drift it shows is dominated by **model incompleteness**: our Newtonian point-mass N-body omits the general relativity, asteroid perturbations, and oblateness that DE-440 carries. This complements the `ΔE/E₀` energy readout, which measures the integrator's truncation error *within our own model*. So the two surfaces answer different questions: `ΔE/E₀` is "how well does our method conserve our model," the drift overlay is "how far is our model from reality." One consequence for reading the overlay: drift is clearest in **Real** scale and on **inner/closer bodies**; in **Stylized** the log compression squashes a far body's offset (e.g. Saturn's real ~1.5M km / 0.06° drift) to sub-body-size on screen even though the number is large.
+
 ## Resolved design decisions (UI redesign)
 
 Decisions made during the Tailwind + Radix + shadcn migration that shape what's on screen now:
@@ -115,7 +125,7 @@ Decisions made during the Tailwind + Radix + shadcn migration that shape what's 
 
 ## Status
 
-Currently a working local prototype on the `redesign-ui` branch. The simulation runs end-to-end; three integrators (Euler / RK4 / Dormand–Prince 853) are wired in; the frontend renders bodies with scaled distances and per-body textures; time controls, body selection, geocentric/heliocentric frame switching, and Keplerian-element readouts function. Focus is the demo layer (reality-drift overlay) and pre-deploy polish.
+Currently a working local prototype on the `redesign-ui` branch. The simulation runs end-to-end; three integrators (Euler / RK4 / Dormand–Prince 853) are wired in; the frontend renders bodies with scaled distances and per-body textures; time controls, body selection, geocentric/heliocentric frame switching, and Keplerian-element readouts function. The headline demo layer — the reality-drift overlay (predicted vs DE-440 truth) — has shipped; focus is now pre-deploy polish and the remaining showcase items.
 
 ## Planned work
 
@@ -129,13 +139,11 @@ Currently a working local prototype on the `redesign-ui` branch. The simulation 
 
 ### Frontend showcase
 
-- **Reality drift overlay** vs JPL ephemerides — visualise integrator error live (Euler diverges within days; DP853 essentially glued).
 - **Interesting-moment timeline markers** — backend scans each computed chunk for events (closest approaches, conjunctions, syzygies, eclipses) and surfaces them as clickable markers on the scrubber.
-- **Integrator residuals** in the body card — `ΔE/E₀` per chunk, plus DP853 step-accept rate.
 - **Log distance scaling** — true logarithmic compression of radial distances so outer planets are visible at default zoom.
 - Catmull-Rom client-side interpolation between keyframes — backend sends every Nth keyframe; client interpolates with `THREE.CatmullRomCurve3`. Cuts payload + smooths playback.
 
-> Already in place: orbital trails, planet rotation, decoupled render loop (R3F `useFrame` + refs), Sun unlit material, web-worker zstd decompression, custom binary wire format, fully imperative scene graph, frame switching (helio/geo) with honest geocentric trail reprojection, Keplerian elements display, hot-path allocation discipline.
+> Already in place: reality-drift overlay (predicted vs DE-440 truth, with the visible-window ground-truth model — see the architecture decision above), integrator residuals (`ΔE/E₀`) in the body card and top strip, orbital trails, planet rotation, decoupled render loop (R3F `useFrame` + refs), Sun unlit material, web-worker zstd decompression, custom binary wire format, fully imperative scene graph, frame switching (helio/geo) with honest geocentric trail reprojection, Keplerian elements display, hot-path allocation discipline.
 
 ### Architectural cleanup
 
