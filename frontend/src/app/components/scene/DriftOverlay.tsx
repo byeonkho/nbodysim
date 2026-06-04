@@ -109,10 +109,13 @@ const DriftOverlay: React.FC = () => {
   const pivot = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const predWorld = useRef(new THREE.Vector3());
 
-  // Cached predicted-buffer index for the active body; invalidated on buffer
-  // identity change (resubmit reuses this component).
+  // Cached predicted-buffer index for the ACTIVE body. Invalidated when the
+  // buffer identity changes (resubmit) OR the active body changes (focus
+  // switch) — this index tracks whichever body is focused, which changes
+  // mid-session without changing the buffer.
   const predIdxRef = useRef<number>(-1);
   const resolvedBufferRef = useRef<object | null>(null);
+  const resolvedBodyRef = useRef<string | null>(null);
 
   /* eslint-disable react-hooks/immutability */
   useFrame(() => {
@@ -148,15 +151,23 @@ const DriftOverlay: React.FC = () => {
       return;
     }
 
-    // Resolve / re-resolve the predicted index for the active body.
-    if (resolvedBufferRef.current !== predicted) {
+    // Resolve / re-resolve the predicted index for the active body. Re-resolve
+    // on buffer identity change (resubmit) AND on active-body change — the
+    // connector reads the focused body's predicted position, and focus changes
+    // mid-session without changing the buffer (which would otherwise keep the
+    // previous body's index and point the line at the old body).
+    const activeUpper = active.toUpperCase();
+    if (
+      resolvedBufferRef.current !== predicted ||
+      resolvedBodyRef.current !== activeUpper
+    ) {
       predIdxRef.current = -1;
       resolvedBufferRef.current = predicted;
+      resolvedBodyRef.current = activeUpper;
     }
     if (predIdxRef.current === -1) {
-      const upper = active.toUpperCase();
       for (const [bn, i] of predicted.bodyNameToIndex.entries()) {
-        if (bn.toUpperCase() === upper) {
+        if (bn.toUpperCase() === activeUpper) {
           predIdxRef.current = i;
           break;
         }
