@@ -32,7 +32,7 @@ import {
 import { selectOverlayEnabled } from "@/app/store/slices/GroundTruthSlice";
 import { driftMetrics } from "@/app/utils/driftMetrics";
 import { DRIFT_READOUT_COPY } from "@/app/constants/driftTooltipCopy";
-import { BodySphere } from "@/app/components/chrome/BodySphere";
+import { BodyPortrait } from "@/app/components/chrome/BodyPortrait";
 import { InfoTooltip } from "@/app/components/chrome/InfoTooltip";
 
 // Right-column body card. Identity (name, orbiting body) comes from
@@ -361,7 +361,7 @@ export function BodyCard() {
       style={{ borderRadius: 14 }}
     >
       <div className="mb-2.5 flex items-center gap-2.5">
-        {bodyKey && <BodySphere body={bodyKey} size={18} glow />}
+        {bodyKey && <BodyPortrait body={bodyKey} size={44} />}
         <div className="text-hi text-[17px] font-semibold tracking-[-0.015em]">
           {display}
         </div>
