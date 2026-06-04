@@ -54,7 +54,7 @@ function rebuildTrueTrack(store: Store): void {
 // Fetches the active body's true track for the current visible window, unless
 // the overlay is off, no body is focused, a fetch is already in flight, or the
 // window is already covered. Rebuilds Tier-2 when the fetch lands.
-function maybeFetch(store: Store): void {
+function maybeFetch(store: Store, immediate: boolean): void {
   const state = store.getState();
   const { overlayEnabled, coveredBody, coveredFromMs, coveredToMs } =
     state.groundTruth;
@@ -63,9 +63,12 @@ function maybeFetch(store: Store): void {
   const sessionID =
     state.simulation.simulationParameters?.simulationMetaData?.sessionID;
 
-  if (fetchInFlight || !overlayEnabled || !activeBody || !predicted || !sessionID) {
-    return;
-  }
+  // Chunk-driven refetches respect the in-flight guard (storm prevention during
+  // window slides). User-driven changes (focus / overlay) bypass it so the new
+  // body's drift appears after a single fetch round-trip instead of waiting for
+  // the next chunk — clicks are infrequent, so they carry no storm risk.
+  if (!immediate && fetchInFlight) return;
+  if (!overlayEnabled || !activeBody || !predicted || !sessionID) return;
 
   const idx = state.simulation.timeState.currentTimeStepIndex;
   const trailLength = getDevSettings().trailLength;
@@ -114,14 +117,14 @@ export const groundTruthMiddleware: Middleware =
     // visible window has slid past current coverage.
     if (appendChunkToBuffer.match(action)) {
       rebuildTrueTrack(typedStore);
-      maybeFetch(typedStore);
+      maybeFetch(typedStore, /* immediate */ false);
       return result;
     }
 
     // Active body changed or overlay toggled: rebuild (or clear), then fetch.
     if (setActiveBody.match(action) || setOverlayEnabled.match(action)) {
       rebuildTrueTrack(typedStore);
-      maybeFetch(typedStore);
+      maybeFetch(typedStore, /* immediate */ true);
       return result;
     }
 
