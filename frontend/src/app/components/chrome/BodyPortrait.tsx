@@ -2,8 +2,11 @@
 
 import { Canvas, useFrame, useLoader } from "@react-three/fiber";
 import { Suspense, useRef } from "react";
+import { useStore } from "react-redux";
 import * as THREE from "three";
 import { type BodyKey, BODY_COLOR, BODY_TEXTURE } from "@/app/constants/BodyVisuals";
+import { readBodyPositionInto } from "@/app/store/chunkBuffer";
+import type { RootState } from "@/app/store/Store";
 
 // Small live render of the selected body for the info-panel header. A textured
 // sphere lit from the Sun's real direction (so its real day/night phase reads),
@@ -58,6 +61,7 @@ export function BodyPortrait({ body, size = 44 }: BodyPortraitProps) {
 function PortraitSphere({ body }: { body: BodyKey }) {
   const meshRef = useRef<THREE.Mesh>(null!);
   const lightRef = useRef<THREE.DirectionalLight>(null!);
+  const store = useStore<RootState>();
 
   const texture = useLoader(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -65,11 +69,72 @@ function PortraitSphere({ body }: { body: BodyKey }) {
     BODY_TEXTURE[body].src,
   );
 
+  // Scratch vectors — never reallocated (hot path).
+  const bodyScratch = useRef(new THREE.Vector3());
+  const sunScratch = useRef(new THREE.Vector3());
+
+  // Cached buffer slots. Active-body component: the rendered body is dynamic, so
+  // invalidate on BOTH buffer identity AND body change (the DriftOverlay
+  // precedent, not the fixed-body Sphere/Trail one).
+  const bodyIdxRef = useRef(-1);
+  const sunIdxRef = useRef(-1);
+  const resolvedBufferRef = useRef<object | null>(null);
+  const resolvedBodyRef = useRef<BodyKey | null>(null);
+
   useFrame((_, delta) => {
     if (meshRef.current) meshRef.current.rotation.y += SPIN_RATE * delta;
-    if (lightRef.current) {
-      lightRef.current.position.copy(DEFAULT_LIGHT_DIR).multiplyScalar(LIGHT_DIST);
+    const light = lightRef.current;
+    if (!light) return;
+
+    const state = store.getState();
+    const buffer = state.simulation.chunkBuffer;
+    const idx = state.simulation.timeState.currentTimeStepIndex;
+
+    // No positions yet — keep a sensible default so the body isn't born dark.
+    if (!buffer || idx >= buffer.totalTimesteps) {
+      light.position.copy(DEFAULT_LIGHT_DIR).multiplyScalar(LIGHT_DIST);
+      return;
     }
+
+    if (resolvedBufferRef.current !== buffer || resolvedBodyRef.current !== body) {
+      bodyIdxRef.current = -1;
+      sunIdxRef.current = -1;
+      resolvedBufferRef.current = buffer;
+      resolvedBodyRef.current = body;
+    }
+    if (bodyIdxRef.current === -1) {
+      for (const [bn, i] of buffer.bodyNameToIndex.entries()) {
+        const up = bn.toUpperCase();
+        if (up === body) bodyIdxRef.current = i;
+        if (up === "SUN") sunIdxRef.current = i;
+      }
+    }
+
+    const bodyIdx = bodyIdxRef.current;
+    const sunIdx = sunIdxRef.current;
+    // Body or Sun not in this sim — fall back to the default direction.
+    if (bodyIdx < 0 || sunIdx < 0) {
+      light.position.copy(DEFAULT_LIGHT_DIR).multiplyScalar(LIGHT_DIST);
+      return;
+    }
+
+    readBodyPositionInto(bodyScratch.current, buffer, idx, bodyIdx);
+    readBodyPositionInto(sunScratch.current, buffer, idx, sunIdx);
+
+    // Raw ICRF direction body -> Sun. Translation-invariant, so no frame pivot
+    // or scale pipeline needed (the geo/helio pivot is a common translation that
+    // cancels in the difference). Map ICRF -> portrait space with the scene's
+    // Y/Z swap (ICRF z -> portrait up) so the orbit's sun direction sweeps the
+    // portrait's horizontal plane and the phase varies fully over the orbit.
+    const dx = sunScratch.current.x - bodyScratch.current.x;
+    const dy = sunScratch.current.y - bodyScratch.current.y;
+    const dz = sunScratch.current.z - bodyScratch.current.z;
+    const len = Math.hypot(dx, dy, dz) || 1;
+    light.position.set(
+      (dx / len) * LIGHT_DIST,
+      (dz / len) * LIGHT_DIST,
+      (dy / len) * LIGHT_DIST,
+    );
   });
 
   return (
