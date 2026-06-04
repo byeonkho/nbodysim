@@ -11,7 +11,7 @@ import type { RootState } from "@/app/store/Store";
 // Small live render of the selected body for the info-panel header. A textured
 // sphere lit from the Sun's real direction (so its real day/night phase reads),
 // gently spinning, fixed camera. Self-contained: its own tiny WebGL canvas,
-// decoupled from the main scene. Design decisions: see the live-body-render spec.
+// decoupled from the main scene.
 
 const CAM_DIST = 4.2;
 const SPHERE_RADIUS = 1;
