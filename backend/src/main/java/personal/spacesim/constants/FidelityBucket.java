@@ -1,7 +1,7 @@
 package personal.spacesim.constants;
 
 /**
- * The five user-facing fidelity buckets surfaced as "Playback quality" in
+ * The four user-facing fidelity buckets surfaced as "Playback quality" in
  * the UI. Each bucket carries both:
  * <ul>
  *   <li>{@code keyframesPerKept} (K) — used by fixed-step integrators
@@ -29,8 +29,7 @@ public enum FidelityBucket {
     LOW    ("low",     20,  3000),
     MED_LOW("medLow",  10,  5000),
     MEDIUM ("medium",   5,  7500),
-    MED_HIGH("medHigh", 2, 10000),
-    HIGH   ("high",     1, 15000);
+    MED_HIGH("medHigh", 2, 10000);
 
     private final String wireName;
     private final int keyframesPerKept;

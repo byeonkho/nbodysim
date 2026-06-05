@@ -21,7 +21,6 @@ class FidelityBucketTest {
         assertEquals(10, FidelityBucket.fromWireName("medLow").keyframesPerKept());
         assertEquals(5,  FidelityBucket.fromWireName("medium").keyframesPerKept());
         assertEquals(2,  FidelityBucket.fromWireName("medHigh").keyframesPerKept());
-        assertEquals(1,  FidelityBucket.fromWireName("high").keyframesPerKept());
     }
 
     @Test
@@ -31,7 +30,6 @@ class FidelityBucketTest {
         assertEquals(5000,  FidelityBucket.fromWireName("medLow").targetSnapshotsPerChunk());
         assertEquals(7500,  FidelityBucket.fromWireName("medium").targetSnapshotsPerChunk());
         assertEquals(10000, FidelityBucket.fromWireName("medHigh").targetSnapshotsPerChunk());
-        assertEquals(15000, FidelityBucket.fromWireName("high").targetSnapshotsPerChunk());
     }
 
     @Test
@@ -40,8 +38,7 @@ class FidelityBucketTest {
         // catches accidental swaps of K values between buckets.
         FidelityBucket[] ascending = {
                 FidelityBucket.LOW, FidelityBucket.MED_LOW,
-                FidelityBucket.MEDIUM, FidelityBucket.MED_HIGH,
-                FidelityBucket.HIGH
+                FidelityBucket.MEDIUM, FidelityBucket.MED_HIGH
         };
         for (int i = 1; i < ascending.length; i++) {
             assertTrue(
@@ -59,8 +56,7 @@ class FidelityBucketTest {
         // Higher quality = more snapshots emitted = higher N.
         FidelityBucket[] ascending = {
                 FidelityBucket.LOW, FidelityBucket.MED_LOW,
-                FidelityBucket.MEDIUM, FidelityBucket.MED_HIGH,
-                FidelityBucket.HIGH
+                FidelityBucket.MEDIUM, FidelityBucket.MED_HIGH
         };
         for (int i = 1; i < ascending.length; i++) {
             assertTrue(
