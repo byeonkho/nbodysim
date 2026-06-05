@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useSelector, useStore } from "react-redux";
+import { useDispatch, useSelector, useStore } from "react-redux";
 import * as THREE from "three";
 import {
   type CelestialBodyProperties,
@@ -34,6 +34,11 @@ import { driftMetrics } from "@/app/utils/driftMetrics";
 import { DRIFT_READOUT_COPY } from "@/app/constants/driftTooltipCopy";
 import { BodyPortrait } from "@/app/components/chrome/BodyPortrait";
 import { InfoTooltip } from "@/app/components/chrome/InfoTooltip";
+import {
+  selectInfoPanelCollapsed,
+  toggleInfoPanel,
+} from "@/app/store/slices/UISlice";
+import { CollapseChevron } from "@/app/components/chrome/CollapseChevron";
 
 // Right-column body card. Identity (name, orbiting body) comes from
 // selectors and only changes on body switch. Numerics update at 5 Hz via
@@ -50,6 +55,8 @@ export function BodyCard() {
   const propsList = useSelector(selectCelestialBodyPropertiesList);
   const displayFrame = useSelector(selectDisplayFrame);
   const store = useStore<RootState>();
+  const dispatch = useDispatch();
+  const infoCollapsed = useSelector(selectInfoPanelCollapsed);
 
   const upperName = activeName?.trim().toUpperCase() ?? "";
   const activeProps = propsList?.find(
@@ -360,79 +367,92 @@ export function BodyCard() {
       className="glass px-[18px] pt-4 pb-3.5"
       style={{ borderRadius: 14 }}
     >
-      <div className="mb-2.5 flex items-center gap-2.5">
+      <button
+        type="button"
+        onClick={() => dispatch(toggleInfoPanel())}
+        aria-expanded={!infoCollapsed}
+        aria-label={infoCollapsed ? "Expand body details" : "Collapse body details"}
+        className={`flex w-full items-center gap-2.5 text-left ${
+          infoCollapsed ? "" : "mb-2.5"
+        }`}
+      >
         {bodyKey && <BodyPortrait body={bodyKey} size={44} />}
-        <div className="text-hi text-[17px] font-semibold tracking-[-0.015em]">
+        <div className="text-hi flex-1 text-[17px] font-semibold tracking-[-0.015em]">
           {display}
         </div>
-      </div>
+        <CollapseChevron collapsed={infoCollapsed} />
+      </button>
 
-      <div className="text-dim mb-1.5 text-[11px] leading-[1.55]">
-        Tracking in {displayFrame === "geo" ? "geocentric" : "heliocentric"}{" "}
-        frame.
-      </div>
-
-      <SectionLabel>State vector · J2000</SectionLabel>
-      <KvRow k={`Range to ${stateVectorRefDisplay}`} valueRef={rangeRef} />
-      <KvRow k="Speed" valueRef={speedRef} accent />
-      <KvRow k="r⃗ · x" valueRef={rxRef} />
-      <KvRow k="r⃗ · y" valueRef={ryRef} />
-      <KvRow k="v⃗ · ‖" valueRef={vmagRef} />
-
-      <SectionLabel>Keplerian elements</SectionLabel>
-      <KvRow k="Semi-major axis · a" valueRef={semiMajorRef} />
-      <KvRow k="Eccentricity · e" valueRef={eccentricityRef} />
-      <KvRow k="Inclination · i" valueRef={inclinationRef} />
-      <KvRow k="True anomaly · ν" valueRef={trueAnomalyRef} />
-      <KvRow k="Period · T" valueRef={periodRef} />
-
-      <SectionLabel>
-        <span className="inline-flex items-center gap-1">
-          Integrator residual
-          <InfoTooltip label="What is the integrator residual?">
-            {RESIDUAL_CONCEPT_COPY}
-          </InfoTooltip>
-        </span>
-      </SectionLabel>
-      <KvRow k="ΔE / E₀" valueRef={residualDeltaERef} />
-      {dp853TelemetryActive && (
+      {!infoCollapsed && (
         <>
-          <KvRow
-            k={
-              <span className="inline-flex items-center gap-1">
-                Avg step
-                <InfoTooltip label="What is avg step?">
-                  {AVG_STEP_COPY}
-                </InfoTooltip>
-              </span>
-            }
-            valueRef={avgStepRef}
-          />
-          <KvRow
-            k={
-              <span className="inline-flex items-center gap-1">
-                Accept rate
-                <InfoTooltip label="What is accept rate?">
-                  {ACCEPT_RATE_COPY}
-                </InfoTooltip>
-              </span>
-            }
-            valueRef={acceptRateRef}
-          />
-        </>
-      )}
-      {driftOverlayEnabled && (
-        <>
+          <div className="text-dim mb-1.5 text-[11px] leading-[1.55]">
+            Tracking in {displayFrame === "geo" ? "geocentric" : "heliocentric"}{" "}
+            frame.
+          </div>
+
+          <SectionLabel>State vector · J2000</SectionLabel>
+          <KvRow k={`Range to ${stateVectorRefDisplay}`} valueRef={rangeRef} />
+          <KvRow k="Speed" valueRef={speedRef} accent />
+          <KvRow k="r⃗ · x" valueRef={rxRef} />
+          <KvRow k="r⃗ · y" valueRef={ryRef} />
+          <KvRow k="v⃗ · ‖" valueRef={vmagRef} />
+
+          <SectionLabel>Keplerian elements</SectionLabel>
+          <KvRow k="Semi-major axis · a" valueRef={semiMajorRef} />
+          <KvRow k="Eccentricity · e" valueRef={eccentricityRef} />
+          <KvRow k="Inclination · i" valueRef={inclinationRef} />
+          <KvRow k="True anomaly · ν" valueRef={trueAnomalyRef} />
+          <KvRow k="Period · T" valueRef={periodRef} />
+
           <SectionLabel>
             <span className="inline-flex items-center gap-1">
-              Reality drift
-              <InfoTooltip label="What is reality drift?">
-                {DRIFT_READOUT_COPY}
+              Integrator residual
+              <InfoTooltip label="What is the integrator residual?">
+                {RESIDUAL_CONCEPT_COPY}
               </InfoTooltip>
             </span>
           </SectionLabel>
-          <KvRow k="Off by" valueRef={driftKmRef} accent />
-          <KvRow k="Angle off" valueRef={driftAngleRef} />
+          <KvRow k="ΔE / E₀" valueRef={residualDeltaERef} />
+          {dp853TelemetryActive && (
+            <>
+              <KvRow
+                k={
+                  <span className="inline-flex items-center gap-1">
+                    Avg step
+                    <InfoTooltip label="What is avg step?">
+                      {AVG_STEP_COPY}
+                    </InfoTooltip>
+                  </span>
+                }
+                valueRef={avgStepRef}
+              />
+              <KvRow
+                k={
+                  <span className="inline-flex items-center gap-1">
+                    Accept rate
+                    <InfoTooltip label="What is accept rate?">
+                      {ACCEPT_RATE_COPY}
+                    </InfoTooltip>
+                  </span>
+                }
+                valueRef={acceptRateRef}
+              />
+            </>
+          )}
+          {driftOverlayEnabled && (
+            <>
+              <SectionLabel>
+                <span className="inline-flex items-center gap-1">
+                  Reality drift
+                  <InfoTooltip label="What is reality drift?">
+                    {DRIFT_READOUT_COPY}
+                  </InfoTooltip>
+                </span>
+              </SectionLabel>
+              <KvRow k="Off by" valueRef={driftKmRef} accent />
+              <KvRow k="Angle off" valueRef={driftAngleRef} />
+            </>
+          )}
         </>
       )}
     </div>
