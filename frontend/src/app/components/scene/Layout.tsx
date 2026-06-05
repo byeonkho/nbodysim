@@ -72,7 +72,7 @@ const Layout: React.FC = () => {
               Collapsible (collapsed by default); expands upward into the
               scene, capped so it scrolls internally rather than overrunning
               the top chrome. */}
-          <div className="pointer-events-auto absolute bottom-[140px] left-6 w-[316px]">
+          <div className="pointer-events-auto absolute bottom-[160px] left-6 w-[316px]">
             <EventLogCard />
           </div>
 
