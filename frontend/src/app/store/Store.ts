@@ -5,6 +5,7 @@ import simulationSliceReducer, {
 import requestReducer from "./slices/RequestSlice";
 import eventLogReducer from "./slices/EventLogSlice";
 import groundTruthReducer from "./slices/GroundTruthSlice";
+import uiReducer from "./slices/UISlice";
 import { groundTruthMiddleware } from "./middleware/groundTruthMiddleware";
 import { userActionLogger } from "./middleware/userActionLogger";
 
@@ -14,6 +15,7 @@ export const store = configureStore({
     request: requestReducer,
     eventLog: eventLogReducer,
     groundTruth: groundTruthReducer,
+    ui: uiReducer,
   },
 
   middleware: (getDefaultMiddleware) =>
