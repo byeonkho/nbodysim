@@ -31,9 +31,7 @@ export function EventLogCard() {
 
   return (
     <div
-      className={`glass flex flex-col p-0 ${
-        collapsed ? "flex-none" : "min-h-0 flex-1"
-      }`}
+      className={`glass flex flex-col p-0 ${collapsed ? "" : "max-h-[40vh]"}`}
       style={{ borderRadius: 14 }}
     >
       <div
@@ -81,7 +79,7 @@ export function EventLogCard() {
       </div>
       {!collapsed && (
         <>
-          <div className="flex-1 overflow-y-auto py-1.5">
+          <div className="flex-1 min-h-0 overflow-y-auto py-1.5">
             {count === 0 ? (
               <div className="flex h-full items-center justify-center px-4 py-6">
                 <span className="text-subdim text-[10px] tracking-[0.05em] uppercase">
