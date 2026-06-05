@@ -7,6 +7,7 @@ import FirstLoadSpinner from "@/app/components/interface/misc/FirstLoadSpinner";
 import { BodySelector } from "@/app/components/chrome/BodySelector";
 import { FrameCompass } from "@/app/components/chrome/FrameCompass";
 import { RightColumn } from "@/app/components/chrome/RightColumn";
+import { EventLogCard } from "@/app/components/chrome/EventLogCard";
 import { SimSetupModal } from "@/app/components/chrome/simSetup/SimSetupModal";
 import { Timeline } from "@/app/components/chrome/Timeline";
 import { TopStatusStrip } from "@/app/components/chrome/TopStatusStrip";
@@ -66,6 +67,15 @@ const Layout: React.FC = () => {
           <BodySelector />
           <FrameCompass />
           <RightColumn />
+
+          {/* Event log — docked bottom-left, just above the timeline.
+              Collapsible (collapsed by default); expands upward into the
+              scene, capped so it scrolls internally rather than overrunning
+              the top chrome. */}
+          <div className="pointer-events-auto absolute bottom-[160px] left-6 w-[316px]">
+            <EventLogCard />
+          </div>
+
           <Timeline />
 
           <SimSetupModal open={simSetupOpen} onOpenChange={setSimSetupOpen} />
