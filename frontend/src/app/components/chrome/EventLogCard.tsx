@@ -9,6 +9,11 @@ import {
   selectFilteredEvents,
   setEventFilter,
 } from "@/app/store/slices/EventLogSlice";
+import {
+  selectEventLogCollapsed,
+  toggleEventLog,
+} from "@/app/store/slices/UISlice";
+import { CollapseChevron } from "@/app/components/chrome/CollapseChevron";
 
 // Event log card. USR entries flow in via the userActionLogger
 // middleware; SIM entries arrive in Phase 6 (#40). Filter chips reuse
@@ -21,58 +26,78 @@ export function EventLogCard() {
   const dispatch = useDispatch();
   const filter = useSelector(selectEventFilter);
   const events: LogEvent[] = useSelector(selectFilteredEvents);
+  const collapsed = useSelector(selectEventLogCollapsed);
   const count = events.length;
 
   return (
     <div
-      className="glass flex min-h-0 flex-1 flex-col p-0"
+      className={`glass flex flex-col p-0 ${
+        collapsed ? "flex-none" : "min-h-0 flex-1"
+      }`}
       style={{ borderRadius: 14 }}
     >
-      <div className="flex items-center justify-between border-b border-white/[0.06] px-4 pt-3 pb-2.5">
-        <div className="flex items-center gap-2">
+      <div
+        className={`flex items-center justify-between px-4 pt-3 pb-2.5 ${
+          collapsed ? "" : "border-b border-white/[0.06]"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => dispatch(toggleEventLog())}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "Expand event log" : "Collapse event log"}
+          className="flex items-center gap-2"
+        >
+          <CollapseChevron collapsed={collapsed} />
           <span className="text-hi text-[12px] font-semibold tracking-[-0.01em]">
             Event log
           </span>
           <span className="text-subdim tabular rounded bg-white/[0.05] px-1.5 py-px font-mono text-[10px]">
             {count}
           </span>
-        </div>
-        <div className="flex gap-1">
-          {FILTERS.map((t) => {
-            const active = t === filter;
-            return (
-              <button
-                key={t}
-                type="button"
-                onClick={() => dispatch(setEventFilter(t))}
-                className={[
-                  "rounded-[5px] border px-2 py-[3px] font-mono text-[9px] tracking-[0.10em] transition-colors",
-                  active
-                    ? "bg-[rgba(164,168,255,0.10)] border-[rgba(164,168,255,0.20)] text-accent"
-                    : "text-subdim border-transparent hover:bg-white/[0.04]",
-                ].join(" ")}
-              >
-                {t}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      <div className="flex-1 overflow-y-auto py-1.5">
-        {count === 0 ? (
-          <div className="flex h-full items-center justify-center px-4 py-6">
-            <span className="text-subdim text-[10px] tracking-[0.05em] uppercase">
-              No events yet
-            </span>
+        </button>
+        {!collapsed && (
+          <div className="flex gap-1">
+            {FILTERS.map((t) => {
+              const active = t === filter;
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => dispatch(setEventFilter(t))}
+                  className={[
+                    "rounded-[5px] border px-2 py-[3px] font-mono text-[9px] tracking-[0.10em] transition-colors",
+                    active
+                      ? "bg-[rgba(164,168,255,0.10)] border-[rgba(164,168,255,0.20)] text-accent"
+                      : "text-subdim border-transparent hover:bg-white/[0.04]",
+                  ].join(" ")}
+                >
+                  {t}
+                </button>
+              );
+            })}
           </div>
-        ) : (
-          events.map((e) => <EventRow key={e.id} event={e} />)
         )}
       </div>
-      <div className="text-subdim flex justify-between border-t border-white/[0.06] px-4 py-2 font-mono text-[10px]">
-        <span>last 60m</span>
-        <span className="text-dim cursor-pointer">view all →</span>
-      </div>
+      {!collapsed && (
+        <>
+          <div className="flex-1 overflow-y-auto py-1.5">
+            {count === 0 ? (
+              <div className="flex h-full items-center justify-center px-4 py-6">
+                <span className="text-subdim text-[10px] tracking-[0.05em] uppercase">
+                  No events yet
+                </span>
+              </div>
+            ) : (
+              events.map((e) => <EventRow key={e.id} event={e} />)
+            )}
+          </div>
+          <div className="text-subdim flex justify-between border-t border-white/[0.06] px-4 py-2 font-mono text-[10px]">
+            <span>last 60m</span>
+            <span className="text-dim cursor-pointer">view all →</span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
