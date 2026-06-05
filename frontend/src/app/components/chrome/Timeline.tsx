@@ -295,10 +295,6 @@ function ViewToggles() {
   // (like Scale) since neither state is "off".
   const cameraLabel = cameraPreset === "top-down" ? "Top" : "Free";
 
-  // Local-only toggle for now. Phase 2 (#58) decides what Info gates —
-  // candidates: master toggle for the right column, or in-scene labels.
-  const [info, setInfo] = useState(true);
-
   // Real = physically accurate ratios (bodies are dots, outer system
   // far off-screen at default zoom). Stylized = log1p radial compression
   // + power-law body radii so the whole solar system fits in one view
@@ -337,11 +333,6 @@ function ViewToggles() {
         label="Scale"
         value={scaleLabel}
         onClick={() => dispatch(cycleSimulationScale())}
-      />
-      <ToggleChip
-        label="Info"
-        value={info ? "ON" : "OFF"}
-        onClick={() => setInfo((p) => !p)}
       />
       <ToggleChip
         label="Camera"
