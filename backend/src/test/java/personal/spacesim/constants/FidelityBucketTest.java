@@ -99,13 +99,13 @@ class FidelityBucketTest {
     }
 
     @Test
-    void defaultForRk4IsMedium() {
-        assertEquals(FidelityBucket.MEDIUM, FidelityBucket.defaultFor("rk4"));
+    void defaultForRk4IsMedLow() {
+        assertEquals(FidelityBucket.MED_LOW, FidelityBucket.defaultFor("rk4"));
     }
 
     @Test
-    void defaultForDp853IsMedLow() {
-        assertEquals(FidelityBucket.MED_LOW, FidelityBucket.defaultFor("dp853"));
+    void defaultForDp853IsLow() {
+        assertEquals(FidelityBucket.LOW, FidelityBucket.defaultFor("dp853"));
     }
 
     @Test
@@ -113,7 +113,7 @@ class FidelityBucketTest {
         // Frontend may send uppercase strings — match the integrator-factory
         // tolerance pattern.
         assertEquals(FidelityBucket.MED_HIGH, FidelityBucket.defaultFor("EULER"));
-        assertEquals(FidelityBucket.MED_LOW, FidelityBucket.defaultFor("DP853"));
+        assertEquals(FidelityBucket.LOW, FidelityBucket.defaultFor("DP853"));
     }
 
     @Test

@@ -79,15 +79,21 @@ public enum FidelityBucket {
      * surfaces when the user first opens the form with this integrator
      * selected (or after switching integrators mid-config).
      *
-     * <p>Picks differ because the user-visible cost differs per integrator:
+     * <p>Defaults are tuned for bandwidth: client-side cubic Hermite
+     * interpolation (using the integrator's exact velocities) reconstructs
+     * positions to well below a pixel even at coarse keyframe density, so the
+     * landing defaults sit one bucket below the middle. Measured chunk sizes
+     * shrank ~34-47% vs the previous one-bucket-finer defaults with no visible
+     * difference; users who want denser trails or finer integrator-residual
+     * resolution move the slider up.
      * <ul>
-     *   <li>Euler → bucket 4 (K=2). Crude integrator, leaning denser keeps
-     *       trails reasonable.</li>
-     *   <li>RK4 → bucket 3 (K=5). Balanced; default cost ~0.8 MB
-     *       compressed.</li>
-     *   <li>DP853 → bucket 2 (N=5000). Same ~2 MB compressed ceiling as
-     *       the fixed-step defaults; reward for opting deeper into DP853
-     *       is moving up the slider.</li>
+     *   <li>Euler → bucket 4 (MED_HIGH, K=2). Crude integrator, leaning denser
+     *       keeps its (deliberately visible) error legible.</li>
+     *   <li>RK4 → bucket 2 (MED_LOW, K=10). ~0.14 MB compressed at the default
+     *       10-body selection.</li>
+     *   <li>DP853 → bucket 1 (LOW, N=3000). ~0.36 MB compressed at the default
+     *       selection; reward for opting deeper into DP853 is moving up the
+     *       slider.</li>
      * </ul>
      */
     public static FidelityBucket defaultFor(String integrator) {
@@ -96,8 +102,8 @@ public enum FidelityBucket {
         }
         return switch (integrator.toLowerCase()) {
             case "euler" -> MED_HIGH;
-            case "rk4"   -> MEDIUM;
-            case "dp853" -> MED_LOW;
+            case "rk4"   -> MED_LOW;
+            case "dp853" -> LOW;
             default -> throw new IllegalArgumentException(
                     "Unknown integrator: '" + integrator + "'");
         };

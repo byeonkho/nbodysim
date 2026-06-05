@@ -63,7 +63,7 @@ Two device-class tiers picked at session start: 12 MB (mobile / `deviceMemory �
 
 ### Cubic Hermite interpolation + per-integrator emission
 
-The user picks a "Playback quality" bucket in SimSetupDrawer (5 buckets, per-integrator landing default — Euler→Med-High, RK4→Medium, DP853→Med-Low — auto-resets on integrator change). Wire format is a single `fidelityBucket` string on `/initialize`; backend resolves to per-integrator emission settings via the `FidelityBucket` enum (one source of truth, mirrored on both sides).
+The user picks a "Playback quality" bucket in SimSetupDrawer (5 buckets, per-integrator landing default — Euler→Med-High, RK4→Med-Low, DP853→Low — auto-resets on integrator change). The defaults sit one bucket below the middle on purpose: client-side Hermite interpolation keeps positions sub-pixel even at coarse keyframe density, so the lower defaults cut chunk size ~34–47% with no visible difference, and users who want denser trails or finer residual resolution move the slider up. Wire format is a single `fidelityBucket` string on `/initialize`; backend resolves to per-integrator emission settings via the `FidelityBucket` enum (one source of truth, mirrored on both sides).
 
 **Fixed-step integrators (Euler, RK4)** thin the external-step grid by K: the backend emits every Kth integration step, with cross-chunk continuity preserved by a monotonic `globalStepCount` cursor inside `Simulation` so chunk N+1's first kept frame lands exactly K steps after chunk N's last. Bucket→K table: Low/20, Med-Low/10, Medium/5, Med-High/2, High/1.
 

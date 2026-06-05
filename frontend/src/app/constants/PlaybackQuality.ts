@@ -43,8 +43,8 @@ export const BUCKET_LABELS: Record<FidelityBucket, string> = {
  */
 export const INTEGRATOR_DEFAULT_BUCKETS: Record<string, FidelityBucket> = {
   euler: "medHigh",
-  rk4: "medium",
-  dp853: "medLow",
+  rk4: "medLow",
+  dp853: "low",
 };
 
 /**

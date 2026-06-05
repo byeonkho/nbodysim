@@ -69,8 +69,8 @@ describe("INTEGRATOR_DEFAULT_BUCKETS", () => {
   it("matches backend FidelityBucket.defaultFor() — drift here means UI shows wrong active bucket on first open", () => {
     expect(INTEGRATOR_DEFAULT_BUCKETS).toEqual({
       euler: "medHigh",
-      rk4: "medium",
-      dp853: "medLow",
+      rk4: "medLow",
+      dp853: "low",
     });
   });
 
