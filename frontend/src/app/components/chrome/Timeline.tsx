@@ -37,6 +37,15 @@ import {
 import { formatTPlus, isoToDateOrNull } from "@/app/utils/dateMath";
 import { setOverlayEnabled, selectOverlayEnabled } from "@/app/store/slices/GroundTruthSlice";
 import { DRIFT_CHIP_TOOLTIP } from "@/app/constants/driftTooltipCopy";
+import { InfoTooltip } from "@/app/components/chrome/InfoTooltip";
+import {
+  AXES_COPY,
+  GRID_COPY,
+  LABELS_COPY,
+  SCALE_COPY,
+  TIMELINE_STEPS_COPY,
+  TPLUS_COPY,
+} from "@/app/constants/glossaryTooltipCopy";
 
 // Bottom timeline: transport + rate + scrubber + view toggles. Replaces
 // TimeControls.tsx + MiscActionBar.tsx + ControlsContainer.tsx. Scrubber
@@ -205,8 +214,18 @@ function Scrubber() {
   return (
     <div className="flex-1 px-2">
       <div className="mb-1.5 flex justify-between">
-        <span className="eyebrow">TIMELINE · {total} STEPS</span>
-        <span className="eyebrow">EPOCH J2000 · {tPlus}</span>
+        <span className="eyebrow inline-flex items-center gap-1">
+          TIMELINE · {total} STEPS
+          <InfoTooltip label="What is the timeline?">
+            {TIMELINE_STEPS_COPY}
+          </InfoTooltip>
+        </span>
+        <span className="eyebrow inline-flex items-center gap-1">
+          EPOCH J2000 · {tPlus}
+          <InfoTooltip label="What does the elapsed time mean?">
+            {TPLUS_COPY}
+          </InfoTooltip>
+        </span>
       </div>
       <div
         ref={trackRef}
@@ -310,7 +329,12 @@ function ViewToggles() {
     // in its 1/3 cell with no truncation — short-value chips get extra
     // breathing room between label and dot, which is acceptable.
     <div className="grid grid-cols-3 gap-[5px] w-[348px] shrink-0">
-      <ToggleChip label="Grid" on={grid} onClick={() => dispatch(toggleShowGrid())} />
+      <ToggleChip
+        label="Grid"
+        on={grid}
+        onClick={() => dispatch(toggleShowGrid())}
+        tooltip={GRID_COPY}
+      />
       <ToggleChip
         label="Trails"
         on={trails}
@@ -327,12 +351,19 @@ function ViewToggles() {
         label="Labels"
         on={labels}
         onClick={() => dispatch(toggleShowPlanetInfoOverlay())}
+        tooltip={LABELS_COPY}
       />
-      <ToggleChip label="Axes" on={axes} onClick={() => dispatch(toggleShowAxes())} />
+      <ToggleChip
+        label="Axes"
+        on={axes}
+        onClick={() => dispatch(toggleShowAxes())}
+        tooltip={AXES_COPY}
+      />
       <ToggleChip
         label="Scale"
         value={scaleLabel}
         onClick={() => dispatch(cycleSimulationScale())}
+        tooltip={SCALE_COPY}
       />
       <ToggleChip
         label="Camera"
