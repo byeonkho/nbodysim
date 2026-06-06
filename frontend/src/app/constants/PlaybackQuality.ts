@@ -11,26 +11,32 @@
  * <p>Mirror of backend {@code FidelityBucket} enum. Wire names match
  * exactly. K/N preview tables are for UI tooltips only — backend is the
  * source of truth.
+ *
+ * <p>Note: the wire names (internal keys) are intentionally NOT the display
+ * labels. The labels were shifted up one rung (so the coarser, bandwidth-
+ * cheaper defaults read as mid-range rather than "Low") while the keys and
+ * K/N values stayed put — e.g. key {@code "low"} displays as "Med-Low". The
+ * label is the user-facing copy; the key is the wire contract.
  */
 
-// 5 buckets, ordered low → high quality (left-to-right in the picker).
+// 4 buckets, ordered low → high quality (left-to-right in the picker).
 // Wire names match backend FidelityBucket.wireName.
 export const FIDELITY_BUCKETS = [
   "low",
   "medLow",
   "medium",
   "medHigh",
-  "high",
 ] as const;
 
 export type FidelityBucket = (typeof FIDELITY_BUCKETS)[number];
 
+// Display labels, shifted up one rung from the wire names (see file header):
+// the coarsest bucket reads as "Med-Low", not "Low".
 export const BUCKET_LABELS: Record<FidelityBucket, string> = {
-  low: "Low",
-  medLow: "Med-Low",
-  medium: "Medium",
-  medHigh: "Med-High",
-  high: "High",
+  low: "Med-Low",
+  medLow: "Medium",
+  medium: "Med-High",
+  medHigh: "High",
 };
 
 /**
@@ -43,8 +49,8 @@ export const BUCKET_LABELS: Record<FidelityBucket, string> = {
  */
 export const INTEGRATOR_DEFAULT_BUCKETS: Record<string, FidelityBucket> = {
   euler: "medHigh",
-  rk4: "medium",
-  dp853: "medLow",
+  rk4: "medLow",
+  dp853: "low",
 };
 
 /**
@@ -57,7 +63,6 @@ export const K_BY_BUCKET: Record<FidelityBucket, number> = {
   medLow: 10,
   medium: 5,
   medHigh: 2,
-  high: 1,
 };
 
 /**
@@ -69,5 +74,4 @@ export const N_BY_BUCKET: Record<FidelityBucket, number> = {
   medLow: 5000,
   medium: 7500,
   medHigh: 10000,
-  high: 15000,
 };

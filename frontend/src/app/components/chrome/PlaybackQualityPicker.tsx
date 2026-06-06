@@ -10,7 +10,7 @@ import {
  * Controlled segmented picker for the fidelity bucket. Single source of
  * truth is the parent-owned {@code bucket} prop.
  *
- * <p>5 hand-rolled {@code <button>} elements form the segmented control,
+ * <p>4 hand-rolled {@code <button>} elements form the segmented control,
  * matching the drawer's existing custom-component pattern (BodySphere,
  * ToggleSwitch). No custom-value input — the bucket abstraction is the
  * user-facing axis; backend per-integrator resolution does the rest.

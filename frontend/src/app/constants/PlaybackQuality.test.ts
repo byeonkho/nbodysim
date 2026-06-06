@@ -9,14 +9,13 @@ import {
 } from "./PlaybackQuality";
 
 describe("FIDELITY_BUCKETS", () => {
-  it("has the 5 expected wire names in low → high order", () => {
+  it("has the 4 expected wire names in low → high order", () => {
     // Must match backend FidelityBucket enum wireName values exactly.
     expect(FIDELITY_BUCKETS).toEqual([
       "low",
       "medLow",
       "medium",
       "medHigh",
-      "high",
     ]);
   });
 
@@ -34,7 +33,6 @@ describe("K_BY_BUCKET", () => {
       medLow: 10,
       medium: 5,
       medHigh: 2,
-      high: 1,
     });
   });
 
@@ -53,7 +51,6 @@ describe("N_BY_BUCKET", () => {
       medLow: 5000,
       medium: 7500,
       medHigh: 10000,
-      high: 15000,
     });
   });
 
@@ -69,8 +66,8 @@ describe("INTEGRATOR_DEFAULT_BUCKETS", () => {
   it("matches backend FidelityBucket.defaultFor() — drift here means UI shows wrong active bucket on first open", () => {
     expect(INTEGRATOR_DEFAULT_BUCKETS).toEqual({
       euler: "medHigh",
-      rk4: "medium",
-      dp853: "medLow",
+      rk4: "medLow",
+      dp853: "low",
     });
   });
 
