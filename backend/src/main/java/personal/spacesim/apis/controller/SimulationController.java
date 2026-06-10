@@ -5,6 +5,7 @@ import org.orekit.time.TimeScalesFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -12,7 +13,9 @@ import personal.spacesim.constants.FidelityBucket;
 import personal.spacesim.dtos.SimulationChunkRequest;
 import personal.spacesim.dtos.SimulationRequestDTO;
 import personal.spacesim.dtos.SimulationResponseDTO;
+import personal.spacesim.services.SessionCapacityExceededException;
 import personal.spacesim.services.SimulationSessionService;
+import personal.spacesim.simulation.body.BodyCatalog;
 
 import java.util.Date;
 import java.util.List;
@@ -60,15 +63,38 @@ public class SimulationController {
     @PostMapping("/initialize")
     public ResponseEntity<SimulationResponseDTO> initializeSimulation(@RequestBody SimulationRequestDTO request) {
 
-        // get parameters from payload
-        AbsoluteDate date = new AbsoluteDate(
-                request.date(),
-                TimeScalesFactory.getUTC()
-        );
         List<String> celestialBodyNames = request.celestialBodyNames();
         String frame = request.frame();
         String integrator = request.integrator();
         String timeStepUnit = request.timeStepUnit();
+
+        // --- Input validation. Reject malformed/abusive requests with 400
+        // before building anything: an unbounded or garbage body list is the
+        // cheapest OOM/compute DoS vector on a small VM. ---
+        if (isBlank(request.date()) || isBlank(frame) || isBlank(integrator) || isBlank(timeStepUnit)) {
+            return ResponseEntity.badRequest().build();
+        }
+        if (celestialBodyNames == null || celestialBodyNames.isEmpty()
+                || celestialBodyNames.size() > BodyCatalog.MAX_BODIES_PER_SIM) {
+            return ResponseEntity.badRequest().build();
+        }
+        for (String name : celestialBodyNames) {
+            if (!BodyCatalog.isKnown(name)) {
+                logger.warn("Rejecting /initialize with unknown body name: {}", name);
+                return ResponseEntity.badRequest().build();
+            }
+        }
+
+        // Parse the start date. Orekit throws on malformed input; map to 400
+        // rather than letting it surface as a 500 carrying an internal message.
+        AbsoluteDate date;
+        try {
+            date = new AbsoluteDate(request.date(), TimeScalesFactory.getUTC());
+        } catch (RuntimeException e) {
+            logger.warn("Rejecting /initialize with unparseable date '{}': {}",
+                    request.date(), e.getMessage());
+            return ResponseEntity.badRequest().build();
+        }
 
         // Resolve the fidelity bucket. Null bucket → per-integrator landing
         // default. Each bucket carries both K (used by fixed-step) and N
@@ -85,19 +111,33 @@ public class SimulationController {
             return ResponseEntity.badRequest().build();
         }
 
-        String sessionID = simulationSessionService.createSimulation(
-                celestialBodyNames,
-                frame,
-                integrator,
-                date,
-                timeStepUnit,
-                bucket.keyframesPerKept(),
-                bucket.targetSnapshotsPerChunk()
-        );
+        String sessionID;
+        try {
+            sessionID = simulationSessionService.createSimulation(
+                    celestialBodyNames,
+                    frame,
+                    integrator,
+                    date,
+                    timeStepUnit,
+                    bucket.keyframesPerKept(),
+                    bucket.targetSnapshotsPerChunk()
+            );
+        } catch (SessionCapacityExceededException e) {
+            logger.warn("Rejecting /initialize: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        } catch (IllegalArgumentException e) {
+            // Unknown frame / integrator surface here from their factories.
+            logger.warn("Rejecting /initialize with invalid frame/integrator: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
+        }
 
         // building response object
         SimulationResponseDTO responseDTO = simulationSessionService.returnSimulationResponseDTO(sessionID);
         return ResponseEntity.ok(responseDTO);
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
     }
 
     /**

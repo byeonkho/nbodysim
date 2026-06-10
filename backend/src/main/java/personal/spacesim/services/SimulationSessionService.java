@@ -35,6 +35,16 @@ public class SimulationSessionService {
     // Sessions idle longer than this are evicted by the periodic sweeper.
     private static final long IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
+    // Hard cap on concurrent live sessions, bounding total heap on a small VM.
+    // Each idle session holds its cached compressed chunk + body state (a few
+    // MB); the precompute pool is bounded to ~cores/2 threads, so only a couple
+    // of sessions sit at serialization peak (~20 MB) at once while the rest hold
+    // their idle footprint. 50 keeps worst-case heap well under a ~1 GB budget
+    // while absorbing a realistic concurrent-visitor spike. Conservative —
+    // refine under load. Complements the idle sweeper, which only reclaims
+    // sessions after IDLE_TIMEOUT_MS.
+    private static final int MAX_CONCURRENT_SESSIONS = 50;
+
     private final ConcurrentHashMap<String, Simulation> simulationMap;
     private final ConcurrentHashMap<String, Long> lastAccessedAt;
     private final SimulationFactory simulationFactory;
@@ -78,6 +88,14 @@ public class SimulationSessionService {
             int keyframesPerKept,
             int targetSnapshotsPerChunk
     ) {
+        // Reject before doing the expensive build (body wrappers, possible
+        // Horizons fetches) if we're already at capacity. Soft check — a tiny
+        // race can let a few past the cap, which is harmless for a heap guard.
+        if (simulationMap.size() >= MAX_CONCURRENT_SESSIONS) {
+            throw new SessionCapacityExceededException(
+                    "Server at capacity (" + MAX_CONCURRENT_SESSIONS + " concurrent sessions)");
+        }
+
         String sessionID = UUID.randomUUID().toString();
         Simulation simulation = simulationFactory.createSimulation(
                 sessionID,
