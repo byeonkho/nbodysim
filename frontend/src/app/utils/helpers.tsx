@@ -95,3 +95,40 @@ export const formatStepDuration = (seconds: number): string => {
   return `${(seconds / 86_400).toFixed(1)} d`;
 };
 
+const SUPERSCRIPT: Record<string, string> = {
+  "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
+  "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "-": "⁻",
+};
+
+const toSuperscript = (n: number): string =>
+  n
+    .toString()
+    .split("")
+    .map((c) => SUPERSCRIPT[c] ?? c)
+    .join("");
+
+// Mass in kilograms → compact scientific string, e.g. "5.97×10²⁴ kg".
+// Bodies span ~1e20 (small moons) to ~1e30 (Sun), so fixed notation is
+// useless; scientific with a 2-figure mantissa stays readable at all scales.
+export const formatMassKg = (kg?: number): string => {
+  if (kg == null || !Number.isFinite(kg) || kg <= 0) return "—";
+  const exp = Math.floor(Math.log10(kg));
+  const mantissa = kg / Math.pow(10, exp);
+  return `${mantissa.toFixed(2)}×10${toSuperscript(exp)} kg`;
+};
+
+// Radius in metres → whole kilometres with separators, e.g. "6,371 km".
+export const formatRadiusKm = (metres?: number): string => {
+  if (metres == null || !Number.isFinite(metres) || metres <= 0) return "—";
+  return `${Math.round(metres / 1000).toLocaleString("en-US")} km`;
+};
+
+// Orbital period in seconds → days under ~100, years above. One decimal
+// place. NaN (unbound orbits) renders as the no-data dash.
+export const formatOrbitalPeriod = (seconds: number): string => {
+  if (!Number.isFinite(seconds)) return "—";
+  const days = seconds / 86_400;
+  if (days < 100) return `${days.toFixed(1)} d`;
+  return `${(days / 365.25).toFixed(1)} yr`;
+};
+

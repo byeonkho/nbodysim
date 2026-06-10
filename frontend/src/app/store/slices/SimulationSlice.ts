@@ -130,6 +130,10 @@ export function readStoredDisplayFrame(): DisplayFrame | null {
 
 interface SimulationState {
   activeBodyState: ActiveBodyState;
+  // Body currently under the cursor in the 3D scene (hover, not click).
+  // Drives the hover-expanded ghost label. Separate from activeBodyState
+  // because hover is a transient preview and click is a sticky selection.
+  hoveredBodyName: string | null;
   simulationParameters: SimulationParameters;
   chunkBuffer: ChunkBuffer | null;
   hasReceivedFirstChunk: boolean;
@@ -141,6 +145,7 @@ const initialState: SimulationState = {
     isBodyActive: false,
     activeBodyName: null,
   },
+  hoveredBodyName: null,
   simulationParameters: {
     celestialBodyPropertiesList: [],
     simulationMetaData: null,
@@ -208,6 +213,7 @@ export const simulationSlice = createSlice({
         isBodyActive: false,
         activeBodyName: null,
       };
+      state.hoveredBodyName = null;
 
       state.simulationParameters = {
         ...state.simulationParameters,
@@ -352,6 +358,24 @@ export const simulationSlice = createSlice({
     ) => {
       state.activeBodyState.activeBodyName = action.payload;
       state.activeBodyState.isBodyActive = true;
+    },
+    setHoveredBody: (
+      state: SimulationState,
+      action: PayloadAction<string>,
+    ) => {
+      state.hoveredBodyName = action.payload;
+    },
+    // Clear only if the named body is still the hovered one. Guards the
+    // race when the cursor slides from body A to body B: A's pointer-out
+    // can fire after B's pointer-over, and a blind clear would then wipe
+    // B's freshly-set hover.
+    clearHoveredBody: (
+      state: SimulationState,
+      action: PayloadAction<string>,
+    ) => {
+      if (state.hoveredBodyName === action.payload) {
+        state.hoveredBodyName = null;
+      }
     },
     setLastSimRequest: (
       state: SimulationState,
@@ -528,6 +552,9 @@ export const selectActiveBodyName = (state: RootState) =>
 export const selectIsBodyActive = (state: RootState) =>
   state.simulation.activeBodyState.isBodyActive;
 
+export const selectHoveredBodyName = (state: RootState) =>
+  state.simulation.hoveredBodyName;
+
 export const selectCurrentTimeStepIndex = (state: RootState) =>
   state.simulation.timeState.currentTimeStepIndex;
 
@@ -569,6 +596,8 @@ export const {
   setSpeedMultiplier,
   setCurrentTimeStepIndex,
   setActiveBody,
+  setHoveredBody,
+  clearHoveredBody,
   setIsBodyActive,
   setLastSimRequest,
   toggleCameraPreset,
