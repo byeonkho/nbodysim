@@ -46,6 +46,9 @@ export function SimSetupModal({ open, onOpenChange }: SimSetupModalProps) {
   const [fidelityBucket, setFidelityBucket] = useState<FidelityBucket>(
     INTEGRATOR_DEFAULT_BUCKETS[integrator] ?? "medLow",
   );
+  // Non-null while a Run is in flight; holds the button's progress label
+  // ("Starting…", then "Waking up…" if the backend is cold-starting).
+  const [submitMsg, setSubmitMsg] = useState<string | null>(null);
 
   // Reset the bucket to the new integrator's landing default when integrator
   // changes. Guarded set-state-in-render (not useEffect) to satisfy the repo's
@@ -78,30 +81,42 @@ export function SimSetupModal({ open, onOpenChange }: SimSetupModalProps) {
   const setSelection = (keys: BodyKey[]) => setSelectedBodies(new Set(keys));
 
   const enabled = selectedBodies.size;
+  const busy = submitMsg !== null;
 
   const handleSubmit = async () => {
     const celestialBodyNames = Array.from(selectedBodies).map(
       (k) => BODY_DISPLAY[k],
     );
     if (celestialBodyNames.length === 0) return; // Run is disabled at 0 anyway
+    if (busy) return; // a Run is already in flight
+
+    const requestPayload = {
+      celestialBodyNames,
+      date: epoch,
+      frame,
+      integrator,
+      timeStepUnit: timeUnit,
+      fidelityBucket,
+    };
+    setSubmitMsg("Starting simulation…");
     try {
-      const requestPayload = {
-        celestialBodyNames,
-        date: epoch,
-        frame,
-        integrator,
-        timeStepUnit: timeUnit,
-        fidelityBucket,
-      };
+      // initializeCelestialBodies retries a cold-starting backend internally
+      // and surfaces its own error toast; it returns false rather than throwing.
       // Backend wants the frame CODE; lastRequest keeps the LABEL for display.
-      await initializeCelestialBodies(dispatch, {
-        ...requestPayload,
-        frame: FRAME_CODE[frame] ?? frame,
-      });
+      const ok = await initializeCelestialBodies(
+        dispatch,
+        { ...requestPayload, frame: FRAME_CODE[frame] ?? frame },
+        {
+          onRetry: () =>
+            setSubmitMsg("Waking up the simulator, this can take a few seconds…"),
+        },
+      );
+      if (!ok) return; // error already shown; keep the modal open so they can retry
+
       const sessionID =
         store.getState().simulation.simulationParameters?.simulationMetaData
           ?.sessionID;
-      if (!sessionID) throw new Error("Failed to initialize sim session.");
+      if (!sessionID) return; // defensive: ok was true, so this should not happen
       dispatch(setLastSimRequest(requestPayload));
       dispatchChunkRequest(dispatch, { sessionID });
       // Auto-start: the controller gates on isPaused AND a populated buffer,
@@ -109,9 +124,8 @@ export function SimSetupModal({ open, onOpenChange }: SimSetupModalProps) {
       // chunk arrives.
       dispatch(setIsPaused(false));
       onOpenChange(false);
-    } catch (err) {
-      console.error("Sim params submit error:", err);
-      alert(err instanceof Error ? err.message : "Submit failed");
+    } finally {
+      setSubmitMsg(null);
     }
   };
 
@@ -227,7 +241,7 @@ export function SimSetupModal({ open, onOpenChange }: SimSetupModalProps) {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={enabled === 0}
+              disabled={enabled === 0 || busy}
               className="flex items-center gap-2.5 text-[14px] font-semibold disabled:cursor-not-allowed"
               style={{
                 padding: "12px 28px",
@@ -246,16 +260,28 @@ export function SimSetupModal({ open, onOpenChange }: SimSetupModalProps) {
                     : "0 0 0 3px rgba(164,168,255,0.18), 0 6px 20px rgba(146,152,238,0.5), inset 0 1px 0 rgba(255,255,255,0.55)",
               }}
             >
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 13 13"
-                fill="currentColor"
-                aria-hidden
-              >
-                <path d="M3 2l8 4.5L3 11V2z" />
-              </svg>
-              Run simulation
+              {busy ? (
+                <>
+                  <span
+                    className="inline-block h-[13px] w-[13px] animate-spin rounded-full border-2 border-current/30 border-t-current"
+                    aria-hidden
+                  />
+                  {submitMsg}
+                </>
+              ) : (
+                <>
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 13 13"
+                    fill="currentColor"
+                    aria-hidden
+                  >
+                    <path d="M3 2l8 4.5L3 11V2z" />
+                  </svg>
+                  Run simulation
+                </>
+              )}
             </button>
           </div>
         </Dialog.Content>
