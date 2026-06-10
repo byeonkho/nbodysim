@@ -243,10 +243,19 @@ export function GhostLabel({
 
   return (
     <group ref={groupRef}>
-      <Html style={{ pointerEvents: "none" }} center>
+      {/* Bottom-anchored: the label's bottom edge sits a fixed 34px above the
+          body and the block grows upward. drei's `center` is intentionally
+          omitted — it centers vertically too, which made the offset scale with
+          the label's height, so the hover-expanded label leapt upward and left
+          a gap below. translate(-50%, calc(-100% - 34px)) keeps the bottom
+          pinned regardless of how many rows are shown. */}
+      <Html style={{ pointerEvents: "none" }}>
         <div
           className="text-center font-medium uppercase"
-          style={{ transform: "translateY(-180%)", whiteSpace: "nowrap" }}
+          style={{
+            transform: "translate(-50%, calc(-100% - 34px))",
+            whiteSpace: "nowrap",
+          }}
         >
           <div
             className="text-[9.5px]"
