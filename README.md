@@ -2,9 +2,9 @@
 
 > Real-time N-body simulation of the solar system, computed from real astronomy data and played back in 3D in your browser.
 
-**Live demo:** _coming soon at [nbodysim.com](https://nbodysim.com)._
+**Live demo: [nbodysim.com](https://nbodysim.com)**
 
-<!-- TODO(post-deploy): replace this line with a hero GIF of the orbiting scene + trails -->
+<!-- TODO: add a hero GIF of the orbiting scene + trails above this line -->
 
 Pick the bodies, a reference frame, an integrator, and a time step. The backend computes trajectories from JPL initial conditions using a pluggable, hand-written N-body integrator; the frontend tape-plays them in 3D at adjustable speed. Trajectories arrive as zstd-compressed binary chunks over HTTP/2, decoded in a Web Worker, so you can scrub, pause, and rewind without the simulation needing to keep up with the camera.
 
