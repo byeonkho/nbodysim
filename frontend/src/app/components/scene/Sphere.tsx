@@ -10,10 +10,13 @@ import { PlanetRings } from "@/app/components/scene/PlanetRings";
 import { AtmosphereHalo } from "@/app/components/scene/AtmosphereHalo";
 import {
   CelestialBodyProperties,
+  clearHoveredBody,
   selectCelestialBodyPropertiesList,
   setActiveBody,
+  setHoveredBody,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
+import type { ThreeEvent } from "@react-three/fiber";
 import { readBodyPositionInto } from "@/app/store/chunkBuffer";
 import { setBodyWorldPositionWithPreset } from "@/app/utils/coordinates";
 import { writePivotInto } from "@/app/utils/framePivot";
@@ -246,12 +249,26 @@ const Sphere: React.FC<SphereProps> = ({
     dispatch(setActiveBody(name));
   };
 
+  // Hover → drives the expanded ghost label. stopPropagation so only the
+  // front-most body under the cursor counts; clearHoveredBody is name-guarded
+  // in the reducer so an A→B slide doesn't wipe B's freshly-set hover.
+  const handlePointerOver = (e: ThreeEvent<PointerEvent>) => {
+    e.stopPropagation();
+    dispatch(setHoveredBody(name));
+  };
+  const handlePointerOut = (e: ThreeEvent<PointerEvent>) => {
+    e.stopPropagation();
+    dispatch(clearHoveredBody(name));
+  };
+
   return (
     <group ref={posGroupRef}>
       <group rotation={[tiltRad, 0, 0]}>
         <mesh
           ref={meshRef}
           onClick={handleClick}
+          onPointerOver={handlePointerOver}
+          onPointerOut={handlePointerOut}
           geometry={irregularGeometry ?? undefined}
         >
           {!irregularGeometry && <sphereGeometry args={[radius, 32, 32]} />}
