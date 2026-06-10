@@ -3,8 +3,6 @@
 // in the DOM. Copy is the source of truth for these UI strings — plain
 // English, no jargon, no em-dashes (presentation-layer rule).
 
-export type TourPhase = "phase1" | "phase2";
-
 export interface TourStep {
   id: string;
   /** data-tour value of the element to spotlight; null = centered card. */

@@ -60,9 +60,10 @@ export function TourOverlay({ simSetupOpen }: { simSetupOpen: boolean }) {
         : null;
   const step = steps ? (steps[stepIndex] ?? null) : null;
 
-  // Hidden while: idle/done/awaitingRun, or during phase1 with the Sim Setup
-  // modal open (so we don't double-dim under the dialog).
-  const hidden = !step || (status === "phase1" && simSetupOpen);
+  // Hidden while: idle/done/awaitingRun (steps === null), or whenever the Sim
+  // Setup modal is open, in either phase, so we never double-dim under the
+  // dialog or float the spotlight over it.
+  const hidden = !step || simSetupOpen;
 
   const target = hidden ? null : step!.target;
   const rect = useTourTarget(target);
@@ -102,6 +103,17 @@ export function TourOverlay({ simSetupOpen }: { simSetupOpen: boolean }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [hidden, dispatch, store]);
+
+  // Remember what had focus when the tour opened, and restore it when the tour
+  // closes. Deps are just [hidden], so this captures once on open and runs its
+  // cleanup once on close (not on every step change). Declared before the
+  // focus-into-tooltip effect so it captures the pre-tour element, not the
+  // tooltip.
+  useEffect(() => {
+    if (hidden) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    return () => previouslyFocused?.focus?.();
+  }, [hidden]);
 
   // Move focus into the tooltip when a step appears.
   useEffect(() => {
@@ -194,7 +206,7 @@ export function TourOverlay({ simSetupOpen }: { simSetupOpen: boolean }) {
           current={stepIndex + 1}
           total={total}
           variant={variant}
-          canBack={isPhase2 && stepIndex > 0}
+          canBack={stepIndex > 0}
           onPrimary={advancePrimary}
           onSecondary={() => dispatch(skipTour())}
           onBack={() => dispatch(prevStep())}

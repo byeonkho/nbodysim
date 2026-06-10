@@ -189,7 +189,14 @@ export function TopStatusStrip({
         type="button"
         aria-label="Replay the intro tour"
         onClick={() => {
-          const hasSim = store.getState().simulation.chunkBuffer != null;
+          const s = store.getState();
+          // Treat a running sim, or the brief awaitingRun load window, as
+          // "live" so replay skips the funnel and resumes at phase 2. Without
+          // the awaitingRun guard, replaying between Run and the first chunk
+          // would reset to phase 1 and strand the tour over a live scene.
+          const hasSim =
+            s.simulation.chunkBuffer != null ||
+            s.tour.status === "awaitingRun";
           dispatch(startTour(hasSim ? { atPhase2: true } : undefined));
         }}
         className="text-dim hover:text-hi flex h-full items-center px-3.5 transition-colors"
