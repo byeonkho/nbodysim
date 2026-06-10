@@ -20,6 +20,12 @@ import { InfoTooltip } from "@/app/components/chrome/InfoTooltip";
 import { readDeltaERelativeAt } from "@/app/store/chunkBuffer";
 import { formatDeltaE } from "@/app/utils/helpers";
 import { RESIDUAL_CONCEPT_COPY } from "@/app/constants/residualTooltipCopy";
+import {
+  BUFFER_COPY,
+  FPS_COPY,
+  JD_COPY,
+  UTC_COPY,
+} from "@/app/constants/glossaryTooltipCopy";
 import type { RootState } from "@/app/store/Store";
 
 // Top glass strip — the SimSetup CTA leads, followed by the
@@ -32,10 +38,12 @@ function StatusCell({
   label,
   value,
   valueClass,
+  tooltip,
 }: {
   label: string;
   value: string;
   valueClass?: string;
+  tooltip?: React.ReactNode;
 }) {
   return (
     <div className="flex h-full items-baseline gap-1.5 border-r border-white/[0.06] px-3.5">
@@ -45,6 +53,13 @@ function StatusCell({
       >
         {value}
       </span>
+      {tooltip && (
+        <span className="self-center">
+          <InfoTooltip label={`What is ${label}?`} placement="below">
+            {tooltip}
+          </InfoTooltip>
+        </span>
+      )}
     </div>
   );
 }
@@ -52,9 +67,11 @@ function StatusCell({
 function StatusCellWith({
   label,
   children,
+  tooltip,
 }: {
   label: string;
   children: React.ReactNode;
+  tooltip?: React.ReactNode;
 }) {
   return (
     <div className="flex h-full items-baseline gap-1.5 border-r border-white/[0.06] px-3.5">
@@ -62,6 +79,13 @@ function StatusCellWith({
       <span className="tabular text-hi self-center font-mono text-[11px]">
         {children}
       </span>
+      {tooltip && (
+        <span className="self-center">
+          <InfoTooltip label={`What is ${label}?`} placement="below">
+            {tooltip}
+          </InfoTooltip>
+        </span>
+      )}
     </div>
   );
 }
@@ -134,8 +158,8 @@ export function TopStatusStrip({
 
       <ConfigurationChip onClick={onSimSetupClick} />
 
-      <StatusCell label="UTC" value={formatUtc(utcKey)} />
-      <StatusCell label="JD" value={jdStr} />
+      <StatusCell label="UTC" value={formatUtc(utcKey)} tooltip={UTC_COPY} />
+      <StatusCell label="JD" value={jdStr} tooltip={JD_COPY} />
 
       <div className="flex-1" />
 
@@ -154,8 +178,8 @@ export function TopStatusStrip({
         </span>
       </div>
 
-      <StatusCell label="Buffer" value={bufferedStr} />
-      <StatusCellWith label="FPS">
+      <StatusCell label="Buffer" value={bufferedStr} tooltip={BUFFER_COPY} />
+      <StatusCellWith label="FPS" tooltip={FPS_COPY}>
         <FpsValue className="text-success" />
       </StatusCellWith>
     </div>

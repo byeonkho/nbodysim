@@ -63,8 +63,17 @@ export function InfoTooltip({
     const rect = buttonRef.current.getBoundingClientRect();
     const tooltipWidth = 256; // matches w-64
     const gap = 8;
+    const margin = 8;
+    // Clamp horizontally into the viewport so edge-anchored chips (e.g. the
+    // frame compass pinned at the left margin) don't bleed off-screen. These
+    // tooltips have no arrow, so shifting left/right has no tether to break.
+    const rawLeft = rect.left + rect.width / 2 - tooltipWidth / 2;
+    const left = Math.max(
+      margin,
+      Math.min(rawLeft, window.innerWidth - tooltipWidth - margin),
+    );
     setCoords({
-      left: rect.left + rect.width / 2 - tooltipWidth / 2,
+      left,
       top:
         placement === "below"
           ? rect.bottom + gap

@@ -14,6 +14,8 @@ import {
   toggleEventLog,
 } from "@/app/store/slices/UISlice";
 import { CollapseChevron } from "@/app/components/chrome/CollapseChevron";
+import { InfoTooltip } from "@/app/components/chrome/InfoTooltip";
+import { EVENT_LOG_COPY } from "@/app/constants/glossaryTooltipCopy";
 
 // Event log card. USR entries flow in via the userActionLogger
 // middleware; SIM entries arrive in Phase 6 (#40). Filter chips reuse
@@ -39,21 +41,26 @@ export function EventLogCard() {
           collapsed ? "" : "border-b border-white/[0.06]"
         }`}
       >
-        <button
-          type="button"
-          onClick={() => dispatch(toggleEventLog())}
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? "Expand event log" : "Collapse event log"}
-          className="flex items-center gap-2"
-        >
-          <CollapseChevron collapsed={collapsed} />
-          <span className="text-hi text-[12px] font-semibold tracking-[-0.01em]">
-            Event log
-          </span>
-          <span className="text-subdim tabular rounded bg-white/[0.05] px-1.5 py-px font-mono text-[10px]">
-            {count}
-          </span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => dispatch(toggleEventLog())}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Expand event log" : "Collapse event log"}
+            className="flex items-center gap-2"
+          >
+            <CollapseChevron collapsed={collapsed} />
+            <span className="text-hi text-[12px] font-semibold tracking-[-0.01em]">
+              Event log
+            </span>
+            <span className="text-subdim tabular rounded bg-white/[0.05] px-1.5 py-px font-mono text-[10px]">
+              {count}
+            </span>
+          </button>
+          <InfoTooltip label="What is the event log?">
+            {EVENT_LOG_COPY}
+          </InfoTooltip>
+        </div>
         {!collapsed && (
           <div className="flex gap-1">
             {FILTERS.map((t) => {

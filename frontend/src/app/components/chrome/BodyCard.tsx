@@ -32,6 +32,10 @@ import {
 import { selectOverlayEnabled } from "@/app/store/slices/GroundTruthSlice";
 import { driftMetrics } from "@/app/utils/driftMetrics";
 import { DRIFT_READOUT_COPY } from "@/app/constants/driftTooltipCopy";
+import {
+  KEPLERIAN_COPY,
+  STATE_VECTOR_COPY,
+} from "@/app/constants/glossaryTooltipCopy";
 import { BodyPortrait } from "@/app/components/chrome/BodyPortrait";
 import { InfoTooltip } from "@/app/components/chrome/InfoTooltip";
 import {
@@ -390,14 +394,28 @@ export function BodyCard() {
             frame.
           </div>
 
-          <SectionLabel>State vector · J2000</SectionLabel>
+          <SectionLabel>
+            <span className="inline-flex items-center gap-1">
+              State vector · J2000
+              <InfoTooltip label="What is the state vector?">
+                {STATE_VECTOR_COPY}
+              </InfoTooltip>
+            </span>
+          </SectionLabel>
           <KvRow k={`Range to ${stateVectorRefDisplay}`} valueRef={rangeRef} />
           <KvRow k="Speed" valueRef={speedRef} accent />
           <KvRow k="r⃗ · x" valueRef={rxRef} />
           <KvRow k="r⃗ · y" valueRef={ryRef} />
           <KvRow k="v⃗ · ‖" valueRef={vmagRef} />
 
-          <SectionLabel>Keplerian elements</SectionLabel>
+          <SectionLabel>
+            <span className="inline-flex items-center gap-1">
+              Keplerian elements
+              <InfoTooltip label="What are Keplerian elements?">
+                {KEPLERIAN_COPY}
+              </InfoTooltip>
+            </span>
+          </SectionLabel>
           <KvRow k="Semi-major axis · a" valueRef={semiMajorRef} />
           <KvRow k="Eccentricity · e" valueRef={eccentricityRef} />
           <KvRow k="Inclination · i" valueRef={inclinationRef} />
