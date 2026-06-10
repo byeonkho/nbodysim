@@ -56,6 +56,7 @@ import {
 export function Timeline() {
   return (
     <div
+      data-tour="timeline"
       className="glass pointer-events-auto absolute right-6 bottom-[18px] left-6 flex items-center gap-[18px] px-[18px] py-[14px]"
       style={{ borderRadius: 14 }}
     >

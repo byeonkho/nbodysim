@@ -29,6 +29,7 @@ export function SimSetupButton({
     >
       <button
         type="button"
+        data-tour="sim-setup"
         aria-label="Sim setup"
         aria-expanded={active}
         onClick={onClick}

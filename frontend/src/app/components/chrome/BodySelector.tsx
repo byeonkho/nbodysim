@@ -80,6 +80,7 @@ export function BodySelector() {
 
   return (
     <div
+      data-tour="body-selector"
       className="glass pointer-events-auto absolute top-[74px] left-1/2 flex -translate-x-1/2 items-center gap-0.5 p-1.5"
       style={{ borderRadius: 9999 }}
     >

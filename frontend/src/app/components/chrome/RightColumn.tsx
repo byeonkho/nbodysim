@@ -8,7 +8,10 @@ import { BodyCard } from "@/app/components/chrome/BodyCard";
 
 export function RightColumn() {
   return (
-    <div className="pointer-events-auto absolute top-[148px] right-6 w-[316px]">
+    <div
+      data-tour="info-card"
+      className="pointer-events-auto absolute top-[148px] right-6 w-[316px]"
+    >
       <BodyCard />
     </div>
   );

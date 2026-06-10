@@ -40,7 +40,10 @@ export function FrameCompass() {
     frame === "helio" ? "var(--color-amber)" : "var(--color-body-earth)";
 
   return (
-    <div className="pointer-events-auto absolute top-[96px] left-6 w-24">
+    <div
+      data-tour="frame-compass"
+      className="pointer-events-auto absolute top-[96px] left-6 w-24"
+    >
       <span className="absolute top-1.5 right-1.5 z-10">
         <InfoTooltip label="What is the frame?" placement="below">
           {FRAME_COMPASS_COPY}
