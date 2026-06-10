@@ -16,51 +16,91 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.EnumMap;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Per-IP token bucket rate limiter for the public {@code /api/**} surface.
+ * Per-IP, per-endpoint token-bucket rate limiter for the public {@code /api/**}
+ * surface.
  *
- * <p>Two buckets per IP, both must allow the request:
+ * <p>Layered defense (Railway origin behind a Cloudflare proxy):
  * <ul>
- *   <li><b>Burst:</b> 60 req/min, intervally refilled. Comfortably allows
- *       max-speed playback (~50 chunk requests/min) with headroom.</li>
- *   <li><b>Daily:</b> 500 req/day, intervally refilled. Sizing budget per
- *       chunk after Phase 3 (float32 + Mode C):
- *       <ul>
- *         <li>Default tier (Euler/RK4 highest bucket): up to 2 MB compressed
- *             → ~1 GB/day per IP.</li>
- *         <li>DP853 tier (highest bucket): up to ~3 MB compressed →
- *             ~1.5 GB/day per IP.</li>
- *       </ul>
- *       Bounded by construction now — no chunks larger than the per-tier
- *       ceiling can be emitted.</li>
+ *   <li><b>Cloudflare's edge</b> owns DDoS, bots, and IP-rotation abuse — it
+ *       turns floods away before they reach the origin (saving compute and
+ *       egress), which a per-IP app limiter fundamentally can't. So these
+ *       app-level limits are a <em>fairness</em> backstop (no single client
+ *       starves others), not the primary abuse defense.</li>
+ *   <li><b>Per-endpoint buckets</b> because the endpoints differ wildly in cost
+ *       and cadence. The previous single shared bucket (60/min + 500/day across
+ *       all of {@code /api}) throttled an engaged viewer in ~10 minutes:
+ *       high-speed playback fires ~50 chunk requests/min, so a shared 500/day
+ *       was spent almost immediately. Splitting per endpoint lets the
+ *       frequent-but-cheap {@code /chunk} path run generously while the
+ *       expensive {@code /initialize} stays tight.</li>
+ *   <li><b>Global cap</b> is a high last-resort circuit breaker, not a tight
+ *       budget. The previous global 5000/day returned 429 to <em>every</em>
+ *       client once exhausted — a self-DoS under exactly the traffic spike a
+ *       portfolio wants. The real cost ceiling is a platform spend cap; this
+ *       50k/day backstop only trips if a flood somehow reaches the origin.</li>
+ * </ul>
+ *
+ * <p>Per-endpoint per-IP limits (burst / daily):
+ * <ul>
+ *   <li>{@code /initialize}: 20/min, 300/day — rare, builds a whole session.</li>
+ *   <li>{@code /chunk}: 120/min, 3000/day — ~2.4x the ~50/min playback rate;
+ *       3000/day is ~1 h of continuous max-speed playback before one IP is
+ *       capped (~9 GB at ~3 MB/chunk).</li>
+ *   <li>{@code /ground-truth}: 120/min, 3000/day — small payload, moderate
+ *       cadence when the drift overlay is on.</li>
+ *   <li>any other {@code /api} path: 60/min, 500/day — conservative default.</li>
  * </ul>
  *
  * <p>On limit hit: {@code 429 Too Many Requests} with a {@code Retry-After}
  * header (seconds). Bucket entries are evicted hourly if idle for 24 h.
  *
- * <p>IP detection prefers the first {@code X-Forwarded-For} hop (for Fly.io's
- * proxy) and falls back to {@code remoteAddr} for direct/localhost.
+ * <p>Client IP is resolved Cloudflare-first ({@code CF-Connecting-IP}), then the
+ * first {@code X-Forwarded-For} hop, then {@code remoteAddr}. Behind Cloudflare
+ * the true client is in {@code CF-Connecting-IP}; trusting it is only safe
+ * because the origin is locked to accept Cloudflare traffic at deploy time —
+ * otherwise the header is client-spoofable.
  */
 @Component
 public class RateLimitFilter extends OncePerRequestFilter {
 
     private static final Logger logger = LoggerFactory.getLogger(RateLimitFilter.class);
 
-    private static final int BURST_LIMIT_PER_MINUTE = 60;
-    private static final int DAILY_LIMIT = 500;
-    private static final int GLOBAL_DAILY_LIMIT = 5000;
+    /** Global last-resort circuit breaker across all IPs (see class doc). */
+    private static final int GLOBAL_DAILY_LIMIT = 50_000;
     private static final long IDLE_BUCKET_TTL_MS = 24L * 60 * 60 * 1000;
+
+    /**
+     * Per-endpoint per-IP limits. Package-private so the test can pin the
+     * (burst, daily) values that the production buckets are built from.
+     */
+    enum ApiEndpoint {
+        INITIALIZE(20, 300),
+        CHUNK(120, 3_000),
+        GROUND_TRUTH(120, 3_000),
+        OTHER(60, 500);
+
+        final int burstPerMinute;
+        final int daily;
+
+        ApiEndpoint(int burstPerMinute, int daily) {
+            this.burstPerMinute = burstPerMinute;
+            this.daily = daily;
+        }
+
+        static ApiEndpoint classify(String uri) {
+            if (uri.endsWith("/initialize")) return INITIALIZE;
+            if (uri.endsWith("/chunk")) return CHUNK;
+            if (uri.endsWith("/ground-truth")) return GROUND_TRUTH;
+            return OTHER;
+        }
+    }
 
     private final ConcurrentHashMap<String, IpBuckets> buckets = new ConcurrentHashMap<>();
 
-    // Global ceiling across all IPs. Protects the bandwidth budget against
-    // attackers rotating IPs (residential proxies, IPv6, Tor) — per-IP limits
-    // alone are trivially defeated by anyone willing to spend $10/mo on a
-    // proxy farm. When this is exhausted, every request gets 429 regardless
-    // of source. Sized at ~50% of free Fly bandwidth (5000 chunks × ~3 MB
-    // highest DP853 chunk ≈ 15 GB/day vs 160 GB/month budget).
     private final Bucket globalBucket = Bucket.builder()
             .addLimit(Bandwidth.classic(
                     GLOBAL_DAILY_LIMIT,
@@ -84,18 +124,21 @@ public class RateLimitFilter extends OncePerRequestFilter {
         }
 
         String ip = resolveClientIp(request);
+        ApiEndpoint endpoint = ApiEndpoint.classify(uri);
         IpBuckets ipBuckets = buckets.computeIfAbsent(ip, k -> new IpBuckets());
         ipBuckets.touch();
 
-        ConsumptionProbe burst = ipBuckets.burst.tryConsumeAndReturnRemaining(1);
+        EndpointBuckets eb = ipBuckets.bucketsFor(endpoint);
+
+        ConsumptionProbe burst = eb.burst.tryConsumeAndReturnRemaining(1);
         if (!burst.isConsumed()) {
-            sendTooManyRequests(request, response, burst.getNanosToWaitForRefill(), ip, "burst");
+            sendTooManyRequests(request, response, burst.getNanosToWaitForRefill(), ip, endpoint + " burst");
             return;
         }
 
-        ConsumptionProbe daily = ipBuckets.daily.tryConsumeAndReturnRemaining(1);
+        ConsumptionProbe daily = eb.daily.tryConsumeAndReturnRemaining(1);
         if (!daily.isConsumed()) {
-            sendTooManyRequests(request, response, daily.getNanosToWaitForRefill(), ip, "daily");
+            sendTooManyRequests(request, response, daily.getNanosToWaitForRefill(), ip, endpoint + " daily");
             return;
         }
 
@@ -112,10 +155,19 @@ public class RateLimitFilter extends OncePerRequestFilter {
         chain.doFilter(request, response);
     }
 
-    private static String resolveClientIp(HttpServletRequest request) {
-        // Fly.io proxies set X-Forwarded-For. Take the first entry (the original
-        // client) — subsequent entries are downstream proxies. Trust this header
-        // because Fly's edge strips any client-supplied value.
+    // Package-private (not private) so the test can pin the resolution
+    // precedence directly — getting this wrong behind Cloudflare collapses
+    // every visitor into one bucket and throttles them all instantly.
+    static String resolveClientIp(HttpServletRequest request) {
+        // Behind Cloudflare the true client is in CF-Connecting-IP. Trusting it
+        // is safe only because the origin is locked to Cloudflare traffic at
+        // deploy time; without that lock the header is client-spoofable.
+        String cf = request.getHeader("CF-Connecting-IP");
+        if (cf != null && !cf.isBlank()) {
+            return cf.trim();
+        }
+        // Fallback for non-Cloudflare proxies (Railway's own edge, local dev).
+        // First hop is the original client; later hops are downstream proxies.
         String forwarded = request.getHeader("X-Forwarded-For");
         if (forwarded != null && !forwarded.isBlank()) {
             int comma = forwarded.indexOf(',');
@@ -164,25 +216,42 @@ public class RateLimitFilter extends OncePerRequestFilter {
         buckets.entrySet().removeIf(e -> now - e.getValue().lastAccessAt > IDLE_BUCKET_TTL_MS);
     }
 
-    static final class IpBuckets {
+    /** Burst + daily bucket pair for one endpoint, built from its limits. */
+    static final class EndpointBuckets {
         final Bucket burst;
         final Bucket daily;
-        volatile long lastAccessAt;
 
-        IpBuckets() {
+        EndpointBuckets(ApiEndpoint endpoint) {
             this.burst = Bucket.builder()
                     .addLimit(Bandwidth.classic(
-                            BURST_LIMIT_PER_MINUTE,
-                            Refill.intervally(BURST_LIMIT_PER_MINUTE, Duration.ofMinutes(1))
+                            endpoint.burstPerMinute,
+                            Refill.intervally(endpoint.burstPerMinute, Duration.ofMinutes(1))
                     ))
                     .build();
             this.daily = Bucket.builder()
                     .addLimit(Bandwidth.classic(
-                            DAILY_LIMIT,
-                            Refill.intervally(DAILY_LIMIT, Duration.ofDays(1))
+                            endpoint.daily,
+                            Refill.intervally(endpoint.daily, Duration.ofDays(1))
                     ))
                     .build();
+        }
+    }
+
+    /**
+     * Per-IP holder of endpoint bucket pairs, created lazily on first use of
+     * each endpoint. Package-private for the test.
+     */
+    static final class IpBuckets {
+        private final EnumMap<ApiEndpoint, EndpointBuckets> perEndpoint =
+                new EnumMap<>(ApiEndpoint.class);
+        volatile long lastAccessAt;
+
+        IpBuckets() {
             this.lastAccessAt = System.currentTimeMillis();
+        }
+
+        synchronized EndpointBuckets bucketsFor(ApiEndpoint endpoint) {
+            return perEndpoint.computeIfAbsent(endpoint, EndpointBuckets::new);
         }
 
         void touch() {

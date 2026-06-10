@@ -1,77 +1,108 @@
 package personal.spacesim.apis.filters;
 
-import io.github.bucket4j.Bandwidth;
-import io.github.bucket4j.Bucket;
-import io.github.bucket4j.Refill;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
 
-import java.time.Duration;
-
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Pins the per-IP and global limits. Doesn't exercise the servlet pipeline
- * — that's framework glue. The buckets are where the logic lives.
+ * Pins the per-IP, per-endpoint limits, the endpoint classification, and the
+ * client-IP resolution precedence. Doesn't exercise the servlet pipeline —
+ * that's framework glue. The buckets and IP resolution are where the logic
+ * (and the silent-failure risk) live.
  */
 class RateLimitFilterTest {
 
+    // --- per-endpoint limits ---------------------------------------------
+
     @Test
-    void burstAllowsExactly60RequestsThenBlocks() {
-        RateLimitFilter.IpBuckets ipBuckets = new RateLimitFilter.IpBuckets();
+    void chunkBurstAllows120ThenBlocks() {
+        RateLimitFilter.EndpointBuckets eb =
+                new RateLimitFilter.IpBuckets().bucketsFor(RateLimitFilter.ApiEndpoint.CHUNK);
 
-        // First 60 should pass the burst bucket
-        for (int i = 0; i < 60; i++) {
-            assertTrue(
-                    ipBuckets.burst.tryConsume(1),
-                    "Request " + (i + 1) + " should be allowed by burst bucket"
-            );
+        for (int i = 0; i < 120; i++) {
+            assertTrue(eb.burst.tryConsume(1), "chunk burst request " + (i + 1) + " should pass");
         }
-
-        // 61st should be rejected by burst (daily still has plenty)
-        assertFalse(
-                ipBuckets.burst.tryConsume(1),
-                "61st request should be blocked by burst bucket"
-        );
+        assertFalse(eb.burst.tryConsume(1), "121st chunk burst request should block");
     }
 
     @Test
-    void dailyAllowsExactly500RequestsThenBlocks() {
-        RateLimitFilter.IpBuckets ipBuckets = new RateLimitFilter.IpBuckets();
+    void chunkDailyAllows3000ThenBlocks() {
+        RateLimitFilter.EndpointBuckets eb =
+                new RateLimitFilter.IpBuckets().bucketsFor(RateLimitFilter.ApiEndpoint.CHUNK);
 
-        for (int i = 0; i < 500; i++) {
-            assertTrue(
-                    ipBuckets.daily.tryConsume(1),
-                    "Request " + (i + 1) + " should be allowed by daily bucket"
-            );
+        for (int i = 0; i < 3_000; i++) {
+            assertTrue(eb.daily.tryConsume(1), "chunk daily request " + (i + 1) + " should pass");
         }
-
-        assertFalse(
-                ipBuckets.daily.tryConsume(1),
-                "501st request should be blocked by daily bucket"
-        );
+        assertFalse(eb.daily.tryConsume(1), "3001st chunk daily request should block");
     }
 
     @Test
-    void globalCapAllowsExactly5000RequestsThenBlocks() {
-        // Pins the global ceiling: protects against attackers rotating IPs
-        // (residential proxies, IPv6, Tor) — per-IP limits alone don't.
-        // Mirrors the bucket configured in RateLimitFilter; if those constants
-        // change, this test should follow.
-        Bucket global = Bucket.builder()
-                .addLimit(Bandwidth.classic(5000, Refill.intervally(5000, Duration.ofDays(1))))
-                .build();
+    void initializeIsTighterThanChunk() {
+        RateLimitFilter.EndpointBuckets init =
+                new RateLimitFilter.IpBuckets().bucketsFor(RateLimitFilter.ApiEndpoint.INITIALIZE);
 
-        for (int i = 0; i < 5000; i++) {
-            assertTrue(
-                    global.tryConsume(1),
-                    "Request " + (i + 1) + " should be allowed by global bucket"
-            );
+        // Burst: 20/min
+        for (int i = 0; i < 20; i++) {
+            assertTrue(init.burst.tryConsume(1), "initialize burst request " + (i + 1) + " should pass");
         }
+        assertFalse(init.burst.tryConsume(1), "21st initialize burst request should block");
 
-        assertFalse(
-                global.tryConsume(1),
-                "5001st request should be blocked by global bucket"
-        );
+        // Daily: 300/day (drain the remaining daily allowance; 20 already spent
+        // above came from the burst bucket, the daily bucket is independent).
+        RateLimitFilter.EndpointBuckets init2 =
+                new RateLimitFilter.IpBuckets().bucketsFor(RateLimitFilter.ApiEndpoint.INITIALIZE);
+        for (int i = 0; i < 300; i++) {
+            assertTrue(init2.daily.tryConsume(1), "initialize daily request " + (i + 1) + " should pass");
+        }
+        assertFalse(init2.daily.tryConsume(1), "301st initialize daily request should block");
+    }
+
+    // --- endpoint classification -----------------------------------------
+
+    @Test
+    void classifyMapsKnownPaths() {
+        assertEquals(RateLimitFilter.ApiEndpoint.INITIALIZE,
+                RateLimitFilter.ApiEndpoint.classify("/api/simulation/initialize"));
+        assertEquals(RateLimitFilter.ApiEndpoint.CHUNK,
+                RateLimitFilter.ApiEndpoint.classify("/api/simulation/chunk"));
+        assertEquals(RateLimitFilter.ApiEndpoint.GROUND_TRUTH,
+                RateLimitFilter.ApiEndpoint.classify("/api/simulation/ground-truth"));
+        assertEquals(RateLimitFilter.ApiEndpoint.OTHER,
+                RateLimitFilter.ApiEndpoint.classify("/api/simulation/something-new"));
+    }
+
+    // --- client IP resolution (Cloudflare-first) -------------------------
+
+    @Test
+    void resolveClientIpPrefersCloudflareHeader() {
+        MockHttpServletRequest req = new MockHttpServletRequest();
+        req.setRemoteAddr("10.0.0.1");                       // platform proxy
+        req.addHeader("X-Forwarded-For", "203.0.113.9, 10.0.0.1");
+        req.addHeader("CF-Connecting-IP", "198.51.100.7");   // true client per Cloudflare
+
+        assertEquals("198.51.100.7", RateLimitFilter.resolveClientIp(req),
+                "CF-Connecting-IP must win when present");
+    }
+
+    @Test
+    void resolveClientIpFallsBackToFirstForwardedHop() {
+        MockHttpServletRequest req = new MockHttpServletRequest();
+        req.setRemoteAddr("10.0.0.1");
+        req.addHeader("X-Forwarded-For", "203.0.113.9, 70.41.3.18, 10.0.0.1");
+
+        assertEquals("203.0.113.9", RateLimitFilter.resolveClientIp(req),
+                "first X-Forwarded-For hop is the original client");
+    }
+
+    @Test
+    void resolveClientIpFallsBackToRemoteAddr() {
+        MockHttpServletRequest req = new MockHttpServletRequest();
+        req.setRemoteAddr("192.0.2.55");
+
+        assertEquals("192.0.2.55", RateLimitFilter.resolveClientIp(req),
+                "remoteAddr is the last resort for direct/local connections");
     }
 }
