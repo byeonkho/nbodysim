@@ -3,7 +3,7 @@ import { ImageResponse } from "next/og";
 // Auto-wired by Next's file convention into the OpenGraph/Twitter card, so a
 // shared link unfurls with a proper image. Generated at build time.
 
-export const alt = "spacesim, a real-time solar system simulator";
+export const alt = "nbodysim, a real-time solar system simulator";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -51,7 +51,7 @@ export default function OpengraphImage() {
               color: "#e9eaf2",
             }}
           >
-            spacesim
+            nbodysim
           </div>
         </div>
         <div

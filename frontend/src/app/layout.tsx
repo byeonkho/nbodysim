@@ -16,7 +16,7 @@ const jetbrains = JetBrains_Mono({
   display: "swap",
 });
 
-const SITE_TITLE = "spacesim: real-time solar system simulator";
+const SITE_TITLE = "nbodysim: real-time solar system simulator";
 const SITE_DESCRIPTION =
   "A real-time simulation of the solar system. Pick the bodies you want, hit run, and watch their orbits play back in 3D, computed from real astronomy data.";
 
