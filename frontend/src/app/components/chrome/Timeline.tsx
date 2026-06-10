@@ -423,8 +423,16 @@ function ToggleChip({
     const rect = buttonRef.current.getBoundingClientRect();
     const tooltipWidth = 256; // matches w-64
     const gap = 8;
+    const margin = 8;
+    // Clamp into the viewport (mirrors InfoTooltip) so the rightmost view
+    // chips don't bleed off the right edge.
+    const rawLeft = rect.left + rect.width / 2 - tooltipWidth / 2;
+    const left = Math.max(
+      margin,
+      Math.min(rawLeft, window.innerWidth - tooltipWidth - margin),
+    );
     setCoords({
-      left: rect.left + rect.width / 2 - tooltipWidth / 2,
+      left,
       top: rect.top - gap, // tooltip's BOTTOM sits here; translateY(-100%) flips it above
     });
   }, [open]);
