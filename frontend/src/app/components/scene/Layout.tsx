@@ -12,6 +12,7 @@ import { SimSetupModal } from "@/app/components/chrome/simSetup/SimSetupModal";
 import { Timeline } from "@/app/components/chrome/Timeline";
 import { TopStatusStrip } from "@/app/components/chrome/TopStatusStrip";
 import { DevPanel } from "@/app/components/dev/DevPanel";
+import { TourOverlay } from "@/app/components/interface/tour/TourOverlay";
 
 const Layout: React.FC = () => {
   const [simSetupOpen, setSimSetupOpen] = useState(false);
@@ -81,6 +82,8 @@ const Layout: React.FC = () => {
           <SimSetupModal open={simSetupOpen} onOpenChange={setSimSetupOpen} />
 
           {devMode && <DevPanel />}
+
+          <TourOverlay simSetupOpen={simSetupOpen} />
         </div>
       </div>
     </div>
