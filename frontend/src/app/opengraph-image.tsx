@@ -6,6 +6,8 @@ import { ImageResponse } from "next/og";
 export const alt = "nbodysim, a real-time solar system simulator";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
+// Generate the card once at build time so it works under `output: 'export'`.
+export const dynamic = "force-static";
 
 export default function OpengraphImage() {
   return new ImageResponse(

@@ -5,6 +5,16 @@ const nextConfig = {
   // dev-experience tweak, not a deploy change.
   devIndicators: false,
 
+  // Static export for Cloudflare Pages: the app is fully client-rendered (no
+  // server features), so `next build` emits a plain `out/` of static files that
+  // Pages serves directly, with no Node runtime.
+  output: "export",
+
+  // Static export can't run Next's image optimizer. The app only uses the
+  // StaticImageData type (no <Image> component), so this is a no-op today; it
+  // just keeps the build from ever tripping on an optimizer path.
+  images: { unoptimized: true },
+
   compiler: {
     // Strip console.log/info/debug from production builds (keeps warn/error).
     // Drops the per-chunk decode timing log and any other dev noise from prod
