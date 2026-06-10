@@ -6,8 +6,10 @@ import requestReducer from "./slices/RequestSlice";
 import eventLogReducer from "./slices/EventLogSlice";
 import groundTruthReducer from "./slices/GroundTruthSlice";
 import uiReducer from "./slices/UISlice";
+import tourReducer from "./slices/TourSlice";
 import { groundTruthMiddleware } from "./middleware/groundTruthMiddleware";
 import { userActionLogger } from "./middleware/userActionLogger";
+import { tourMiddleware } from "./middleware/tourMiddleware";
 
 export const store = configureStore({
   reducer: {
@@ -16,6 +18,7 @@ export const store = configureStore({
     eventLog: eventLogReducer,
     groundTruth: groundTruthReducer,
     ui: uiReducer,
+    tour: tourReducer,
   },
 
   middleware: (getDefaultMiddleware) =>
@@ -24,7 +27,8 @@ export const store = configureStore({
     })
       .concat(simulationUpdateDataMiddleware)
       .concat(groundTruthMiddleware)
-      .concat(userActionLogger),
+      .concat(userActionLogger)
+      .concat(tourMiddleware),
 });
 
 export type RootState = ReturnType<typeof store.getState>;
