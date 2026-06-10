@@ -1,0 +1,18 @@
+# Security response headers for the static site, served by Cloudflare Pages.
+# Files under public/ are copied to the static-export root (out/), and Pages
+# reads _headers from there. Docs: https://developers.cloudflare.com/pages/configuration/headers/
+#
+# Scope is deliberately conservative: clickjacking + MIME-sniff + referrer
+# hygiene only. A full script-src/default-src Content-Security-Policy is a
+# separate, test-heavy task (Next.js hydration inline scripts, the WebGL scene,
+# and the zstd web worker would all need to be allow-listed) and a broken CSP
+# on a live site is worse than none, so it is left out here.
+#
+# HSTS is intentionally not set here; enable it once at the Cloudflare zone
+# level instead, where the edge owns it and a bad max-age can't get baked into
+# a static file.
+/*
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
