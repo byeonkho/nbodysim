@@ -51,6 +51,18 @@ function getDecoderWorker(): Worker {
   };
   decoderWorker.onerror = (event: ErrorEvent) => {
     console.error("zstd worker error:", event.message);
+    // A worker-level failure (the module or its WASM failed to load/run) means
+    // any in-flight decode will never get a response. Reject them so the chunk
+    // request surfaces an error (via the thunk's catch) instead of hanging
+    // forever.
+    const failure = new Error(
+      `Decoder worker failed: ${event.message || "unknown error"}`,
+    );
+    pendingDecodes.forEach((pending) => pending.reject(failure));
+    pendingDecodes.clear();
+    // Drop the worker so the next decode spins up a fresh one: self-heals a
+    // transient failure; a permanent one just re-surfaces the error.
+    decoderWorker = null;
   };
   return decoderWorker;
 }
