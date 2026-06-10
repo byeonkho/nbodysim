@@ -65,6 +65,17 @@
 			<version>8.10.1</version>
 		</dependency>
 
+		<!-- Error tracking. Auto-configures from the sentry.* properties; with an
+			empty DSN (local dev, CI) it disables itself and is a no-op. In prod
+			it reports unhandled MVC exceptions (the unexpected 500s) with request
+			context. Captures via a HandlerExceptionResolver, so the controller's
+			deliberately-mapped 400/503s are NOT reported — only genuine faults. -->
+		<dependency>
+			<groupId>io.sentry</groupId>
+			<artifactId>sentry-spring-boot-starter-jakarta</artifactId>
+			<version>8.16.0</version>
+		</dependency>
+
 
 		<!--Dev Tools -->
 		<dependency>

@@ -7,6 +7,7 @@
 // e.g. a malformed chunk reaching a scene component, or a chrome crash.)
 
 import { useEffect } from "react";
+import * as Sentry from "@sentry/react";
 
 export default function Error({
   error,
@@ -17,6 +18,9 @@ export default function Error({
 }) {
   useEffect(() => {
     console.error("App render error:", error);
+    // This boundary swallows the error, so it never reaches Sentry's global
+    // handlers — report it explicitly. No-op when Sentry isn't initialised.
+    Sentry.captureException(error);
   }, [error]);
 
   return (

@@ -5,6 +5,7 @@
 // replaces the whole document, so styles are inline.
 
 import { useEffect } from "react";
+import * as Sentry from "@sentry/react";
 
 export default function GlobalError({
   error,
@@ -15,6 +16,9 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     console.error("App fatal error:", error);
+    // Last-resort boundary; the error is swallowed here and never reaches the
+    // global handlers, so report it explicitly. No-op when Sentry is disabled.
+    Sentry.captureException(error);
   }, [error]);
 
   return (
