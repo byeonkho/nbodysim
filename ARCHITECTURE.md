@@ -16,7 +16,7 @@ End-to-end hosted simulation. A user picks bodies, frame, integrator, and time s
 │  Fiber scene     │                                  │  Pluggable integrator│
 └──────────────────┘                                  └─────────────────────┘
         │                                                       │
-   Vercel (planned)                                      Fly.io (planned)
+   Cloudflare Pages                                      Railway
 ```
 
 **Backend** — Spring Boot 3 + Orekit 12. `POST /api/simulation/initialize` builds a session with bodies, frame, integrator, and start date; subsequent `POST /api/simulation/chunk` calls return zstd-compressed binary trajectories. After each chunk is served, the next 10k-step block is speculatively pre-computed on a daemon executor so subsequent requests hit cache. Sessions are tracked by sessionID and evicted by a periodic idle-timeout sweeper.
@@ -75,11 +75,11 @@ The user picks a "Playback quality" bucket in SimSetupDrawer (4 buckets, per-int
 
 ### Minor-body initial state via JPL Horizons HTTP (cached, serialized)
 
-Bodies outside Orekit's bundled DE-440 (dwarf planets like Ceres, named near-Earth asteroids like Eros / Apophis / Bennu / Ryugu) source their initial state vectors from JPL Horizons at sim-submit time, keyed by SPK ID and the user's chosen epoch. The factory wraps the HTTP call in a process-local `ConcurrentHashMap` cache keyed by `(SPK_ID, epochSecondsFromJ2000)` — state vectors at any (body, epoch) are deterministic from JPL's orbit fits, so once fetched they never need to re-query in the same process. All outbound HTTP serializes through a single global fair `Semaphore` to honor JPL's published "one API request at a time" rule, which the per-key cache locks don't enforce across distinct bodies. Horizons returns Sun-relative positions in ICRF orientation; the factory adds Orekit's Sun PV in the user's chosen frame so the resulting state is consistent with Orekit-sourced major-planet states whether the frame is Heliocentric, ICRF (SSB-centered), or GCRF. **Trade-offs:** adds a network dependency at sim-submit time (~500 ms per cold body, ≤9 minor bodies → ~4.5 s worst case for a fully-cold submission). Cache is in-process only — Fly.io redeploys wipe it, so the first sim after each deploy pays the full latency. JPL's query syntax has a quirk worth flagging: SPK IDs for IAU-numbered small bodies (range 2_000_001+) need the `COMMAND='DES=<spkId>;'` form because bare numeric values are interpreted as IAU asteroid numbers (max 887103); major-body codes 1..999 (future moons) use the bare form. Orekit doesn't natively read SPICE SPK kernels, so HTTP was the only path without reimplementing kernel readers.
+Bodies outside Orekit's bundled DE-440 (dwarf planets like Ceres, named near-Earth asteroids like Eros / Apophis / Bennu / Ryugu) source their initial state vectors from JPL Horizons at sim-submit time, keyed by SPK ID and the user's chosen epoch. The factory wraps the HTTP call in a process-local `ConcurrentHashMap` cache keyed by `(SPK_ID, epochSecondsFromJ2000)` — state vectors at any (body, epoch) are deterministic from JPL's orbit fits, so once fetched they never need to re-query in the same process. All outbound HTTP serializes through a single global fair `Semaphore` to honor JPL's published "one API request at a time" rule, which the per-key cache locks don't enforce across distinct bodies. Horizons returns Sun-relative positions in ICRF orientation; the factory adds Orekit's Sun PV in the user's chosen frame so the resulting state is consistent with Orekit-sourced major-planet states whether the frame is Heliocentric, ICRF (SSB-centered), or GCRF. **Trade-offs:** adds a network dependency at sim-submit time (~500 ms per cold body, ≤9 minor bodies → ~4.5 s worst case for a fully-cold submission). Cache has an on-disk warm-load layer; on Railway it survives redeploys when mounted on a volume, otherwise the first sim after each deploy pays the full latency. JPL's query syntax has a quirk worth flagging: SPK IDs for IAU-numbered small bodies (range 2_000_001+) need the `COMMAND='DES=<spkId>;'` form because bare numeric values are interpreted as IAU asteroid numbers (max 887103); major-body codes 1..999 (future moons) use the bare form. Orekit doesn't natively read SPICE SPK kernels, so HTTP was the only path without reimplementing kernel readers.
 
 ### Massive / test-particle dispatch in NBodyDerivatives
 
-The N-body force kernel partitions bodies into a `[massive | test]` prefix layout and bounds every body's force sum to the massive prefix. Massive bodies feel gravity from other massives; test particles feel gravity from the massive prefix but exert none. State buffer layout `[massive | test]` lets `NBodyDerivatives` take a single `massiveCount` and switch the inner-loop bound with one hoisted local read — no per-pair branch in the hot path. Cost is `M·(M−1) + T·M` per integrator substep instead of `(M+T)·(M+T−1)` for a full N². At the current 19-body catalog this is small (~200 force ops/step vs. ~340), but the scaling matters once the catalog grows: a future asteroid-belt expansion at T=1000 test particles would cost ~9k ops/step instead of ~1.0M. Asteroid masses are 10⁻⁴ to 10⁻⁹ Earth — their pull on planets is well below numerical noise, so the test-particle approximation is physically faithful at the current scale. **Trade-offs:** test particles exert no force on the system, so the `ΔE/E₀` energy readout has to be computed over the massive subsystem only — otherwise test-particle kinetic + potential terms would couple the integrator-quality metric to noise. Test particles also can't form bound pairs with each other (e.g. the Pluto-Charon barycenter dance needs both bodies massive). Newton's 3rd law is preserved on the massive subsystem; the asymmetric "massive feels test but test doesn't feel massive" variant would non-conserve momentum.
+The N-body force kernel partitions bodies into a `[massive | test]` prefix layout and bounds every body's force sum to the massive prefix. Massive bodies feel gravity from other massives; test particles feel gravity from the massive prefix but exert none. State buffer layout `[massive | test]` lets `NBodyDerivatives` take a single `massiveCount` and switch the inner-loop bound with one hoisted local read — no per-pair branch in the hot path. Cost is `M·(M−1) + T·M` per integrator substep instead of `(M+T)·(M+T−1)` for a full N². At the current catalog scale this is modest, but the scaling matters once the catalog grows: a future asteroid-belt expansion at T=1000 test particles would cost ~9k ops/step instead of ~1.0M. Asteroid masses are 10⁻⁴ to 10⁻⁹ Earth — their pull on planets is well below numerical noise, so the test-particle approximation is physically faithful at the current scale. **Trade-offs:** test particles exert no force on the system, so the `ΔE/E₀` energy readout has to be computed over the massive subsystem only — otherwise test-particle kinetic + potential terms would couple the integrator-quality metric to noise. Test particles also can't form bound pairs with each other (e.g. the Pluto-Charon barycenter dance needs both bodies massive). Newton's 3rd law is preserved on the massive subsystem; the asymmetric "massive feels test but test doesn't feel massive" variant would non-conserve momentum.
 
 ### Major moons: Horizons bare-NAIF routing, classification, per-parent scale
 
@@ -107,7 +107,7 @@ Decisions made during the Tailwind + Radix + shadcn migration that shape what's 
 
 1. **Body selector composition.** Catalog expanded to 40 — Sun + 8 planets + 22 moons (Earth's Moon + the 21 major moons, see the "Major moons" architecture decision and #17 below) + 5 dwarf planets / large main-belt asteroids (Pluto, Ceres, Vesta, Pallas, Hygiea) + 4 named near-Earth asteroids (Eros, Apophis, Bennu, Ryugu). The configure drawer groups bodies into three sections (Planets / Dwarf planets / Near-Earth asteroids), with moons nested under their parent body within each section. Default selection is Sun + 8 planets + Earth's Moon (10 bodies) so a first-run sim doesn't fan out a pile of Horizons fetches on submit; the other moons and all minor bodies are explicitly opt-in via the drawer. N-body framing remains a feature, not a footnote.
 2. **Camera.** Free 3D orbit retained; "Top-down" preset is the default for newcomers (and the angle the design's compass / ghost labels assume).
-3. **Scale terminology.** UI says `LIN / LOG` rather than `SEMI / REAL`. The `LOG` setting will eventually be backed by real logarithmic distance compression.
+3. **Scale terminology.** The two scale presets are labeled **Real** and **Stylized** (see decision 16); Stylized is backed by real logarithmic distance compression.
 4. **Display frame is render-time, not a session parameter.** Backend always emits heliocentric snapshots (see "Sun-relative emission" above); client applies per-frame frame transform before render. Tap-compass-to-switch is free, no buffer drop. Helio + geo currently shipped; bary deferred (needs a shared per-timestep pivot cache to not blow up trail render cost).
 5. **Step accept %.** Hide row entirely for fixed-step integrators (Euler, RK4); show only for DP853.
 6. **REC indicator dropped.** Replaced with `BUFFER` + `CHUNK` status — surfaces a real engineering detail rather than mimicking a video recorder.
@@ -125,17 +125,17 @@ Decisions made during the Tailwind + Radix + shadcn migration that shape what's 
 
 ## Status
 
-Currently a working local prototype on the `redesign-ui` branch. The simulation runs end-to-end; three integrators (Euler / RK4 / Dormand–Prince 853) are wired in; the frontend renders bodies with scaled distances and per-body textures; time controls, body selection, geocentric/heliocentric frame switching, and Keplerian-element readouts function. The headline demo layer — the reality-drift overlay (predicted vs DE-440 truth) — has shipped; focus is now pre-deploy polish and the remaining showcase items.
+Runs end-to-end on `master`: three integrators (Euler / RK4 / Dormand–Prince 853) are wired in; the frontend renders bodies with scaled distances and per-body textures; time controls, body selection, geocentric/heliocentric frame switching, and Keplerian-element readouts function. The headline demo layer, the reality-drift overlay (predicted vs DE-440 truth), has shipped. The project is now in its first production deployment: a Railway backend and Cloudflare Pages frontend behind Cloudflare, at nbodysim.com.
 
 ## Planned work
 
 ### Production hosting
 
-- Cloudflare proxy in front of Fly.io for DDoS protection and bot detection (defends against IP-rotation attacks that per-IP rate limiting alone can't stop).
+- Cloudflare proxy in front of Railway for DDoS protection and bot detection (defends against IP-rotation attacks that per-IP rate limiting alone can't stop).
 - Sentry SDKs (backend + frontend) for error tracking and uptime monitoring.
 - Live demo link + hero screenshot/GIF in README once deployed.
 
-> Already in place: Fly.io backend (Dockerfile + `fly.toml` + `/actuator/health`), Vercel frontend, env-driven CORS allowlist, per-IP + global rate limiting (Bucket4j), GitHub Actions CI for both stacks.
+> Already in place: Railway-targeted backend (Dockerfile + `/actuator/health`), Cloudflare Pages frontend build, env-driven CORS allowlist, per-IP per-endpoint + global rate limiting (Bucket4j), a Cloudflare origin-lock filter, GitHub Actions CI for both stacks.
 
 ### Frontend showcase
 
@@ -190,7 +190,7 @@ This split lets each protocol do what it's actually good at: HTTP for bulk + cac
 
 | Layer | Choice | Why |
 |---|---|---|
-| Backend framework | Spring Boot 3 (Java 25 LTS) | Familiar, batteries-included; HTTP/2 chunk delivery scales naturally and stays cacheable |
+| Backend framework | Spring Boot 3 (Java 21 LTS) | Familiar, batteries-included; HTTP/2 chunk delivery scales naturally and stays cacheable |
 | Astrodynamics | Orekit 12 | JPL ephemerides, ICRF/GCRF reference frames, validated propagators — avoids reinventing physics |
 | Wire compression | Zstd | Good ratio on the binary trajectory format; small WASM decoder client-side |
 | Frontend framework | Next.js (CSR) | Project is interactive; SSR not relevant here |
