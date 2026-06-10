@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useSelector, useStore } from "react-redux";
+import { useDispatch, useSelector, useStore } from "react-redux";
 import {
   selectCurrentTimeStepIndex,
   selectCurrentTimeStepIsoString,
@@ -26,7 +26,8 @@ import {
   JD_COPY,
   UTC_COPY,
 } from "@/app/constants/glossaryTooltipCopy";
-import type { RootState } from "@/app/store/Store";
+import type { AppDispatch, RootState } from "@/app/store/Store";
+import { startTour } from "@/app/store/slices/TourSlice";
 
 // Top glass strip — the SimSetup CTA leads, followed by the
 // Configuration chip (collapsed Frame / Integrator / Δt / Bodies
@@ -121,6 +122,7 @@ export function TopStatusStrip({
   // current timestep; deliberately skipping that pattern here keeps a new
   // per-frame React subscription off the strip for a glanceable readout.
   const store = useStore<RootState>();
+  const dispatch = useDispatch<AppDispatch>();
   const deltaERef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     const tick = () => {
@@ -182,6 +184,32 @@ export function TopStatusStrip({
       <StatusCellWith label="FPS" tooltip={FPS_COPY}>
         <FpsValue className="text-success" />
       </StatusCellWith>
+
+      <button
+        type="button"
+        aria-label="Replay the intro tour"
+        onClick={() => {
+          const hasSim = store.getState().simulation.chunkBuffer != null;
+          dispatch(startTour(hasSim ? { atPhase2: true } : undefined));
+        }}
+        className="text-dim hover:text-hi flex h-full items-center px-3.5 transition-colors"
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+          <path d="M12 17h.01" />
+        </svg>
+      </button>
     </div>
   );
 }
