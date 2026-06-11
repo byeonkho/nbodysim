@@ -78,10 +78,11 @@ export function MobileTourOverlay() {
         }
       : null;
 
-  // Card placement. A targeted step (the build button) docks the card just
-  // below its spotlight, aligned to the spotlight's left and clamped into the
-  // viewport, so the card sits right next to the thing it points at. Otherwise
-  // the card is centered, or docked above the collapsed control sheet peek.
+  // Card placement. A targeted step docks the card next to its spotlight,
+  // aligned to the spotlight's left and clamped into the viewport: below a
+  // target in the top half of the screen (the rail), above one in the bottom
+  // half (the build FAB), so the card never runs off an edge. Otherwise the
+  // card is centered, or docked above the collapsed control sheet peek.
   const CARD_MARGIN = 12;
   let cardWrap: CSSProperties;
   if (spotlight) {
