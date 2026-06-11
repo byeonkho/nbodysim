@@ -118,7 +118,24 @@ export function MobileControlSheet() {
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full shrink-0 items-center justify-center py-3"
       >
-        <span className="h-1.5 w-10 rounded-full bg-white/20" />
+        {/* A chevron, not a drag grab-handle: this sheet toggles on tap. Points
+            up to expand when collapsed, flips down to collapse when open. */}
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+          className={`text-white/40 transition-transform duration-300 ${
+            expanded ? "rotate-180" : ""
+          }`}
+        >
+          <path d="M6 15l6-6 6 6" />
+        </svg>
       </button>
 
       <div className="shrink-0">
