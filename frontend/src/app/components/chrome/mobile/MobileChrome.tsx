@@ -10,6 +10,7 @@ import { MobileBodySheet } from "./MobileBodySheet";
 import { MobileSimSetupSheet } from "./MobileSimSetupSheet";
 import { MOBILE_PRESETS, DEFAULT_PRESET_ID } from "@/app/constants/MobilePresets";
 import { runPreset } from "@/app/utils/runPreset";
+import { runStaticClip } from "@/app/utils/runStaticClip";
 
 export function MobileChrome() {
   const dispatch = useDispatch<AppDispatch>();
@@ -30,9 +31,17 @@ export function MobileChrome() {
       !!store.getState().simulation.simulationParameters?.simulationMetaData
         ?.sessionID;
     if (hasSession) return;
-    const preset =
-      MOBILE_PRESETS.find((p) => p.id === DEFAULT_PRESET_ID) ?? MOBILE_PRESETS[0];
-    void runPreset(dispatch, preset);
+    // Default scenario plays from the precomputed static asset: zero backend
+    // calls on a bounce. If the asset is somehow unreachable (a build that
+    // shipped without it), fall back to a live run so the scene still appears.
+    void (async () => {
+      const ok = await runStaticClip(dispatch);
+      if (ok) return;
+      const preset =
+        MOBILE_PRESETS.find((p) => p.id === DEFAULT_PRESET_ID) ??
+        MOBILE_PRESETS[0];
+      void runPreset(dispatch, preset);
+    })();
   }, [dispatch]);
 
   return (

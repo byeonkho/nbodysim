@@ -67,7 +67,9 @@ function getDecoderWorker(): Worker {
   return decoderWorker;
 }
 
-function decodeOffMainThread(buffer: ArrayBuffer): Promise<ChunkPayload> {
+// Exported so the static-clip path can decode bundled chunks through the same
+// worker the live chunk path uses (one zstd worker for the page session).
+export function decodeOffMainThread(buffer: ArrayBuffer): Promise<ChunkPayload> {
   const id = ++decodeIdCounter;
   return new Promise((resolve, reject) => {
     pendingDecodes.set(id, { resolve, reject });
