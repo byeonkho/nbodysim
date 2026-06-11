@@ -79,8 +79,8 @@ export function MobileChrome() {
         >
           {/* Solar-system glyph: sun + two tilted nested orbits + two planets. */}
           <svg
-            width="25"
-            height="25"
+            width="28"
+            height="28"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
