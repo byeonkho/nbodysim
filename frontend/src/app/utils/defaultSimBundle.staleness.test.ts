@@ -43,6 +43,13 @@ describe("default-sim bundle staleness guard", () => {
     expect(p.fidelityBucket, drift).toBe(expectedBucket);
     expect([...p.bodies].sort(), drift).toEqual(expectedBodies);
 
+    // The captured body list must actually be populated, not just the params.
+    // A correct-params-but-empty-body-list capture would ship a broken default
+    // with no other CI signal (a silent failure), so pin it to the body count.
+    expect(manifest.celestialBodyPropertiesList.length, drift).toBe(
+      p.bodies.length,
+    );
+
     // Cross-language envelope pin: the TS parser must read every chunk the Java
     // generator wrote, and the count must match the manifest.
     expect(chunks.length, drift).toBe(p.chunkCount);
