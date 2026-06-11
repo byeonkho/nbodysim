@@ -7,7 +7,11 @@ import org.orekit.time.AbsoluteDate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -74,6 +78,7 @@ public class HorizonsStateCache {
 
     public HorizonsStateCache(@Value("${spacesim.horizons.cacheDir:./horizons-cache}") Path cacheDir) {
         this.cacheDir = cacheDir;
+        seedFromClasspath();
         try {
             Files.createDirectories(cacheDir);
         } catch (IOException e) {
@@ -87,6 +92,35 @@ public class HorizonsStateCache {
         loadFromDisk();
     }
 
+    /**
+     * Seed the in-memory store from prebaked entries shipped in the jar
+     * (horizons-prebaked/ on the classpath): the canonical-preset bodies at
+     * the default epoch. Keeps default-epoch sims JPL-independent on a cold
+     * cache (fresh container, wiped disk) with no volume required. Disk
+     * entries loaded afterwards overwrite seeds harmlessly (deterministic
+     * identical values).
+     */
+    private void seedFromClasspath() {
+        try {
+            Resource[] seeds = new PathMatchingResourcePatternResolver()
+                    .getResources("classpath*:horizons-prebaked/*.json");
+            for (Resource seed : seeds) {
+                try (InputStream in = seed.getInputStream()) {
+                    DiskEntry entry = JSON.readValue(in, DiskEntry.class);
+                    store.put(new Key(entry.spkId(), entry.epochSeconds()), entry.toState());
+                } catch (IOException e) {
+                    log.warn("Skipping corrupt prebaked Horizons entry {}: {}",
+                            seed, e.toString());
+                }
+            }
+            if (seeds.length > 0) {
+                log.info("Seeded {} prebaked Horizons entries from classpath", seeds.length);
+            }
+        } catch (IOException e) {
+            log.warn("Failed to scan prebaked Horizons entries: {}", e.toString());
+        }
+    }
+
     private void loadFromDisk() {
         try (Stream<Path> entries = Files.list(cacheDir)) {
             entries
@@ -95,7 +129,10 @@ public class HorizonsStateCache {
         } catch (IOException e) {
             log.warn("Failed to scan Horizons cache dir {}: {}", cacheDir, e.toString());
         }
-        log.info("Loaded {} Horizons cache entries from {}", store.size(), cacheDir);
+        // store already holds the classpath seeds here, so report the in-memory
+        // total rather than implying everything came from the disk dir.
+        log.info("Horizons cache ready: {} entries in memory after scanning {}",
+                store.size(), cacheDir);
     }
 
     private void loadOneEntry(Path file) {
