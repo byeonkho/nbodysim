@@ -35,6 +35,7 @@ import {
   toggleShowTrails,
 } from "@/app/store/slices/SimulationSlice";
 import { formatTPlus, isoToDateOrNull } from "@/app/utils/dateMath";
+import { formatSpeed } from "@/app/utils/formatSpeed";
 import { setOverlayEnabled, selectOverlayEnabled } from "@/app/store/slices/GroundTruthSlice";
 import { DRIFT_CHIP_TOOLTIP } from "@/app/constants/driftTooltipCopy";
 import { InfoTooltip } from "@/app/components/chrome/InfoTooltip";
@@ -172,14 +173,6 @@ function RateReadout() {
       </div>
     </div>
   );
-}
-
-function formatSpeed(speed: number): string {
-  if (!Number.isFinite(speed)) return "0.00";
-  const abs = Math.abs(speed);
-  if (abs >= 100) return Math.round(speed).toString();
-  if (abs >= 10) return speed.toFixed(1);
-  return speed.toFixed(2);
 }
 
 // ── Scrubber ───────────────────────────────────────────────────────────
