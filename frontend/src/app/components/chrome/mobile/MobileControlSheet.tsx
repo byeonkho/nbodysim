@@ -61,7 +61,7 @@ function Chip({
   );
 }
 
-export function MobileControlSheet({ onBuild }: { onBuild?: () => void }) {
+export function MobileControlSheet() {
   const dispatch = useDispatch<AppDispatch>();
   const [expanded, setExpanded] = useState(false);
 
@@ -132,14 +132,6 @@ export function MobileControlSheet({ onBuild }: { onBuild?: () => void }) {
                 {p.label}
               </button>
             ))}
-            {onBuild && (
-              <button
-                onClick={() => { setExpanded(false); onBuild(); }}
-                className="h-11 rounded-chip border border-[rgba(164,168,255,0.28)] bg-[rgba(164,168,255,0.08)] px-3 text-sm font-medium text-accent transition-colors hover:bg-[rgba(164,168,255,0.14)]"
-              >
-                Build simulation
-              </button>
-            )}
           </div>
         </div>
 
