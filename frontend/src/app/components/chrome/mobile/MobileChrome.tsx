@@ -6,6 +6,7 @@ import type { AppDispatch } from "@/app/store/Store";
 import { store } from "@/app/store/Store";
 import { setCameraPreset } from "@/app/store/slices/SimulationSlice";
 import { MobileControlSheet } from "./MobileControlSheet";
+import { MobileBodySheet } from "./MobileBodySheet";
 import { MOBILE_PRESETS, DEFAULT_PRESET_ID } from "@/app/constants/MobilePresets";
 import { runPreset } from "@/app/utils/runPreset";
 
@@ -32,5 +33,10 @@ export function MobileChrome() {
     void runPreset(dispatch, preset);
   }, [dispatch]);
 
-  return <MobileControlSheet />;
+  return (
+    <>
+      <MobileControlSheet />
+      <MobileBodySheet />
+    </>
+  );
 }
