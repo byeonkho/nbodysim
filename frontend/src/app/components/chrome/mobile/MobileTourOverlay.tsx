@@ -78,12 +78,24 @@ export function MobileTourOverlay() {
         }
       : null;
 
-  // Card placement: centered, or docked above the collapsed control sheet
-  // (96px peek + a gap).
-  const cardWrap: CSSProperties =
-    step.placement === "bottom"
-      ? { left: "50%", bottom: 112, transform: "translateX(-50%)" }
-      : { left: "50%", top: "50%", transform: "translate(-50%, -50%)" };
+  // Card placement. A targeted step (the build button) docks the card just
+  // below its spotlight, aligned to the spotlight's left and clamped into the
+  // viewport, so the card sits right next to the thing it points at. Otherwise
+  // the card is centered, or docked above the collapsed control sheet peek.
+  const CARD_MARGIN = 12;
+  let cardWrap: CSSProperties;
+  if (spotlight) {
+    const cardW = Math.min(360, window.innerWidth * 0.88);
+    const left = Math.max(
+      CARD_MARGIN,
+      Math.min(spotlight.left, window.innerWidth - cardW - CARD_MARGIN),
+    );
+    cardWrap = { left, top: spotlight.top + spotlight.height + CARD_MARGIN };
+  } else if (step.placement === "bottom") {
+    cardWrap = { left: "50%", bottom: 112, transform: "translateX(-50%)" };
+  } else {
+    cardWrap = { left: "50%", top: "50%", transform: "translate(-50%, -50%)" };
+  }
 
   // The spotlight provides its own dim; otherwise a light scrim, or a fully
   // transparent (but pointer-capturing) layer for the gesture steps.
