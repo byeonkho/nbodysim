@@ -10,8 +10,8 @@ Pick the bodies, a reference frame, an integrator, and a time step. The backend 
 
 ## What's interesting here
 
-- **A hand-written N-body integrator, not a black box.** Euler, RK4, and adaptive Dormand–Prince 853 propagate every body together as one 6N-dimensional state vector with mutual gravitation. A live `ΔE/E₀` energy readout ticks visibly past `1e-2` on Euler at a daily step, then sits at machine precision on DP853.
-- **A custom binary wire format.** Positions ship as float32 per-step deltas off a float64 reference, byte-plane-shuffled so zstd compresses the stable high-order bytes hard, and reconstructed by prefix-sum on the client. The Web Worker decodes straight into the typed-array layout Redux holds, so the hand-off is zero-copy.
+- **A hand-written N-body integrator, not a black box.** Every body pulls on every other one, and the code that advances them through time is written from scratch rather than handed to a physics library. Under the hood that is a single 6N-dimensional state vector, stepped by Euler, RK4, or adaptive Dormand–Prince 853. A live `ΔE/E₀` energy readout makes the accuracy gap visible: it ticks past `1e-2` on Euler at a daily step, then sits at machine precision on DP853.
+- **A custom binary wire format.** Trajectories are a firehose of numbers, so they ship in a compact binary layout tuned to compress, not as bulky JSON. Positions travel as float32 per-step deltas off a float64 reference, byte-plane-shuffled so zstd squeezes the stable high-order bytes hard, and rebuilt by prefix-sum on the client. The Web Worker decodes straight into the typed-array layout Redux holds, so the hand-off is zero-copy.
 - **A reality-drift overlay.** The integrator's predicted position is drawn next to the *true* position from JPL's DE-440 ephemeris at the same date, with an "off by" readout. Euler visibly diverges; RK4 stays glued. It turns the accuracy trade-off into something you can see.
 
 ## Run locally
@@ -31,8 +31,8 @@ cd backend && ./mvnw spring-boot:run
 
 Serves on `http://localhost:8080`:
 
-- `POST /api/simulation/initialize` — build a session, returns a sessionID
-- `POST /api/simulation/chunk` — body `{sessionID}`, returns the next computed chunk as a zstd-compressed binary stream
+- `POST /api/simulation/initialize`: build a session, returns a sessionID
+- `POST /api/simulation/chunk`: body `{sessionID}`, returns the next computed chunk as a zstd-compressed binary stream
 
 ### Frontend
 
@@ -68,10 +68,10 @@ Open the local URL the dev server prints. The frontend defaults to a backend at 
 
 - **Initial conditions** come from JPL ephemerides via Orekit. Pick a date and bodies; their starting positions and velocities are exact. Bodies outside Orekit's bundled data (dwarf planets, named asteroids, the major moons) are sourced from JPL Horizons at submit time and cached.
 - **N-body integration** advances all bodies together as a single 6N-dimensional state vector. Pluggable integrators (Euler, RK4, adaptive Dormand–Prince) trade accuracy for cost.
-- **Wire format** is a custom little-endian binary layout: body names + µ in a one-time header, a single `(startMillis, gapMillis)` timestamp pair (emissions are uniformly spaced), a per-body float64 position reference, then per-step float32 position and velocity deltas. Both float32 planes are byte-plane-shuffled so zstd compresses their stable high-order bytes; the whole body is zstd-compressed. The client un-shuffles and prefix-sums back to absolute positions in a Web Worker, decoding directly into the typed-array buffer the main thread reads — no copy at the worker boundary.
+- **Wire format** is a custom little-endian binary layout: body names + µ in a one-time header, a single `(startMillis, gapMillis)` timestamp pair (emissions are uniformly spaced), a per-body float64 position reference, then per-step float32 position and velocity deltas. Both float32 planes are byte-plane-shuffled so zstd compresses their stable high-order bytes; the whole body is zstd-compressed. The client un-shuffles and prefix-sums back to absolute positions in a Web Worker, decoding directly into the typed-array buffer the main thread reads, with no copy at the worker boundary.
 - **Transport** is plain HTTP/2: `POST /api/simulation/chunk` per chunk. No persistent connection; chunks are independently retryable and cacheable per session.
 - **Frontend** buffers the chunks in a flat typed array and tape-plays them via R3F's `useFrame`, interpolating between keyframes with cubic Hermite splines (using the integrator's exact velocities). When the buffer dips below a speed-aware threshold the next chunk is prefetched; old chunks are evicted at a byte-budgeted cap.
-- **Two scale presets** — **Real** uses true positions and radii (planets are tiny dots at solar-system distance, the honest reference); **Stylized** compresses radial distance with a log curve and enlarges bodies with a power law so the whole system fits one view, with a minimum-separation rule that keeps any moon visible next to its parent.
+- **Two scale presets.** **Real** uses true positions and radii (planets are tiny dots at solar-system distance, the honest reference); **Stylized** compresses radial distance with a log curve and enlarges bodies with a power law so the whole system fits one view, with a minimum-separation rule that keeps any moon visible next to its parent.
 
 For a deeper architectural discussion, planned work, and known tradeoffs, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
@@ -87,10 +87,10 @@ For a deeper architectural discussion, planned work, and known tradeoffs, see **
 
 ## Status
 
-Active development; first hosted deployment in progress. The simulation runs end-to-end: three integrators, real JPL initial conditions, orbital trails, geocentric/heliocentric frame switching, Keplerian-element readouts, and the integrator-residual and reality-drift overlays. Planned work, known tradeoffs, and tech-choice rationale are tracked in [ARCHITECTURE.md](ARCHITECTURE.md).
+Live and deployed at [nbodysim.com](https://nbodysim.com). The simulation runs end-to-end: three integrators, real JPL initial conditions, orbital trails, geocentric/heliocentric frame switching, Keplerian-element readouts, and the integrator-residual and reality-drift overlays. Planned work, known tradeoffs, and tech-choice rationale are tracked in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Credits
 
-- Earth icon: [Global icons](https://www.flaticon.com/free-icons/global) by Freepik — Flaticon
-- Planet textures: [Solar System Scope](https://www.solarsystemscope.com/textures/) — used under [CC Attribution 4.0](https://creativecommons.org/licenses/by/4.0/)
+- Earth icon: [Global icons](https://www.flaticon.com/free-icons/global) by Freepik on Flaticon
+- Planet textures: [Solar System Scope](https://www.solarsystemscope.com/textures/), used under [CC Attribution 4.0](https://creativecommons.org/licenses/by/4.0/)
 - Astrodynamics: [Orekit](https://www.orekit.org/) by CS GROUP / CNES, built on [Hipparchus](https://hipparchus.org/)
