@@ -6,6 +6,11 @@
 // target and the button's attribute so the two cannot drift.
 export const MOBILE_BUILD_TOUR_TARGET = "mobile-build";
 
+// data-tour value for the planet rail. The inspect step spotlights it instead
+// of asking the user to tap a moving planet. Shared so the step and the rail's
+// attribute cannot drift.
+export const MOBILE_INSPECT_TOUR_TARGET = "mobile-rail";
+
 // localStorage key, separate from the desktop tour's, so the two tours are
 // independent (a phone visitor still gets the richer desktop tour later).
 export const MOBILE_TOUR_SEEN_KEY = "spacesim.tourSeenMobile";
@@ -14,6 +19,10 @@ export interface MobileTourStep {
   id: "welcome" | "inspect" | "gestures" | "build" | "done";
   // data-tour value of the element to spotlight; null = no spotlight (card only).
   target: string | null;
+  // Corner radius (px) of the spotlight box when target is set. A near-circle
+  // for the round build button, a soft rectangle for the wide rail. Defaults
+  // to a circle when omitted.
+  spotlightRadius?: number;
   // Card position when there is no anchored target. "center" floats it mid-
   // screen; "bottom" docks it above the collapsed control sheet.
   placement: "center" | "bottom";
@@ -38,13 +47,14 @@ export const MOBILE_TOUR_STEPS: readonly MobileTourStep[] = [
   },
   {
     id: "inspect",
-    target: null,
+    target: MOBILE_INSPECT_TOUR_TARGET,
+    spotlightRadius: 18,
     placement: "bottom",
     dim: "none",
     eyebrow: "Tip",
     copy:
-      "Tap any planet to lock onto it and see how fast it's moving and the " +
-      "shape of its orbit.",
+      "Tap a planet up top to see how fast it's moving and the shape of its " +
+      "orbit. They're lined up by distance from the sun.",
   },
   {
     id: "gestures",
@@ -57,6 +67,7 @@ export const MOBILE_TOUR_STEPS: readonly MobileTourStep[] = [
   {
     id: "build",
     target: MOBILE_BUILD_TOUR_TARGET,
+    spotlightRadius: 9999,
     placement: "center",
     dim: "none",
     eyebrow: "Build your own",
