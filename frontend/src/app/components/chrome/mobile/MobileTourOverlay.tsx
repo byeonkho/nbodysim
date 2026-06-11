@@ -90,7 +90,13 @@ export function MobileTourOverlay() {
       CARD_MARGIN,
       Math.min(spotlight.left, window.innerWidth - cardW - CARD_MARGIN),
     );
-    cardWrap = { left, top: spotlight.top + spotlight.height + CARD_MARGIN };
+    // Dock below a target in the top half (the rail), above one in the bottom
+    // half (the build FAB), so the card never runs off the screen edge.
+    const targetMid = spotlight.top + spotlight.height / 2;
+    cardWrap =
+      targetMid < window.innerHeight / 2
+        ? { left, top: spotlight.top + spotlight.height + CARD_MARGIN }
+        : { left, bottom: window.innerHeight - spotlight.top + CARD_MARGIN };
   } else if (step.placement === "bottom") {
     cardWrap = { left: "50%", bottom: 112, transform: "translateX(-50%)" };
   } else {
@@ -118,12 +124,13 @@ export function MobileTourOverlay() {
       {spotlight && (
         <div
           aria-hidden="true"
-          className="fixed rounded-full"
+          className="fixed"
           style={{
             left: spotlight.left,
             top: spotlight.top,
             width: spotlight.width,
             height: spotlight.height,
+            borderRadius: step.spotlightRadius ?? 9999,
             boxShadow: SPOTLIGHT_SHADOW,
             pointerEvents: "none",
           }}
