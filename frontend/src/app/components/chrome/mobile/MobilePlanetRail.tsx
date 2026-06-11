@@ -74,9 +74,10 @@ export function MobilePlanetRail() {
         backdropFilter: "blur(22px) saturate(150%)",
         WebkitBackdropFilter: "blur(22px) saturate(150%)",
         borderBottom: "1px solid rgba(255,255,255,0.08)",
-        // Even spacing when the default set fits; left-align and scroll once a
-        // sim loads extra bodies (moons, Pluto) past what one row holds.
-        justifyContent: items.length <= 9 ? "space-between" : "flex-start",
+        // Center the icons as a group. "safe" falls back to start-alignment when
+        // a sim loads more bodies than fit (moons, Pluto) so the leading icons
+        // are never clipped out of reach; the row just scrolls from the start.
+        justifyContent: "safe center",
       }}
     >
       {items.map(({ key, name }) => {
