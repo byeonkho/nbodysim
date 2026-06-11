@@ -21,6 +21,8 @@ import { PlaybackQualityPicker } from "@/app/components/chrome/PlaybackQualityPi
 import { BodyCatalogPane } from "@/app/components/chrome/simSetup/BodyCatalogPane";
 import { formatTimeStep } from "@/app/utils/dateMath";
 import { runSimulation } from "@/app/utils/runSimulation";
+import { matchPresetClip } from "@/app/utils/presetClipMatch";
+import { runStaticClip } from "@/app/utils/runStaticClip";
 import {
   EPOCH_COPY,
   REFERENCE_FRAME_COPY,
@@ -147,6 +149,39 @@ export function MobileSimSetupSheet({
       (k) => BODY_DISPLAY[k],
     );
     if (celestialBodyNames.length === 0 || busy) return;
+
+    // A draft that exactly reproduces a canonical preset scenario plays the
+    // precomputed clip from the edge: no session, no backend wake, instant
+    // start. The embedded catalog's quick-select chips make this an easy
+    // state to reach on a phone; runStaticClip's budget guard falls back to
+    // the live path on clients whose buffer can't hold the clip.
+    const clipId = matchPresetClip({
+      bodyKeys: selectedBodies,
+      epoch,
+      frame,
+      integrator,
+      timeStepUnit: timeUnit,
+      fidelityBucket,
+    });
+    if (clipId !== null) {
+      setSubmitMsg("Starting simulation...");
+      let played = false;
+      try {
+        played = await runStaticClip(dispatch, clipId);
+      } catch {
+        // runStaticClip reports failure by returning false; this backstop
+        // keeps a future regression from stranding the disabled Run button.
+      }
+      if (played) {
+        setSubmitMsg(null);
+        onOpenChange(false);
+        return;
+      }
+      // Fall through to the live path WITHOUT clearing the message: the live
+      // branch re-sets the same text, and clearing first would flash the
+      // button back to enabled for one render.
+    }
+
     setSubmitMsg("Starting simulation...");
     try {
       const ok = await runSimulation(

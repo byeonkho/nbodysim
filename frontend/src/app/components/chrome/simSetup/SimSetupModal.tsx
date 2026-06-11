@@ -21,6 +21,8 @@ import {
 } from "@/app/constants/PlaybackQuality";
 import { SimParamsPane } from "@/app/components/chrome/simSetup/SimParamsPane";
 import { BodyCatalogPane } from "@/app/components/chrome/simSetup/BodyCatalogPane";
+import { matchPresetClip } from "@/app/utils/presetClipMatch";
+import { runStaticClip } from "@/app/utils/runStaticClip";
 
 // Centered two-pane Sim Setup modal: simulation params (left) + body catalog
 // (right). Replaces the left-anchored SimSetupDrawer. Radix Dialog substrate is
@@ -89,6 +91,36 @@ export function SimSetupModal({ open, onOpenChange }: SimSetupModalProps) {
     );
     if (celestialBodyNames.length === 0) return; // Run is disabled at 0 anyway
     if (busy) return; // a Run is already in flight
+
+    // A draft that exactly reproduces a canonical preset scenario plays the
+    // precomputed clip from the edge: no session, no backend wake, instant
+    // start. Falls through to the live path if the asset is unreachable.
+    const clipId = matchPresetClip({
+      bodyKeys: selectedBodies,
+      epoch,
+      frame,
+      integrator,
+      timeStepUnit: timeUnit,
+      fidelityBucket,
+    });
+    if (clipId !== null) {
+      setSubmitMsg("Starting simulation…");
+      let played = false;
+      try {
+        played = await runStaticClip(dispatch, clipId);
+      } catch {
+        // runStaticClip reports failure by returning false; this backstop
+        // keeps a future regression from stranding the disabled Run button.
+      }
+      if (played) {
+        setSubmitMsg(null);
+        onOpenChange(false);
+        return;
+      }
+      // Fall through to the live path WITHOUT clearing the message: the live
+      // branch re-sets the same text, and clearing first would flash the
+      // button back to enabled for one render.
+    }
 
     const requestPayload = {
       celestialBodyNames,
