@@ -17,9 +17,11 @@ import type { MobilePreset } from "@/app/constants/MobilePresets";
 
 // Fixed sim parameters shared by every mobile preset. Same defaults the
 // desktop modal ships with so the backend request shape is identical.
-const PRESET_EPOCH = "2024-06-05T00:00:00.000";
-const PRESET_INTEGRATOR = "rk4";
-const PRESET_TIME_UNIT: TimeUnit = "Hours";
+// Exported so the default-sim staleness guard compares the committed asset
+// against this single source of truth.
+export const PRESET_EPOCH = "2024-06-05T00:00:00.000";
+export const PRESET_INTEGRATOR = "rk4";
+export const PRESET_TIME_UNIT: TimeUnit = "Hours";
 
 // The request shape the backend launch path consumes. `frame` is the display
 // LABEL (e.g. "Heliocentric"), not the backend code; runSimulation converts it.
