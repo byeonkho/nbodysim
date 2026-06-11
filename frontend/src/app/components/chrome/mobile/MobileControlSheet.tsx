@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Drawer } from "vaul";
+import { createPortal } from "react-dom";
 import { useDispatch, useSelector } from "react-redux";
 import type { AppDispatch } from "@/app/store/Store";
 import type { CelestialBodyProperties } from "@/app/store/slices/SimulationSlice";
@@ -21,8 +21,12 @@ import { MobileTransportBar } from "./MobileTransportBar";
 import { MOBILE_PRESETS, type MobilePreset } from "@/app/constants/MobilePresets";
 import { runPreset } from "@/app/utils/runPreset";
 
-const COLLAPSED = "84px";
-const EXPANDED = 0.6;
+// Collapsed peek height: the grab handle plus the transport bar. Expanded is a
+// share of the viewport. This is a plain CSS sheet rather than a vaul drawer:
+// the persistent always-open peek pattern fought vaul's snap-point math (it
+// parked the sheet off-screen), so the control surface owns its own height.
+const COLLAPSED_PX = 96;
+const EXPANDED_HEIGHT = "60dvh";
 
 function Chip({
   on,
@@ -47,7 +51,7 @@ function Chip({
 
 export function MobileControlSheet() {
   const dispatch = useDispatch<AppDispatch>();
-  const [snap, setSnap] = useState<number | string | null>(COLLAPSED);
+  const [expanded, setExpanded] = useState(false);
 
   const showOrbits = useSelector(selectShowOrbitPaths);
   const showLabels = useSelector(selectShowPlanetInfoOverlay);
@@ -60,82 +64,97 @@ export function MobileControlSheet() {
   const scaleLabel = scale?.name === "Realistic" ? "Real" : "Stylized";
 
   const launch = (p: MobilePreset) => {
-    setSnap(COLLAPSED);
+    setExpanded(false);
     void runPreset(dispatch, p);
   };
 
-  return (
-    <Drawer.Root
-      open
-      modal={false}
-      dismissible={false}
-      snapPoints={[COLLAPSED, EXPANDED]}
-      activeSnapPoint={snap}
-      setActiveSnapPoint={setSnap}
+  const selectBody = (name: string) => {
+    // Collapse so the body detail sheet (z-30, below this sheet) is visible.
+    setExpanded(false);
+    dispatch(setActiveBody(name));
+  };
+
+  // Portals to document.body so the sheet sits at the same stacking level as
+  // the vaul body sheet (z-40 control over z-30 body). Mobile chrome only ever
+  // renders client-side (gated behind useIsMobile), so document is defined; the
+  // guard is defensive in case that gating ever changes.
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <section
+      aria-label="Playback and view controls"
+      className="pointer-events-auto fixed inset-x-0 bottom-0 z-40 flex flex-col overflow-hidden rounded-t-2xl bg-[#0b0d16]/95 text-white backdrop-blur transition-[height] duration-300 ease-out"
+      style={{ height: expanded ? EXPANDED_HEIGHT : `${COLLAPSED_PX}px` }}
     >
-      <Drawer.Portal>
-        <Drawer.Content
-          aria-describedby={undefined}
-          className="pointer-events-auto fixed inset-x-0 bottom-0 z-40 flex flex-col rounded-t-2xl bg-[#0b0d16]/95 text-white backdrop-blur"
-        >
-          <Drawer.Handle className="my-2" />
-          {/* Screen-reader-only name for the sheet; the collapsed bar shows no
-              visible heading, but Radix Dialog (vaul's base) requires a title. */}
-          <Drawer.Title className="sr-only">Playback and view controls</Drawer.Title>
-          <MobileTransportBar />
+      <button
+        type="button"
+        aria-label={expanded ? "Collapse controls" : "Expand controls"}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full shrink-0 items-center justify-center py-3"
+      >
+        <span className="h-1.5 w-10 rounded-full bg-white/30" />
+      </button>
 
-          {/* Expanded-only controls */}
-          <div className="space-y-4 overflow-y-auto px-4 pb-8">
-            <div>
-              <div className="mb-2 text-xs uppercase tracking-wide text-white/50">
-                Scenarios
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {MOBILE_PRESETS.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => launch(p)}
-                    className="h-11 rounded-lg bg-white/10 px-3 text-sm"
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+      <div className="shrink-0">
+        <MobileTransportBar />
+      </div>
 
-            <div>
-              <div className="mb-2 text-xs uppercase tracking-wide text-white/50">
-                View
-              </div>
-              <div className="grid grid-cols-4 gap-2">
-                <Chip label="Orbits" on={showOrbits} onClick={() => dispatch(toggleShowOrbitPaths())} />
-                <Chip label="Labels" on={showLabels} onClick={() => dispatch(toggleShowPlanetInfoOverlay())} />
-                <Chip label="Trails" on={showTrails} onClick={() => dispatch(toggleShowTrails())} />
-                <Chip label={scaleLabel} on={false} onClick={() => dispatch(cycleSimulationScale())} />
-              </div>
-            </div>
-
-            <div>
-              <div className="mb-2 text-xs uppercase tracking-wide text-white/50">
-                Bodies
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {bodies
-                  .filter((b: CelestialBodyProperties): b is CelestialBodyProperties & { name: string } => !!b.name)
-                  .map((b) => (
-                    <button
-                      key={b.name}
-                      onClick={() => dispatch(setActiveBody(b.name))}
-                      className="h-11 rounded-lg bg-white/10 px-3 text-sm"
-                    >
-                      {b.name}
-                    </button>
-                  ))}
-              </div>
-            </div>
+      {/* Expanded controls. inert when collapsed: clipped by overflow-hidden,
+          and kept out of the tab order / accessibility tree until revealed. */}
+      <div
+        inert={!expanded}
+        className="flex-1 space-y-4 overflow-y-auto px-4 pb-8"
+      >
+        <div>
+          <div className="mb-2 text-xs uppercase tracking-wide text-white/50">
+            Scenarios
           </div>
-        </Drawer.Content>
-      </Drawer.Portal>
-    </Drawer.Root>
+          <div className="flex flex-wrap gap-2">
+            {MOBILE_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => launch(p)}
+                className="h-11 rounded-lg bg-white/10 px-3 text-sm"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 text-xs uppercase tracking-wide text-white/50">
+            View
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            <Chip label="Orbits" on={showOrbits} onClick={() => dispatch(toggleShowOrbitPaths())} />
+            <Chip label="Labels" on={showLabels} onClick={() => dispatch(toggleShowPlanetInfoOverlay())} />
+            <Chip label="Trails" on={showTrails} onClick={() => dispatch(toggleShowTrails())} />
+            <Chip label={scaleLabel} on={false} onClick={() => dispatch(cycleSimulationScale())} />
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 text-xs uppercase tracking-wide text-white/50">
+            Bodies
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {bodies
+              .filter((b: CelestialBodyProperties): b is CelestialBodyProperties & { name: string } => !!b.name)
+              .map((b) => (
+                <button
+                  key={b.name}
+                  onClick={() => selectBody(b.name)}
+                  className="h-11 rounded-lg bg-white/10 px-3 text-sm"
+                >
+                  {b.name}
+                </button>
+              ))}
+          </div>
+        </div>
+      </div>
+    </section>,
+    document.body,
   );
 }
