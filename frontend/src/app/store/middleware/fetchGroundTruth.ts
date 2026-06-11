@@ -7,7 +7,7 @@ import type { AppDispatch, RootState } from "@/app/store/Store";
 type GroundTruthResponse = components["schemas"]["GroundTruthResponse"];
 
 interface FetchArgs {
-  sessionID: string;
+  frame: string; // backend frame CODE (e.g. "heliocentric"), not the display label
   body: string; // single focused body (active-only fetching)
   fromMs: number;
   toMs: number;
@@ -22,10 +22,10 @@ export const fetchGroundTruth = createAsyncThunk<
   void,
   FetchArgs,
   { state: RootState; dispatch: AppDispatch }
->("groundTruth/fetch", async ({ sessionID, body, fromMs, toMs, stepSeconds }, { dispatch }) => {
+>("groundTruth/fetch", async ({ frame, body, fromMs, toMs, stepSeconds }, { dispatch }) => {
   const url =
-    `${REST_URL}/ground-truth?sessionId=${encodeURIComponent(sessionID)}` +
-    `&body=${encodeURIComponent(body)}` +
+    `${REST_URL}/ground-truth?body=${encodeURIComponent(body)}` +
+    `&frame=${encodeURIComponent(frame)}` +
     `&fromEpoch=${fromMs}&toEpoch=${toMs}&stepSeconds=${stepSeconds}`;
 
   let data: GroundTruthResponse;
