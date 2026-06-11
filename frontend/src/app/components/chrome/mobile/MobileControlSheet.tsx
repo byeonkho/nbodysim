@@ -32,6 +32,11 @@ import { runStaticClip } from "@/app/utils/runStaticClip";
 // parked the sheet off-screen), so the control surface owns its own height.
 const COLLAPSED_PX = 96;
 const EXPANDED_HEIGHT = "60dvh";
+// Breathing room below the controls so the transport row never kisses the
+// screen edge, plus the device safe area (an iPhone home indicator) when the
+// page opts into it. Added as bottom padding, with the sheet height grown to
+// match so the visible content area stays put.
+const BOTTOM_INSET = "calc(env(safe-area-inset-bottom, 0px) + 14px)";
 
 function Chip({
   on = false,
@@ -109,7 +114,12 @@ export function MobileControlSheet() {
     <section
       aria-label="Playback and view controls"
       className="glass-dock pointer-events-auto fixed inset-x-0 bottom-0 z-40 flex flex-col overflow-hidden text-text transition-[height] duration-300 ease-out"
-      style={{ height: expanded ? EXPANDED_HEIGHT : `${COLLAPSED_PX}px` }}
+      style={{
+        height: expanded
+          ? EXPANDED_HEIGHT
+          : `calc(${COLLAPSED_PX}px + ${BOTTOM_INSET})`,
+        paddingBottom: BOTTOM_INSET,
+      }}
     >
       <button
         type="button"

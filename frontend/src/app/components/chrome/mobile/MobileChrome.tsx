@@ -60,15 +60,16 @@ export function MobileChrome() {
       <MobilePlanetRail />
 
       {/* Build a simulation: a bottom-right floating action button in the
-          one-handed thumb zone. bottom-28 (112px) clears the collapsed control
-          sheet. Hidden while a bottom sheet is open. */}
+          one-handed thumb zone. bottom-32 (128px) clears the collapsed control
+          sheet, which now reserves its own bottom breathing room. Hidden while a
+          bottom sheet is open. */}
       {showFab && (
         <button
           type="button"
           aria-label="Build simulation"
           data-tour={MOBILE_BUILD_TOUR_TARGET}
           onClick={() => setSetupOpen(true)}
-          className="pointer-events-auto fixed right-4 bottom-28 z-20 grid h-14 w-14 place-items-center rounded-full border border-white/[0.08] text-accent transition-colors hover:text-hi"
+          className="pointer-events-auto fixed right-4 bottom-32 z-20 grid h-14 w-14 place-items-center rounded-full border border-white/[0.08] text-accent transition-colors hover:text-hi"
           style={{
             background: "rgba(20,22,30,0.62)",
             backdropFilter: "blur(22px) saturate(150%)",
