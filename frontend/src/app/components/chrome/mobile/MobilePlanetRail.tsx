@@ -66,10 +66,14 @@ export function MobilePlanetRail() {
     <nav
       aria-label="Pick a body to inspect"
       data-tour={MOBILE_INSPECT_TOUR_TARGET}
-      className="pointer-events-auto fixed inset-x-0 top-0 z-20 flex items-center gap-2 overflow-x-auto px-3"
+      className="pointer-events-auto fixed inset-x-0 top-0 z-20 flex items-center gap-2 overflow-x-auto"
       style={{
+        // Pad in past every edge's safe area: the notch on top, and the
+        // rounded corners / side notch when the phone is held in landscape.
         paddingTop: "calc(env(safe-area-inset-top, 0px) + 10px)",
         paddingBottom: 10,
+        paddingLeft: "calc(env(safe-area-inset-left, 0px) + 12px)",
+        paddingRight: "calc(env(safe-area-inset-right, 0px) + 12px)",
         background: "rgba(14,16,24,0.55)",
         backdropFilter: "blur(22px) saturate(150%)",
         WebkitBackdropFilter: "blur(22px) saturate(150%)",

@@ -119,6 +119,10 @@ export function MobileControlSheet() {
           ? EXPANDED_HEIGHT
           : `calc(${COLLAPSED_PX}px + ${BOTTOM_INSET})`,
         paddingBottom: BOTTOM_INSET,
+        // Keep controls out of the side safe areas (landscape notch / rounded
+        // corners). Zero in portrait, so the dock still spans edge to edge.
+        paddingLeft: "env(safe-area-inset-left, 0px)",
+        paddingRight: "env(safe-area-inset-right, 0px)",
       }}
     >
       <button

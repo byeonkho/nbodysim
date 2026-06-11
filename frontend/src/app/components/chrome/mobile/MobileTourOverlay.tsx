@@ -99,7 +99,11 @@ export function MobileTourOverlay() {
         ? { left, top: spotlight.top + spotlight.height + CARD_MARGIN }
         : { left, bottom: window.innerHeight - spotlight.top + CARD_MARGIN };
   } else if (step.placement === "bottom") {
-    cardWrap = { left: "50%", bottom: 112, transform: "translateX(-50%)" };
+    cardWrap = {
+      left: "50%",
+      bottom: "calc(env(safe-area-inset-bottom, 0px) + 112px)",
+      transform: "translateX(-50%)",
+    };
   } else {
     cardWrap = { left: "50%", top: "50%", transform: "translate(-50%, -50%)" };
   }
