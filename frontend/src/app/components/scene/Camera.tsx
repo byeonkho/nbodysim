@@ -369,6 +369,7 @@ const Camera: React.FC = () => {
       dampingFactor={orbitDampingFactor}
       enableZoom
       enablePan={!isBodyActive}
+      touches={{ ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }}
     />
   );
 };

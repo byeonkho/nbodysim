@@ -13,6 +13,8 @@ import { Timeline } from "@/app/components/chrome/Timeline";
 import { TopStatusStrip } from "@/app/components/chrome/TopStatusStrip";
 import { DevPanel } from "@/app/components/dev/DevPanel";
 import { TourOverlay } from "@/app/components/interface/tour/TourOverlay";
+import { useIsMobile } from "@/app/utils/useIsMobile";
+import { MobileChrome } from "@/app/components/chrome/mobile/MobileChrome";
 
 const Layout: React.FC = () => {
   const [simSetupOpen, setSimSetupOpen] = useState(false);
@@ -26,6 +28,8 @@ const Layout: React.FC = () => {
     () => new URLSearchParams(window.location.search).has("dev"),
     () => false,
   );
+
+  const isMobile = useIsMobile();
 
   return (
     <div className="flex w-screen h-screen overflow-hidden">
@@ -61,29 +65,35 @@ const Layout: React.FC = () => {
         <div className="absolute inset-0 z-10 pointer-events-none">
           <FirstLoadSpinner />
 
-          <TopStatusStrip
-            onSimSetupClick={() => setSimSetupOpen(true)}
-            simSetupActive={simSetupOpen}
-          />
-          <BodySelector />
-          <FrameCompass />
-          <RightColumn />
+          {isMobile ? (
+            <MobileChrome />
+          ) : (
+            <>
+              <TopStatusStrip
+                onSimSetupClick={() => setSimSetupOpen(true)}
+                simSetupActive={simSetupOpen}
+              />
+              <BodySelector />
+              <FrameCompass />
+              <RightColumn />
 
-          {/* Event log — docked bottom-left, just above the timeline.
-              Collapsible (collapsed by default); expands upward into the
-              scene, capped so it scrolls internally rather than overrunning
-              the top chrome. */}
-          <div className="pointer-events-auto absolute bottom-[160px] left-6 w-[316px]">
-            <EventLogCard />
-          </div>
+              {/* Event log — docked bottom-left, just above the timeline.
+                  Collapsible (collapsed by default); expands upward into the
+                  scene, capped so it scrolls internally rather than overrunning
+                  the top chrome. */}
+              <div className="pointer-events-auto absolute bottom-[160px] left-6 w-[316px]">
+                <EventLogCard />
+              </div>
 
-          <Timeline />
+              <Timeline />
 
-          <SimSetupModal open={simSetupOpen} onOpenChange={setSimSetupOpen} />
+              <SimSetupModal open={simSetupOpen} onOpenChange={setSimSetupOpen} />
+
+              <TourOverlay simSetupOpen={simSetupOpen} />
+            </>
+          )}
 
           {devMode && <DevPanel />}
-
-          <TourOverlay simSetupOpen={simSetupOpen} />
         </div>
       </div>
     </div>

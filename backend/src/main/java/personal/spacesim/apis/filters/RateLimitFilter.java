@@ -64,6 +64,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * the true client is in {@code CF-Connecting-IP}; trusting it is only safe
  * because the origin is locked to accept Cloudflare traffic at deploy time —
  * otherwise the header is client-spoofable.
+ *
+ * <p>Loopback clients (localhost) are exempt from all limits: local development
+ * has no Cloudflare edge in front of it, so a developer exercising the API while
+ * testing shouldn't throttle themselves. This is safe because a real production
+ * client's IP comes from {@code CF-Connecting-IP} (never loopback) and
+ * {@link OriginLockFilter} already blocks non-Cloudflare traffic.
  */
 @Component
 @Order(2) // after OriginLockFilter (@Order(1)) so side-door traffic is rejected first
@@ -126,6 +132,18 @@ public class RateLimitFilter extends OncePerRequestFilter {
         }
 
         String ip = resolveClientIp(request);
+
+        // Localhost is exempt: local development has no Cloudflare edge in front
+        // of it, so a developer exercising the API while testing shouldn't 429
+        // themselves. In production the client IP comes from CF-Connecting-IP (a
+        // real public address, never loopback) and OriginLockFilter already
+        // rejects non-Cloudflare side-door traffic, so this never matches a real
+        // client.
+        if (isLoopback(ip)) {
+            chain.doFilter(request, response);
+            return;
+        }
+
         ApiEndpoint endpoint = ApiEndpoint.classify(uri);
         IpBuckets ipBuckets = buckets.computeIfAbsent(ip, k -> new IpBuckets());
         ipBuckets.touch();
@@ -176,6 +194,25 @@ public class RateLimitFilter extends OncePerRequestFilter {
             return (comma == -1 ? forwarded : forwarded.substring(0, comma)).trim();
         }
         return request.getRemoteAddr();
+    }
+
+    /**
+     * True for loopback client addresses (IPv4 {@code 127.0.0.0/8}, IPv6
+     * {@code ::1} and its expanded / IPv4-mapped forms, and the literal
+     * {@code localhost}). Used to exempt local development from rate limiting.
+     * Package-private so the test can pin the scope: exempting too broadly would
+     * silently disable the limiter for real clients.
+     */
+    static boolean isLoopback(String ip) {
+        if (ip == null || ip.isBlank()) {
+            return false;
+        }
+        String addr = ip.trim();
+        return addr.startsWith("127.")
+                || addr.equals("::1")
+                || addr.equals("0:0:0:0:0:0:0:1")
+                || addr.equals("::ffff:127.0.0.1")
+                || addr.equalsIgnoreCase("localhost");
     }
 
     private static void sendTooManyRequests(

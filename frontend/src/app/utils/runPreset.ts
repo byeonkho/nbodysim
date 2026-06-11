@@ -1,0 +1,83 @@
+import type { AppDispatch } from "@/app/store/Store";
+import { store } from "@/app/store/Store";
+import { initializeCelestialBodies } from "@/app/utils/initializeCelestialBodies";
+import { dispatchChunkRequest } from "@/app/store/middleware/simulationRequestThunk";
+import { setIsPaused, setLastSimRequest } from "@/app/store/slices/SimulationSlice";
+import { BODY_DISPLAY } from "@/app/constants/BodyVisuals";
+import {
+  DEFAULT_FRAME,
+  FRAME_CODE,
+  type TimeUnit,
+} from "@/app/constants/SimParams";
+import {
+  INTEGRATOR_DEFAULT_BUCKETS,
+  type FidelityBucket,
+} from "@/app/constants/PlaybackQuality";
+import type { MobilePreset } from "@/app/constants/MobilePresets";
+
+// Fixed sim parameters shared by every mobile preset. Same defaults the
+// desktop modal ships with so the backend request shape is identical.
+const PRESET_EPOCH = "2024-06-05T00:00:00.000";
+const PRESET_INTEGRATOR = "rk4";
+const PRESET_TIME_UNIT: TimeUnit = "Hours";
+
+// The request shape the backend launch path consumes. `frame` is the display
+// LABEL (e.g. "Heliocentric"), not the backend code; runSimulation converts it.
+// Matches what SimSetupModal stores in lastSimRequest.
+export interface SimulationRequest {
+  celestialBodyNames: string[];
+  date: string;
+  frame: string;
+  integrator: string;
+  timeStepUnit: TimeUnit;
+  fidelityBucket: FidelityBucket;
+}
+
+// Single launch path shared by the mobile presets and the mobile sim-setup
+// builder. Mirrors SimSetupModal.handleSubmit exactly: initialize -> read
+// sessionID -> store lastRequest (LABEL frame) -> request chunks -> unpause.
+export async function runSimulation(
+  dispatch: AppDispatch,
+  req: SimulationRequest,
+  opts?: { onRetry?: () => void },
+): Promise<boolean> {
+  if (req.celestialBodyNames.length === 0) return false;
+
+  const ok = await initializeCelestialBodies(
+    dispatch,
+    { ...req, frame: FRAME_CODE[req.frame] ?? req.frame },
+    { onRetry: opts?.onRetry },
+  );
+  if (!ok) return false;
+
+  const sessionID =
+    store.getState().simulation.simulationParameters?.simulationMetaData
+      ?.sessionID;
+  if (!sessionID) return false;
+
+  dispatch(setLastSimRequest(req));
+  dispatchChunkRequest(dispatch, { sessionID });
+  dispatch(setIsPaused(false));
+  return true;
+}
+
+// Launch a fixed preset scenario: the preset's bodies plus the shared default
+// epoch / frame / integrator / timestep / fidelity.
+export async function runPreset(
+  dispatch: AppDispatch,
+  preset: MobilePreset,
+  opts?: { onRetry?: () => void },
+): Promise<boolean> {
+  return runSimulation(
+    dispatch,
+    {
+      celestialBodyNames: preset.keys.map((k) => BODY_DISPLAY[k]),
+      date: PRESET_EPOCH,
+      frame: DEFAULT_FRAME,
+      integrator: PRESET_INTEGRATOR,
+      timeStepUnit: PRESET_TIME_UNIT,
+      fidelityBucket: INTEGRATOR_DEFAULT_BUCKETS[PRESET_INTEGRATOR] ?? "medLow",
+    },
+    opts,
+  );
+}
