@@ -40,8 +40,10 @@ function Chip({
   return (
     <button
       onClick={onClick}
-      className={`h-11 rounded-lg px-3 text-sm ${
-        on ? "bg-white text-black" : "bg-white/10 text-white/80"
+      className={`h-11 rounded-chip border px-3 text-sm transition-colors ${
+        on
+          ? "border-[rgba(164,168,255,0.28)] bg-[rgba(164,168,255,0.12)] text-accent"
+          : "border-white/[0.06] text-dim hover:bg-white/[0.04] hover:text-hi"
       }`}
     >
       {label}
@@ -83,7 +85,7 @@ export function MobileControlSheet() {
   return createPortal(
     <section
       aria-label="Playback and view controls"
-      className="pointer-events-auto fixed inset-x-0 bottom-0 z-40 flex flex-col overflow-hidden rounded-t-2xl bg-[#0b0d16]/95 text-white backdrop-blur transition-[height] duration-300 ease-out"
+      className="glass-dock pointer-events-auto fixed inset-x-0 bottom-0 z-40 flex flex-col overflow-hidden text-text transition-[height] duration-300 ease-out"
       style={{ height: expanded ? EXPANDED_HEIGHT : `${COLLAPSED_PX}px` }}
     >
       <button
@@ -93,7 +95,7 @@ export function MobileControlSheet() {
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full shrink-0 items-center justify-center py-3"
       >
-        <span className="h-1.5 w-10 rounded-full bg-white/30" />
+        <span className="h-1.5 w-10 rounded-full bg-white/20" />
       </button>
 
       <div className="shrink-0">
@@ -107,7 +109,7 @@ export function MobileControlSheet() {
         className="flex-1 space-y-4 overflow-y-auto px-4 pb-8"
       >
         <div>
-          <div className="mb-2 text-xs uppercase tracking-wide text-white/50">
+          <div className="eyebrow mb-2">
             Scenarios
           </div>
           <div className="flex flex-wrap gap-2">
@@ -115,7 +117,7 @@ export function MobileControlSheet() {
               <button
                 key={p.id}
                 onClick={() => launch(p)}
-                className="h-11 rounded-lg bg-white/10 px-3 text-sm"
+                className="h-11 rounded-chip border border-white/[0.06] px-3 text-sm text-dim transition-colors hover:bg-white/[0.04] hover:text-hi"
               >
                 {p.label}
               </button>
@@ -124,7 +126,7 @@ export function MobileControlSheet() {
         </div>
 
         <div>
-          <div className="mb-2 text-xs uppercase tracking-wide text-white/50">
+          <div className="eyebrow mb-2">
             View
           </div>
           <div className="grid grid-cols-4 gap-2">
@@ -136,7 +138,7 @@ export function MobileControlSheet() {
         </div>
 
         <div>
-          <div className="mb-2 text-xs uppercase tracking-wide text-white/50">
+          <div className="eyebrow mb-2">
             Bodies
           </div>
           <div className="flex flex-wrap gap-2">
@@ -146,7 +148,7 @@ export function MobileControlSheet() {
                 <button
                   key={b.name}
                   onClick={() => selectBody(b.name)}
-                  className="h-11 rounded-lg bg-white/10 px-3 text-sm"
+                  className="h-11 rounded-chip border border-white/[0.06] px-3 text-sm text-dim transition-colors hover:bg-white/[0.04] hover:text-hi"
                 >
                   {b.name}
                 </button>

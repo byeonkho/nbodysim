@@ -213,26 +213,26 @@ export function MobileBodySheet() {
       <Drawer.Portal>
         <Drawer.Content
           aria-describedby={undefined}
-          className="pointer-events-auto fixed inset-x-0 bottom-0 z-30 rounded-t-2xl bg-[#0b0d16]/95 text-white backdrop-blur"
+          className="glass-dock pointer-events-auto fixed inset-x-0 bottom-0 z-30 text-text"
         >
           <Drawer.Handle className="my-3" />
           {/* pb-28 clears the persistent transport bar (control sheet, z-40)
               so inspecting a body never hides transport. */}
           <div className="px-5 pb-28">
-            <Drawer.Title className="text-lg font-medium">{activeName}</Drawer.Title>
+            <Drawer.Title className="text-hi text-lg font-medium">{activeName}</Drawer.Title>
             <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-              <dt className="text-white/50">Range</dt>
-              <dd><span ref={rangeRef} className="tabular-nums" /></dd>
-              <dt className="text-white/50">Speed</dt>
-              <dd><span ref={speedRef} className="tabular-nums" /></dd>
-              <dt className="text-white/50">Orbit size</dt>
-              <dd><span ref={aRef} className="tabular-nums" /></dd>
-              <dt className="text-white/50">Roundness</dt>
-              <dd><span ref={eRef} className="tabular-nums" /></dd>
-              <dt className="text-white/50">Tilt</dt>
-              <dd><span ref={iRef} className="tabular-nums" /></dd>
-              <dt className="text-white/50">Accuracy</dt>
-              <dd><span ref={accuracyRef} className="tabular-nums" /></dd>
+              <dt className="text-dim">Range</dt>
+              <dd className="text-hi"><span ref={rangeRef} className="tabular font-mono" /></dd>
+              <dt className="text-dim">Speed</dt>
+              <dd className="text-hi"><span ref={speedRef} className="tabular font-mono" /></dd>
+              <dt className="text-dim">Orbit size</dt>
+              <dd className="text-hi"><span ref={aRef} className="tabular font-mono" /></dd>
+              <dt className="text-dim">Roundness</dt>
+              <dd className="text-hi"><span ref={eRef} className="tabular font-mono" /></dd>
+              <dt className="text-dim">Tilt</dt>
+              <dd className="text-hi"><span ref={iRef} className="tabular font-mono" /></dd>
+              <dt className="text-dim">Accuracy</dt>
+              <dd className="text-hi"><span ref={accuracyRef} className="tabular font-mono" /></dd>
             </dl>
           </div>
         </Drawer.Content>
