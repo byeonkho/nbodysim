@@ -80,6 +80,23 @@ export function computeBufferCapacity(
   return Math.floor(byteBudget / (bodyCount * BYTES_PER_TIMESTEP_PER_BODY));
 }
 
+// Pre-flight for preset clips: a clip decodes entirely into the buffer up
+// front (no streaming, no eviction headroom), so only play it from the static
+// asset when it fits well inside the client budget; callers fall back to the
+// live streaming path (which evicts gracefully) otherwise. The 0.8 factor
+// leaves headroom for the buffer's fixed overheads (timestamps, deltaE
+// planes) and future growth. budgetBytes is injectable for tests.
+export function clipFitsClientBudget(
+  bodyCount: number,
+  chunkCount: number,
+  samplesPerChunk: number,
+  budgetBytes: number = selectBufferByteBudget(),
+): boolean {
+  const decodedBytes =
+    chunkCount * samplesPerChunk * bodyCount * BYTES_PER_TIMESTEP_PER_BODY;
+  return decodedBytes <= 0.8 * budgetBytes;
+}
+
 export function createChunkBuffer(
   bodyNames: string[],
   capacity: number,

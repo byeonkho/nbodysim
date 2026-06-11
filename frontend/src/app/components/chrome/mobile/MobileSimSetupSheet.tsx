@@ -20,7 +20,7 @@ import {
 import { PlaybackQualityPicker } from "@/app/components/chrome/PlaybackQualityPicker";
 import { BodyCatalogPane } from "@/app/components/chrome/simSetup/BodyCatalogPane";
 import { formatTimeStep } from "@/app/utils/dateMath";
-import { runSimulation } from "@/app/utils/runPreset";
+import { runSimulation } from "@/app/utils/runSimulation";
 import {
   EPOCH_COPY,
   REFERENCE_FRAME_COPY,

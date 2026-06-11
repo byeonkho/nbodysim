@@ -18,13 +18,6 @@ import {
   selectCelestialBodyPropertiesList,
 } from "@/app/store/slices/SimulationSlice";
 import { MobileTransportBar } from "./MobileTransportBar";
-import {
-  MOBILE_PRESETS,
-  DEFAULT_PRESET_ID,
-  type MobilePreset,
-} from "@/app/constants/MobilePresets";
-import { runPreset } from "@/app/utils/runPreset";
-import { runStaticClip } from "@/app/utils/runStaticClip";
 
 // Collapsed peek height: the grab handle plus the transport bar. Expanded is a
 // share of the viewport. This is a plain CSS sheet rather than a vaul drawer:
@@ -80,19 +73,6 @@ export function MobileControlSheet() {
   // everything else (currently "Log") renders as "Stylized".
   const scaleLabel = scale?.name === "Realistic" ? "Real" : "Stylized";
 
-  const launch = (p: MobilePreset) => {
-    setExpanded(false);
-    // The default scenario reuses the free static clip; the other presets are
-    // explicit user intent and run live (real session).
-    if (p.id === DEFAULT_PRESET_ID) {
-      void runStaticClip(dispatch).then((ok) => {
-        if (!ok) void runPreset(dispatch, p);
-      });
-      return;
-    }
-    void runPreset(dispatch, p);
-  };
-
   const selectBody = (name: string) => {
     // Collapse so the body detail sheet (z-30, below this sheet) is visible.
     setExpanded(false);
@@ -131,23 +111,6 @@ export function MobileControlSheet() {
         inert={!expanded}
         className="flex-1 space-y-4 overflow-y-auto px-4 pb-8"
       >
-        <div>
-          <div className="eyebrow mb-2">
-            Scenarios
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {MOBILE_PRESETS.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => launch(p)}
-                className="h-11 rounded-chip border border-white/[0.06] px-3 text-sm text-dim transition-colors hover:bg-white/[0.04] hover:text-hi"
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
         <div>
           <div className="eyebrow mb-2">
             View

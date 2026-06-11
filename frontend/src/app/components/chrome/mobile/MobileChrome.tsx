@@ -8,8 +8,17 @@ import { setCameraPreset } from "@/app/store/slices/SimulationSlice";
 import { MobileControlSheet } from "./MobileControlSheet";
 import { MobileBodySheet } from "./MobileBodySheet";
 import { MobileSimSetupSheet } from "./MobileSimSetupSheet";
-import { MOBILE_PRESETS, DEFAULT_PRESET_ID } from "@/app/constants/MobilePresets";
-import { runPreset } from "@/app/utils/runPreset";
+import { DEFAULT_SELECTED } from "@/app/constants/BodyCatalog";
+import { BODY_DISPLAY } from "@/app/constants/BodyVisuals";
+import { DEFAULT_FRAME } from "@/app/constants/SimParams";
+import { INTEGRATOR_DEFAULT_BUCKETS } from "@/app/constants/PlaybackQuality";
+import {
+  runSimulation,
+  PRESET_EPOCH,
+  PRESET_INTEGRATOR,
+  PRESET_TIME_UNIT,
+} from "@/app/utils/runSimulation";
+import { DEFAULT_CLIP_ID } from "@/app/constants/ClipPresets";
 import { runStaticClip } from "@/app/utils/runStaticClip";
 
 export function MobileChrome() {
@@ -35,12 +44,19 @@ export function MobileChrome() {
     // calls on a bounce. If the asset is somehow unreachable (a build that
     // shipped without it), fall back to a live run so the scene still appears.
     void (async () => {
-      const ok = await runStaticClip(dispatch);
+      const ok = await runStaticClip(dispatch, DEFAULT_CLIP_ID);
       if (ok) return;
-      const preset =
-        MOBILE_PRESETS.find((p) => p.id === DEFAULT_PRESET_ID) ??
-        MOBILE_PRESETS[0];
-      void runPreset(dispatch, preset);
+      // Asset unreachable (a build shipped without it): live run of the same
+      // default scenario so the scene still appears.
+      void runSimulation(dispatch, {
+        celestialBodyNames: DEFAULT_SELECTED.map((k) => BODY_DISPLAY[k]),
+        date: PRESET_EPOCH,
+        frame: DEFAULT_FRAME,
+        integrator: PRESET_INTEGRATOR,
+        timeStepUnit: PRESET_TIME_UNIT,
+        fidelityBucket:
+          INTEGRATOR_DEFAULT_BUCKETS[PRESET_INTEGRATOR] ?? "medLow",
+      });
     })();
   }, [dispatch]);
 

@@ -1,3 +1,12 @@
+// Launch a precomputed preset clip from the static edge asset instead of the
+// live backend. No /initialize, no /chunk, no session: the manifest is applied
+// through the same loadSimulation reducer the live path uses, the bundled
+// chunks are decoded through the same worker and appended to the buffer, and
+// the null session means the prefetch middleware never fires. The clip is
+// self-contained; reaching its end just freezes on the last frame
+// (computeNextIndex clamps to totalTimesteps - 1). Returns false if the preset
+// is unknown, the clip is too large for this client's buffer budget, or the
+// asset is unreachable or corrupt, so the caller can fall back to a live run.
 import type { AppDispatch } from "@/app/store/Store";
 import {
   appendChunkToBuffer,
@@ -6,29 +15,54 @@ import {
   setLastSimRequest,
 } from "@/app/store/slices/SimulationSlice";
 import { decodeOffMainThread } from "@/app/store/middleware/simulationRequestThunk";
-import { parseDefaultSimBundle } from "@/app/utils/defaultSimBundle";
+import {
+  clipUrl,
+  parsePresetClipBundle,
+  type ParsedPresetClipBundle,
+} from "@/app/utils/presetClipBundle";
+import {
+  CLIP_PRESETS,
+  CLIP_SAMPLES_PER_CHUNK,
+  type ClipPreset,
+} from "@/app/constants/ClipPresets";
+import { clipFitsClientBudget } from "@/app/store/chunkBuffer";
 
-const BUNDLE_URL = "/default-sim-v3.bin";
+export async function runStaticClip(
+  dispatch: AppDispatch,
+  presetId: ClipPreset["id"],
+): Promise<boolean> {
+  // Unknown preset, or a clip too large for this client's buffer budget:
+  // report "no clip" so every caller falls back to the live streaming path.
+  const preset = CLIP_PRESETS.find((p) => p.id === presetId);
+  if (!preset) return false;
+  if (
+    !clipFitsClientBudget(
+      preset.keys.length,
+      preset.chunkCount,
+      CLIP_SAMPLES_PER_CHUNK,
+    )
+  ) {
+    return false;
+  }
 
-// Launch the precomputed default solar-system clip from the static edge asset
-// instead of the live backend. No /initialize, no /chunk, no session: the
-// manifest is applied through the same loadSimulation reducer the live path
-// uses, the bundled chunks are decoded through the same worker and appended to
-// the buffer, and the null session means the prefetch middleware never fires.
-// The clip is self-contained; reaching its end just freezes on the last frame
-// (computeNextIndex clamps to totalTimesteps - 1). Returns false if the asset
-// is unreachable so the caller can fall back to a live run.
-export async function runStaticClip(dispatch: AppDispatch): Promise<boolean> {
   let bytes: Uint8Array;
   try {
-    const res = await fetch(BUNDLE_URL);
+    const res = await fetch(clipUrl(presetId));
     if (!res.ok) return false;
     bytes = new Uint8Array(await res.arrayBuffer());
   } catch {
     return false;
   }
 
-  const { manifest, chunks } = parseDefaultSimBundle(bytes);
+  // A truncated or garbled asset throws here (bad JSON / out-of-range reads).
+  // Nothing has been dispatched yet, so "no clip" is still a clean answer.
+  let manifest: ParsedPresetClipBundle["manifest"];
+  let chunks: ParsedPresetClipBundle["chunks"];
+  try {
+    ({ manifest, chunks } = parsePresetClipBundle(bytes));
+  } catch {
+    return false;
+  }
 
   // simulationMetaData: null => no session => no chunk prefetch ever.
   dispatch(
@@ -53,21 +87,28 @@ export async function runStaticClip(dispatch: AppDispatch): Promise<boolean> {
   // Decode + append in order. Each chunk needs its own ArrayBuffer because the
   // worker transfers (neuters) the buffer it is handed; slice() copies into a
   // fresh, exactly-sized buffer.
-  for (const chunk of chunks) {
-    const payload = await decodeOffMainThread(chunk.slice().buffer);
-    dispatch(
-      appendChunkToBuffer({
-        bodyNames: payload.bodyNames,
-        bodyCount: payload.bodyCount,
-        timestepCount: payload.timestepCount,
-        positions: payload.positions,
-        timestamps: payload.timestamps,
-        mu: payload.mu,
-        deltaERelative: payload.deltaERelative,
-        dp853AvgStepSeconds: payload.dp853AvgStepSeconds,
-        dp853AcceptRate: payload.dp853AcceptRate,
-      }),
-    );
+  try {
+    for (const chunk of chunks) {
+      const payload = await decodeOffMainThread(chunk.slice().buffer);
+      dispatch(
+        appendChunkToBuffer({
+          bodyNames: payload.bodyNames,
+          bodyCount: payload.bodyCount,
+          timestepCount: payload.timestepCount,
+          positions: payload.positions,
+          timestamps: payload.timestamps,
+          mu: payload.mu,
+          deltaERelative: payload.deltaERelative,
+          dp853AvgStepSeconds: payload.dp853AvgStepSeconds,
+          dp853AcceptRate: payload.dp853AcceptRate,
+        }),
+      );
+    }
+  } catch {
+    // A mid-loop decode failure leaves earlier chunks in the buffer (still
+    // paused, so nothing plays). Recovery relies on the caller's live
+    // fallback: its loadSimulation dispatch rebuilds the buffer from scratch.
+    return false;
   }
 
   dispatch(setIsPaused(false));

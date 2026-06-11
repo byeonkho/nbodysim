@@ -11,6 +11,7 @@ import {
   readDeltaERelativeAt,
   getTimestamp,
   getTimestampAsIsoString,
+  clipFitsClientBudget,
 } from "./chunkBuffer";
 import * as THREE from "three";
 
@@ -504,5 +505,15 @@ describe("appendChunk — chunk-level DP853 telemetry", () => {
     expect(getTimestampAsIsoString(buf, 1.5)).toBe(
       "2024-06-05T04:00:00.000Z",
     );
+  });
+});
+
+describe("clipFitsClientBudget", () => {
+  const LOW_MEM = 12 * 1024 * 1024;
+  it("accepts the 4-chunk full-catalog clip on a lowMem budget", () => {
+    expect(clipFitsClientBudget(40, 4, 1_000, LOW_MEM)).toBe(true);
+  });
+  it("rejects a 6-chunk 40-body clip on a lowMem budget", () => {
+    expect(clipFitsClientBudget(40, 6, 1_000, LOW_MEM)).toBe(false);
   });
 });

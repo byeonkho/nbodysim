@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseDefaultSimBundle } from "./defaultSimBundle";
+import { parsePresetClipBundle } from "./presetClipBundle";
 
 function u32le(v: number): Uint8Array {
   const b = new Uint8Array(4);
@@ -18,11 +18,12 @@ function concat(parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
-describe("parseDefaultSimBundle", () => {
+describe("parsePresetClipBundle", () => {
   it("round-trips a manifest and its chunks", () => {
     const manifest = {
       params: {
         formatVersion: 3,
+        presetId: "default",
         epoch: "2024-06-05T00:00:00.000",
         integrator: "rk4",
         frame: "Heliocentric",
@@ -46,8 +47,9 @@ describe("parseDefaultSimBundle", () => {
       chunkB,
     ]);
 
-    const parsed = parseDefaultSimBundle(bundle);
+    const parsed = parsePresetClipBundle(bundle);
     expect(parsed.manifest.params.integrator).toBe("rk4");
+    expect(parsed.manifest.params.presetId).toBe("default");
     expect(parsed.manifest.params.chunkCount).toBe(2);
     expect(parsed.manifest.celestialBodyPropertiesList).toHaveLength(2);
     expect(parsed.chunks).toHaveLength(2);
