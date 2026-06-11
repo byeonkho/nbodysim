@@ -1,0 +1,138 @@
+"use client";
+
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
+import { useSelector } from "react-redux";
+import { selectHasReceivedFirstChunk } from "@/app/store/slices/SimulationSlice";
+import { useTourTarget } from "@/app/components/interface/tour/useTourTarget";
+import {
+  MOBILE_TOUR_STEPS,
+  MOBILE_TOUR_SEEN_KEY,
+} from "@/app/constants/mobileTourSteps";
+import { MobileTourCard } from "./MobileTourCard";
+
+// Scene dim for welcome/done and for the build spotlight. Kept light so the
+// live scene stays the hero. Tunable.
+const SCRIM = "rgba(5, 6, 16, 0.45)";
+// The giant box-shadow spread IS the dim, plus a two-layer accent glow ring.
+// Same recipe as the desktop TourOverlay, kept inline so the desktop tour stays
+// untouched.
+const SPOTLIGHT_SHADOW =
+  `0 0 0 9999px ${SCRIM}, 0 0 16px 2px var(--color-accent), ` +
+  `0 0 0 1px color-mix(in srgb, var(--color-accent) 70%, transparent)`;
+
+function readSeen(): boolean {
+  if (typeof window === "undefined") return true; // SSR: never show server-side
+  return window.localStorage.getItem(MOBILE_TOUR_SEEN_KEY) === "1";
+}
+
+export function MobileTourOverlay() {
+  const [stepIndex, setStepIndex] = useState(0);
+  const [finished, setFinished] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // Lazy initializer runs once synchronously -- no setState in an effect,
+  // no ref read during render. A returning visitor starts as already seen.
+  const [seen] = useState<boolean>(readSeen);
+
+  const hasFirstChunk = useSelector(selectHasReceivedFirstChunk);
+
+  // Derived, not an effect: true when the scene goes live (first chunk buffered)
+  // on a first visit, false once finished or skipped.
+  const active = !seen && hasFirstChunk && !finished;
+
+  const step = active ? MOBILE_TOUR_STEPS[stepIndex] : null;
+
+  // Resolve the build button's rect only on its step (null otherwise).
+  const rect = useTourTarget(step?.target ?? null);
+
+  // Move focus into the card when a step appears (a11y). No setState here, so
+  // the set-state-in-effect rule does not apply.
+  useEffect(() => {
+    if (active) cardRef.current?.focus?.();
+  }, [active, stepIndex]);
+
+  if (!active || !step || typeof document === "undefined") return null;
+
+  const isLast = stepIndex === MOBILE_TOUR_STEPS.length - 1;
+
+  const finish = () => {
+    window.localStorage.setItem(MOBILE_TOUR_SEEN_KEY, "1");
+    setFinished(true);
+  };
+  const next = () => {
+    if (isLast) finish();
+    else setStepIndex((i) => i + 1);
+  };
+  const back = () => setStepIndex((i) => Math.max(0, i - 1));
+
+  // Spotlight box for the build step (once its target rect resolves).
+  const PAD = 8;
+  const spotlight =
+    step.target && rect
+      ? {
+          left: rect.left - PAD,
+          top: rect.top - PAD,
+          width: rect.width + PAD * 2,
+          height: rect.height + PAD * 2,
+        }
+      : null;
+
+  // Card placement: centered, or docked above the collapsed control sheet
+  // (96px peek + a gap).
+  const cardWrap: CSSProperties =
+    step.placement === "bottom"
+      ? { left: "50%", bottom: 112, transform: "translateX(-50%)" }
+      : { left: "50%", top: "50%", transform: "translate(-50%, -50%)" };
+
+  // The spotlight provides its own dim; otherwise a light scrim, or a fully
+  // transparent (but pointer-capturing) layer for the gesture steps.
+  const backdrop = spotlight
+    ? "transparent"
+    : step.dim === "light"
+      ? SCRIM
+      : "transparent";
+
+  return createPortal(
+    <div className="fixed inset-0 z-[60]">
+      {/* Full-screen capturer: makes the tour modal (blocks scene taps). The
+          scene keeps animating behind it, which is the "celebrate" beat. */}
+      <div
+        aria-hidden="true"
+        className="fixed inset-0"
+        style={{ background: backdrop, pointerEvents: "auto" }}
+      />
+      {/* Build-step spotlight: dims everything but the button and rings it. */}
+      {spotlight && (
+        <div
+          aria-hidden="true"
+          className="fixed rounded-full"
+          style={{
+            left: spotlight.left,
+            top: spotlight.top,
+            width: spotlight.width,
+            height: spotlight.height,
+            boxShadow: SPOTLIGHT_SHADOW,
+            pointerEvents: "none",
+          }}
+        />
+      )}
+
+      <div className="fixed" style={{ ...cardWrap, pointerEvents: "auto" }}>
+        <MobileTourCard
+          ref={cardRef}
+          eyebrow={step.eyebrow}
+          copy={step.copy}
+          current={stepIndex + 1}
+          total={MOBILE_TOUR_STEPS.length}
+          canBack={stepIndex > 0}
+          isLast={isLast}
+          onNext={next}
+          onBack={back}
+          onSkip={finish}
+        />
+      </div>
+    </div>,
+    document.body,
+  );
+}
