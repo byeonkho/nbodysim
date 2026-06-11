@@ -29,24 +29,34 @@ const COLLAPSED_PX = 96;
 const EXPANDED_HEIGHT = "60dvh";
 
 function Chip({
-  on,
+  on = false,
   label,
+  value,
   onClick,
 }: {
-  on: boolean;
+  on?: boolean;
   label: string;
+  value?: string;
   onClick: () => void;
 }) {
+  // A value chip (value provided) is a selector with no "off" state, so it
+  // always renders lit and shows its current value on the right, matching the
+  // desktop Scale/Camera chips. An on/off chip lights only when active.
+  const hasValue = value !== undefined;
+  const lit = hasValue || on;
   return (
     <button
       onClick={onClick}
-      className={`h-11 rounded-chip border px-3 text-sm transition-colors ${
-        on
+      className={`flex h-11 w-full items-center gap-1.5 rounded-chip border px-3 text-sm transition-colors ${
+        hasValue ? "justify-between" : "justify-center"
+      } ${
+        lit
           ? "border-[rgba(164,168,255,0.28)] bg-[rgba(164,168,255,0.12)] text-accent"
           : "border-white/[0.06] text-dim hover:bg-white/[0.04] hover:text-hi"
       }`}
     >
-      {label}
+      <span>{label}</span>
+      {hasValue && <span className="text-hi tabular">{value}</span>}
     </button>
   );
 }
@@ -129,11 +139,13 @@ export function MobileControlSheet() {
           <div className="eyebrow mb-2">
             View
           </div>
-          <div className="grid grid-cols-4 gap-2">
-            <Chip label="Orbits" on={showOrbits} onClick={() => dispatch(toggleShowOrbitPaths())} />
-            <Chip label="Labels" on={showLabels} onClick={() => dispatch(toggleShowPlanetInfoOverlay())} />
-            <Chip label="Trails" on={showTrails} onClick={() => dispatch(toggleShowTrails())} />
-            <Chip label={scaleLabel} on={false} onClick={() => dispatch(cycleSimulationScale())} />
+          <div className="space-y-2">
+            <div className="grid grid-cols-3 gap-2">
+              <Chip label="Orbits" on={showOrbits} onClick={() => dispatch(toggleShowOrbitPaths())} />
+              <Chip label="Labels" on={showLabels} onClick={() => dispatch(toggleShowPlanetInfoOverlay())} />
+              <Chip label="Trails" on={showTrails} onClick={() => dispatch(toggleShowTrails())} />
+            </div>
+            <Chip label="Scale" value={scaleLabel} onClick={() => dispatch(cycleSimulationScale())} />
           </div>
         </div>
 
