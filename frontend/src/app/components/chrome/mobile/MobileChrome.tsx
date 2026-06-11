@@ -1,18 +1,20 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useDispatch } from "react-redux";
 import type { AppDispatch } from "@/app/store/Store";
 import { store } from "@/app/store/Store";
 import { setCameraPreset } from "@/app/store/slices/SimulationSlice";
 import { MobileControlSheet } from "./MobileControlSheet";
 import { MobileBodySheet } from "./MobileBodySheet";
+import { MobileSimSetupSheet } from "./MobileSimSetupSheet";
 import { MOBILE_PRESETS, DEFAULT_PRESET_ID } from "@/app/constants/MobilePresets";
 import { runPreset } from "@/app/utils/runPreset";
 
 export function MobileChrome() {
   const dispatch = useDispatch<AppDispatch>();
   const bootedRef = useRef(false);
+  const [setupOpen, setSetupOpen] = useState(false);
 
   useEffect(() => {
     // Mobile is free-camera only (the top-down preset is cut on mobile, and the
@@ -35,8 +37,9 @@ export function MobileChrome() {
 
   return (
     <>
-      <MobileControlSheet />
+      <MobileControlSheet onBuild={() => setSetupOpen(true)} />
       <MobileBodySheet />
+      <MobileSimSetupSheet open={setupOpen} onOpenChange={setSetupOpen} />
     </>
   );
 }
