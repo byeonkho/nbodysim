@@ -74,10 +74,11 @@ class HttpCompressionTest {
         assertTrue(!sessionId.isBlank(), "sessionID present");
 
         // 2) Ground-truth over a 1-year window — fetch it twice, with and
-        //    without gzip, and compare the raw transferred bytes.
+        //    without gzip, and compare the raw transferred bytes. The endpoint
+        //    is sessionless: a body name and frame code replace the old sessionId.
         long fromEpoch = Instant.parse("2026-01-01T00:00:00Z").toEpochMilli();
         long toEpoch = fromEpoch + 365L * 24 * 60 * 60 * 1000;
-        String gtUrl = base() + "/ground-truth?sessionId=" + sessionId
+        String gtUrl = base() + "/ground-truth?body=EARTH&frame=ICRF"
             + "&fromEpoch=" + fromEpoch + "&toEpoch=" + toEpoch;
 
         HttpResponse<byte[]> identity = http.send(

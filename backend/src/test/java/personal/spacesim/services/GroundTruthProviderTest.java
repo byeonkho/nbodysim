@@ -18,7 +18,6 @@ import org.springframework.test.context.junit.jupiter.SpringExtension;
 import personal.spacesim.dtos.BodyGroundTruthTrack;
 import personal.spacesim.dtos.GroundTruthAnchor;
 import personal.spacesim.dtos.GroundTruthResponse;
-import personal.spacesim.simulation.body.CelestialBodyWrapper;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -59,10 +58,7 @@ class GroundTruthProviderTest {
         AbsoluteDate from = new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC());
         AbsoluteDate to = from.shiftedBy(10 * 86_400.0); // 10 days
 
-        CelestialBodyWrapper earth = new CelestialBodyWrapper("EARTH", frame, from);
-        earth.setOrbitingBody("SUN");
-
-        GroundTruthResponse resp = provider.sampleTracks(List.of(earth), frame, from, to, 86_400.0);
+        GroundTruthResponse resp = provider.sampleTracks(List.of("EARTH"), frame, from, to, 86_400.0);
 
         assertEquals(1, resp.tracks().size());
         BodyGroundTruthTrack track = resp.tracks().get(0);
@@ -95,10 +91,7 @@ class GroundTruthProviderTest {
 
         // Earth's Moon orbits EARTH, so it is not a supported (Sun-relative,
         // planet/Pluto) body in v1.
-        CelestialBodyWrapper moon = new CelestialBodyWrapper("MOON", frame, from);
-        moon.setOrbitingBody("EARTH");
-
-        GroundTruthResponse resp = provider.sampleTracks(List.of(moon), frame, from, to, 86_400.0);
+        GroundTruthResponse resp = provider.sampleTracks(List.of("MOON"), frame, from, to, 86_400.0);
         assertTrue(resp.tracks().isEmpty());
     }
 
@@ -108,12 +101,9 @@ class GroundTruthProviderTest {
         AbsoluteDate from = new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC());
         AbsoluteDate to = from.shiftedBy(10 * 86_400.0); // 10 days
 
-        CelestialBodyWrapper earth = new CelestialBodyWrapper("EARTH", frame, from);
-        earth.setOrbitingBody("SUN");
-
         // 2-day cadence over a 10-day window → i = 0..5 → 6 anchors.
         GroundTruthResponse resp =
-                provider.sampleTracks(List.of(earth), frame, from, to, 2 * 86_400.0);
+                provider.sampleTracks(List.of("EARTH"), frame, from, to, 2 * 86_400.0);
 
         assertEquals(1, resp.tracks().size());
         assertEquals(6, resp.tracks().get(0).anchors().size());

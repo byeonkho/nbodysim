@@ -12,7 +12,6 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.web.servlet.MockMvc;
-import personal.spacesim.services.SimulationSessionService;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -20,12 +19,16 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.List;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/**
+ * The endpoint is sessionless: ground truth is public ephemeris, and preset
+ * clip playback (which has no session) needs the drift overlay too. body and
+ * frame arrive as request params instead of being derived from a session.
+ */
 @ExtendWith(SpringExtension.class)
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -33,9 +36,6 @@ class GroundTruthControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @Autowired
-    private SimulationSessionService sessionService;
 
     @BeforeAll
     static void loadOrekitData() {
@@ -52,65 +52,75 @@ class GroundTruthControllerTest {
         }
     }
 
-    @Test
-    void returnsTracksForKnownSession() throws Exception {
-        AbsoluteDate start = new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC());
-        String sessionId = sessionService.createSimulation(
-                List.of("Sun", "Earth", "Mars"), "ICRF", "EULER", start, "seconds", 1, 5000);
-
+    private static long[] tenDayWindow() {
+        AbsoluteDate start =
+                new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC());
         long fromMs = start.toDate(TimeScalesFactory.getUTC()).getTime();
-        long toMs = start.shiftedBy(10 * 86_400.0).toDate(TimeScalesFactory.getUTC()).getTime();
+        long toMs = start.shiftedBy(10 * 86_400.0)
+                .toDate(TimeScalesFactory.getUTC()).getTime();
+        return new long[]{fromMs, toMs};
+    }
 
+    @Test
+    void returnsTrackForRequestedBody() throws Exception {
+        long[] w = tenDayWindow();
         mockMvc.perform(get("/api/simulation/ground-truth")
-                        .param("sessionId", sessionId)
-                        .param("fromEpoch", String.valueOf(fromMs))
-                        .param("toEpoch", String.valueOf(toMs)))
+                        .param("body", "EARTH")
+                        .param("frame", "ICRF")
+                        .param("fromEpoch", String.valueOf(w[0]))
+                        .param("toEpoch", String.valueOf(w[1])))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tracks").isArray())
-                // Earth + Mars; Sun is excluded.
-                .andExpect(jsonPath("$.tracks.length()").value(2))
+                .andExpect(jsonPath("$.tracks.length()").value(1))
                 .andExpect(jsonPath("$.tracks[0].anchors").isArray());
     }
 
     @Test
-    void unknownSessionReturns404() throws Exception {
+    void unsupportedBodyReturnsEmptyTracks() throws Exception {
+        long[] w = tenDayWindow();
+        // Io is a moon (no Sun-orbiting DE-440 coverage): filtered to an empty
+        // response rather than an error, matching the previous session-based
+        // behavior for unsupported bodies.
         mockMvc.perform(get("/api/simulation/ground-truth")
-                        .param("sessionId", "does-not-exist")
-                        .param("fromEpoch", "0")
-                        .param("toEpoch", "86400000"))
-                .andExpect(status().isNotFound());
+                        .param("body", "Io")
+                        .param("frame", "ICRF")
+                        .param("fromEpoch", String.valueOf(w[0]))
+                        .param("toEpoch", String.valueOf(w[1])))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tracks.length()").value(0));
+    }
+
+    @Test
+    void unknownFrameReturns400() throws Exception {
+        long[] w = tenDayWindow();
+        mockMvc.perform(get("/api/simulation/ground-truth")
+                        .param("body", "EARTH")
+                        .param("frame", "barycentric-nonsense")
+                        .param("fromEpoch", String.valueOf(w[0]))
+                        .param("toEpoch", String.valueOf(w[1])))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
     void reversedWindowReturns400() throws Exception {
-        AbsoluteDate start = new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC());
-        String sessionId = sessionService.createSimulation(
-                List.of("Sun", "Earth", "Mars"), "ICRF", "EULER", start, "seconds", 1, 5000);
-
-        long fromMs = start.toDate(TimeScalesFactory.getUTC()).getTime();
-        long toMs = start.shiftedBy(10 * 86_400.0).toDate(TimeScalesFactory.getUTC()).getTime();
-
-        // fromEpoch > toEpoch — reversed window should be rejected
+        long[] w = tenDayWindow();
         mockMvc.perform(get("/api/simulation/ground-truth")
-                        .param("sessionId", sessionId)
-                        .param("fromEpoch", String.valueOf(toMs))
-                        .param("toEpoch", String.valueOf(fromMs)))
+                        .param("body", "EARTH")
+                        .param("frame", "ICRF")
+                        .param("fromEpoch", String.valueOf(w[1]))
+                        .param("toEpoch", String.valueOf(w[0])))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
     void oversizedWindowReturns400() throws Exception {
-        AbsoluteDate start = new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC());
-        String sessionId = sessionService.createSimulation(
-                List.of("Sun", "Earth", "Mars"), "ICRF", "EULER", start, "seconds", 1, 5000);
-
-        long fromMs = start.toDate(TimeScalesFactory.getUTC()).getTime();
-        // ~4000 years — above the generous sanity cap (garbage input)
-        long toMs = fromMs + 4000L * 365 * 24 * 60 * 60 * 1000;
-
+        long[] w = tenDayWindow();
+        // ~4000 years, above the generous sanity cap (garbage input).
+        long toMs = w[0] + 4000L * 365 * 24 * 60 * 60 * 1000;
         mockMvc.perform(get("/api/simulation/ground-truth")
-                        .param("sessionId", sessionId)
-                        .param("fromEpoch", String.valueOf(fromMs))
+                        .param("body", "EARTH")
+                        .param("frame", "ICRF")
+                        .param("fromEpoch", String.valueOf(w[0]))
                         .param("toEpoch", String.valueOf(toMs)))
                 .andExpect(status().isBadRequest());
     }
