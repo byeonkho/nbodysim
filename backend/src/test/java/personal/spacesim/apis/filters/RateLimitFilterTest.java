@@ -60,6 +60,28 @@ class RateLimitFilterTest {
         assertFalse(init2.daily.tryConsume(1), "301st initialize daily request should block");
     }
 
+    // --- loopback exemption (local dev) ----------------------------------
+
+    @Test
+    void isLoopbackMatchesLocalhostForms() {
+        assertTrue(RateLimitFilter.isLoopback("127.0.0.1"), "IPv4 loopback");
+        assertTrue(RateLimitFilter.isLoopback("127.1.2.3"), "anywhere in 127.0.0.0/8");
+        assertTrue(RateLimitFilter.isLoopback("::1"), "IPv6 loopback");
+        assertTrue(RateLimitFilter.isLoopback("0:0:0:0:0:0:0:1"), "expanded IPv6 loopback");
+        assertTrue(RateLimitFilter.isLoopback("::ffff:127.0.0.1"), "IPv4-mapped IPv6 loopback");
+        assertTrue(RateLimitFilter.isLoopback("localhost"), "literal hostname");
+    }
+
+    @Test
+    void isLoopbackRejectsRealClients() {
+        assertFalse(RateLimitFilter.isLoopback("198.51.100.7"), "public IPv4 (CF-resolved client)");
+        assertFalse(RateLimitFilter.isLoopback("203.0.113.9"), "public IPv4");
+        assertFalse(RateLimitFilter.isLoopback("2001:db8::1"), "public IPv6");
+        assertFalse(RateLimitFilter.isLoopback("10.0.0.1"), "private LAN is not loopback");
+        assertFalse(RateLimitFilter.isLoopback(null), "null");
+        assertFalse(RateLimitFilter.isLoopback("  "), "blank");
+    }
+
     // --- endpoint classification -----------------------------------------
 
     @Test
