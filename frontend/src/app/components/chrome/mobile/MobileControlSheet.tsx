@@ -74,8 +74,14 @@ export function MobileControlSheet() {
       setActiveSnapPoint={setSnap}
     >
       <Drawer.Portal>
-        <Drawer.Content className="pointer-events-auto fixed inset-x-0 bottom-0 z-40 flex flex-col rounded-t-2xl bg-[#0b0d16]/95 text-white backdrop-blur">
+        <Drawer.Content
+          aria-describedby={undefined}
+          className="pointer-events-auto fixed inset-x-0 bottom-0 z-40 flex flex-col rounded-t-2xl bg-[#0b0d16]/95 text-white backdrop-blur"
+        >
           <Drawer.Handle className="my-2" />
+          {/* Screen-reader-only name for the sheet; the collapsed bar shows no
+              visible heading, but Radix Dialog (vaul's base) requires a title. */}
+          <Drawer.Title className="sr-only">Playback and view controls</Drawer.Title>
           <MobileTransportBar />
 
           {/* Expanded-only controls */}

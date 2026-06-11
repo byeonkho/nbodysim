@@ -211,12 +211,15 @@ export function MobileBodySheet() {
       }}
     >
       <Drawer.Portal>
-        <Drawer.Content className="pointer-events-auto fixed inset-x-0 bottom-0 z-30 rounded-t-2xl bg-[#0b0d16]/95 text-white backdrop-blur">
+        <Drawer.Content
+          aria-describedby={undefined}
+          className="pointer-events-auto fixed inset-x-0 bottom-0 z-30 rounded-t-2xl bg-[#0b0d16]/95 text-white backdrop-blur"
+        >
           <Drawer.Handle className="my-3" />
           {/* pb-28 clears the persistent transport bar (control sheet, z-40)
               so inspecting a body never hides transport. */}
           <div className="px-5 pb-28">
-            <h2 className="text-lg font-medium">{activeName}</h2>
+            <Drawer.Title className="text-lg font-medium">{activeName}</Drawer.Title>
             <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
               <dt className="text-white/50">Range</dt>
               <dd><span ref={rangeRef} className="tabular-nums" /></dd>
