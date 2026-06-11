@@ -54,8 +54,8 @@ export function MobileChrome() {
       >
         {/* Solar-system glyph: sun + two tilted nested orbits + two planets. */}
         <svg
-          width="21"
-          height="21"
+          width="25"
+          height="25"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -64,11 +64,11 @@ export function MobileChrome() {
           strokeLinejoin="round"
           aria-hidden
         >
-          <ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(-25 12 12)" />
-          <ellipse cx="12" cy="12" rx="5.2" ry="2.3" transform="rotate(-25 12 12)" />
-          <circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none" />
-          <circle cx="20.16" cy="8.2" r="1.5" fill="currentColor" stroke="none" />
-          <circle cx="7.29" cy="14.2" r="1.1" fill="currentColor" stroke="none" />
+          <ellipse cx="12" cy="12" rx="10.4" ry="5.2" transform="rotate(-25 12 12)" />
+          <ellipse cx="12" cy="12" rx="6.2" ry="3" transform="rotate(-25 12 12)" />
+          <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
+          <circle cx="21.43" cy="7.61" r="1.6" fill="currentColor" stroke="none" />
+          <circle cx="6.38" cy="14.62" r="1.3" fill="currentColor" stroke="none" />
         </svg>
       </button>
 
