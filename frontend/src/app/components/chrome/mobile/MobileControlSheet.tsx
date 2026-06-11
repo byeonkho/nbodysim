@@ -116,13 +116,16 @@ export function MobileControlSheet() {
         aria-label={expanded ? "Collapse controls" : "Expand controls"}
         aria-expanded={expanded}
         onClick={() => setExpanded((v) => !v)}
-        className="flex w-full shrink-0 items-center justify-center py-3"
+        // Fixed 30px: matches the old grab-handle's height exactly so the
+        // collapsed peek's transport bar (in the fixed 96px sheet) is not pushed
+        // down and clipped. The taller chevron box must not change this height.
+        className="flex h-[30px] w-full shrink-0 items-center justify-center"
       >
         {/* A chevron, not a drag grab-handle: this sheet toggles on tap. Points
             up to expand when collapsed, flips down to collapse when open. */}
         <svg
-          width="22"
-          height="22"
+          width="20"
+          height="20"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
