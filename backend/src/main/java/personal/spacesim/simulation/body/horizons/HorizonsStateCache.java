@@ -28,7 +28,7 @@ import java.util.stream.Stream;
  *
  * <p>Entries are also written through to {@code cacheDir} as one JSON file
  * per key. On construction the directory is scanned and existing entries
- * are loaded into memory, so a fresh JVM (e.g. after a Fly.io redeploy)
+ * are loaded into memory, so a fresh JVM (e.g. after a Railway redeploy)
  * starts with a warm cache and avoids the refetch storm. Corrupt files
  * are logged and skipped — never block startup.
  *
