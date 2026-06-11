@@ -185,6 +185,12 @@ export function MobileSimSetupSheet({
         <Drawer.Content
           aria-describedby={undefined}
           className="glass-dock pointer-events-auto fixed inset-x-0 bottom-0 z-50 flex h-[92dvh] flex-col text-text"
+          // Inset all content past the side safe areas (landscape notch /
+          // rounded corners); the glass still spans edge to edge behind it.
+          style={{
+            paddingLeft: "env(safe-area-inset-left, 0px)",
+            paddingRight: "env(safe-area-inset-right, 0px)",
+          }}
         >
           <Drawer.Handle className="my-2 shrink-0" />
 
@@ -307,8 +313,14 @@ export function MobileSimSetupSheet({
             </div>
           </div>
 
-          {/* Sticky footer */}
-          <div className="shrink-0 border-t border-white/[0.06] px-5 py-4">
+          {/* Sticky footer. Bottom pad clears the home indicator so the Run
+              button is never tucked under it. */}
+          <div
+            className="shrink-0 border-t border-white/[0.06] px-5 pt-4"
+            style={{
+              paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 1rem)",
+            }}
+          >
             <div className="flex items-center gap-3">
               <span className="min-w-0 flex-1 truncate font-mono text-[12px] tabular text-dim">
                 {integrator.toUpperCase()} · {frame.split(" ")[0]} ·{" "}
