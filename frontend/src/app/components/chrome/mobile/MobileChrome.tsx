@@ -11,6 +11,8 @@ import { MobileSimSetupSheet } from "./MobileSimSetupSheet";
 import { MOBILE_PRESETS, DEFAULT_PRESET_ID } from "@/app/constants/MobilePresets";
 import { runPreset } from "@/app/utils/runPreset";
 import { runStaticClip } from "@/app/utils/runStaticClip";
+import { MobileTourOverlay } from "./MobileTourOverlay";
+import { MOBILE_BUILD_TOUR_TARGET } from "@/app/constants/mobileTourSteps";
 
 export function MobileChrome() {
   const dispatch = useDispatch<AppDispatch>();
@@ -51,6 +53,7 @@ export function MobileChrome() {
       <button
         type="button"
         aria-label="Build simulation"
+        data-tour={MOBILE_BUILD_TOUR_TARGET}
         onClick={() => setSetupOpen(true)}
         className="pointer-events-auto fixed left-4 top-4 z-20 grid h-11 w-11 place-items-center rounded-full border border-white/[0.08] text-accent transition-colors hover:text-hi"
         style={{
@@ -84,6 +87,7 @@ export function MobileChrome() {
       <MobileControlSheet />
       <MobileBodySheet />
       <MobileSimSetupSheet open={setupOpen} onOpenChange={setSetupOpen} />
+      <MobileTourOverlay />
     </>
   );
 }
