@@ -58,8 +58,10 @@ function Chip({
   return (
     <button
       onClick={onClick}
-      className={`flex h-11 w-full items-center gap-1.5 rounded-chip border px-3 text-sm transition-colors ${
-        hasValue ? "justify-between" : "justify-center"
+      // 44px tall (the touch-target floor); on/off chips trim their side
+      // padding so four fit across a 360px portrait row.
+      className={`flex h-11 w-full items-center gap-1.5 rounded-chip border text-sm transition-colors ${
+        hasValue ? "justify-between px-3" : "justify-center px-2"
       } ${
         lit
           ? "border-[rgba(164,168,255,0.28)] bg-[rgba(164,168,255,0.12)] text-accent"
@@ -221,26 +223,22 @@ export function MobileControlSheet({
             className="space-y-4 overflow-y-auto px-4 pb-2"
             style={{ maxHeight: "55dvh" }}
           >
-            {/* Body selection lives in the planet rail at the top of the
-                screen, so the sheet is view controls only. */}
-            <div>
-              <div className="eyebrow mb-2">
-                View
+            {/* View controls only: body selection lives in the planet rail at
+                the top of the screen, and with a single section an eyebrow
+                heading would just cost a row. */}
+            <div className="space-y-2">
+              <div className="grid grid-cols-4 gap-2">
+                <Chip label="Orbits" on={showOrbits} onClick={() => dispatch(toggleShowOrbitPaths())} />
+                <Chip label="Labels" on={showLabels} onClick={() => dispatch(toggleShowPlanetInfoOverlay())} />
+                <Chip label="Trails" on={showTrails} onClick={() => dispatch(toggleShowTrails())} />
+                <Chip
+                  label="Drift"
+                  on={drift}
+                  busy={drift && driftBusy}
+                  onClick={() => dispatch(setOverlayEnabled(!drift))}
+                />
               </div>
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <Chip label="Orbits" on={showOrbits} onClick={() => dispatch(toggleShowOrbitPaths())} />
-                  <Chip label="Labels" on={showLabels} onClick={() => dispatch(toggleShowPlanetInfoOverlay())} />
-                  <Chip label="Trails" on={showTrails} onClick={() => dispatch(toggleShowTrails())} />
-                  <Chip
-                    label="Drift"
-                    on={drift}
-                    busy={drift && driftBusy}
-                    onClick={() => dispatch(setOverlayEnabled(!drift))}
-                  />
-                </div>
-                <Chip label="Scale" value={scaleLabel} onClick={() => dispatch(cycleSimulationScale())} />
-              </div>
+              <Chip label="Scale" value={scaleLabel} onClick={() => dispatch(cycleSimulationScale())} />
             </div>
           </div>
         </div>
