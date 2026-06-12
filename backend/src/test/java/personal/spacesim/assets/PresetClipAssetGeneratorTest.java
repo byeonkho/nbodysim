@@ -90,7 +90,7 @@ class PresetClipAssetGeneratorTest {
             new Preset("neos", DEFAULT_CHUNK_COUNT, List.of(
                     "Sun", "Earth", "Eros", "Apophis", "Bennu", "Ryugu")),
             // 4 chunks (~4.6 sim-years): 6 would decode to ~11.5 MB on the
-            // client, 96% of the lowMem buffer budget.
+            // client, 92% of the lowMem buffer budget.
             new Preset("full", 4, List.of(
                     "Sun", "Mercury", "Venus", "Earth", "Mars",
                     "Jupiter", "Saturn", "Uranus", "Neptune",
@@ -151,6 +151,11 @@ class PresetClipAssetGeneratorTest {
         params.put("timeStepUnit", TIME_UNIT);
         params.put("fidelityBucket", BUCKET.wireName());
         params.put("chunkCount", preset.chunkCount());
+        // Pinned by the frontend staleness guard against CLIP_SAMPLES_PER_CHUNK:
+        // the client budget guard estimates decoded size from that constant, so
+        // a backend chunk-size or thinning change must fail CI, not silently
+        // mis-size the buffer.
+        params.put("samplesPerChunk", SAMPLES_PER_CHUNK);
         ArrayNode bodies = params.putArray("bodies");
         preset.bodies().stream().sorted().forEach(bodies::add);
         manifest.set("celestialBodyPropertiesList",

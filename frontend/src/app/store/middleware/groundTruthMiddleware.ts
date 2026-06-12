@@ -15,6 +15,7 @@ import {
 import { fetchGroundTruth } from "@/app/store/middleware/fetchGroundTruth";
 import { buildTrueTrack, computeTrueTrackRequest } from "@/app/store/trueTrack";
 import { getDevSettings } from "@/app/dev/devSettingsStore";
+import { FRAME_CODE } from "@/app/constants/SimParams";
 
 // Keyframes of lookahead beyond the playback head when sizing the fetch window,
 // so coverage stays ahead of playback between chunk arrivals.
@@ -60,15 +61,17 @@ function maybeFetch(store: Store, immediate: boolean): void {
     state.groundTruth;
   const activeBody = state.simulation.activeBodyState.activeBodyName;
   const predicted = state.simulation.chunkBuffer;
-  const sessionID =
-    state.simulation.simulationParameters?.simulationMetaData?.sessionID;
+  // Sessionless: ground truth needs only body + frame, so the overlay works
+  // during preset-clip playback too. lastRequest (set by both the live path
+  // and runStaticClip) carries the display frame label.
+  const lastRequest = state.simulation.simulationParameters?.lastRequest;
 
   // Chunk-driven refetches respect the in-flight guard (storm prevention during
   // window slides). User-driven changes (focus / overlay) bypass it so the new
   // body's drift appears after a single fetch round-trip instead of waiting for
   // the next chunk — clicks are infrequent, so they carry no storm risk.
   if (!immediate && fetchInFlight) return;
-  if (!overlayEnabled || !activeBody || !predicted || !sessionID) return;
+  if (!overlayEnabled || !activeBody || !predicted || !lastRequest) return;
 
   const idx = state.simulation.timeState.currentTimeStepIndex;
   const trailLength = getDevSettings().trailLength;
@@ -92,7 +95,11 @@ function maybeFetch(store: Store, immediate: boolean): void {
 
   fetchInFlight = true;
   const dispatched = store.dispatch(
-    fetchGroundTruth({ sessionID, body: activeUpper, ...req }) as never,
+    fetchGroundTruth({
+      frame: FRAME_CODE[lastRequest.frame] ?? lastRequest.frame,
+      body: activeUpper,
+      ...req,
+    }) as never,
   ) as unknown as Promise<unknown>;
   dispatched.finally(() => {
     fetchInFlight = false;

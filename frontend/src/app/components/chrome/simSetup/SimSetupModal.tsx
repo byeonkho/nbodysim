@@ -21,6 +21,13 @@ import {
 } from "@/app/constants/PlaybackQuality";
 import { SimParamsPane } from "@/app/components/chrome/simSetup/SimParamsPane";
 import { BodyCatalogPane } from "@/app/components/chrome/simSetup/BodyCatalogPane";
+import { matchPresetClip } from "@/app/utils/presetClipMatch";
+import { runStaticClip } from "@/app/utils/runStaticClip";
+import {
+  PRESET_EPOCH,
+  PRESET_INTEGRATOR,
+  PRESET_TIME_UNIT,
+} from "@/app/utils/runSimulation";
 
 // Centered two-pane Sim Setup modal: simulation params (left) + body catalog
 // (right). Replaces the left-anchored SimSetupDrawer. Radix Dialog substrate is
@@ -39,10 +46,13 @@ export function SimSetupModal({ open, onOpenChange }: SimSetupModalProps) {
   const [selectedBodies, setSelectedBodies] = useState<Set<BodyKey>>(
     new Set(DEFAULT_SELECTED),
   );
-  const [epoch, setEpoch] = useState("2024-06-05T00:00:00.000");
+  // Defaults derive from the shared preset constants so an untouched Run
+  // stays an exact match for the precomputed default clip; a literal here
+  // would silently break the interception if the constants ever moved.
+  const [epoch, setEpoch] = useState(PRESET_EPOCH);
   const [frame, setFrame] = useState<string>(DEFAULT_FRAME);
-  const [integrator, setIntegrator] = useState<string>("rk4");
-  const [timeUnit, setTimeUnit] = useState<TimeUnit>("Hours");
+  const [integrator, setIntegrator] = useState<string>(PRESET_INTEGRATOR);
+  const [timeUnit, setTimeUnit] = useState<TimeUnit>(PRESET_TIME_UNIT);
   const [fidelityBucket, setFidelityBucket] = useState<FidelityBucket>(
     INTEGRATOR_DEFAULT_BUCKETS[integrator] ?? "medLow",
   );
@@ -89,6 +99,36 @@ export function SimSetupModal({ open, onOpenChange }: SimSetupModalProps) {
     );
     if (celestialBodyNames.length === 0) return; // Run is disabled at 0 anyway
     if (busy) return; // a Run is already in flight
+
+    // A draft that exactly reproduces a canonical preset scenario plays the
+    // precomputed clip from the edge: no session, no backend wake, instant
+    // start. Falls through to the live path if the asset is unreachable.
+    const clipId = matchPresetClip({
+      bodyKeys: selectedBodies,
+      epoch,
+      frame,
+      integrator,
+      timeStepUnit: timeUnit,
+      fidelityBucket,
+    });
+    if (clipId !== null) {
+      setSubmitMsg("Starting simulation…");
+      let played = false;
+      try {
+        played = await runStaticClip(dispatch, clipId);
+      } catch {
+        // runStaticClip reports failure by returning false; this backstop
+        // keeps a future regression from stranding the disabled Run button.
+      }
+      if (played) {
+        setSubmitMsg(null);
+        onOpenChange(false);
+        return;
+      }
+      // Fall through to the live path WITHOUT clearing the message: the live
+      // branch re-sets the same text, and clearing first would flash the
+      // button back to enabled for one render.
+    }
 
     const requestPayload = {
       celestialBodyNames,

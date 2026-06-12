@@ -17,5 +17,19 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
 
-/default-sim-v3.bin
+# Preset clips are pinned by the staleness guard and renamed on wire-format
+# bumps, so long immutable caching is safe. New clips need a rule here too.
+/clip-default-v3.bin
+  Cache-Control: public, max-age=31536000, immutable
+
+/clip-inner-v3.bin
+  Cache-Control: public, max-age=31536000, immutable
+
+/clip-giants-v3.bin
+  Cache-Control: public, max-age=31536000, immutable
+
+/clip-neos-v3.bin
+  Cache-Control: public, max-age=31536000, immutable
+
+/clip-full-v3.bin
   Cache-Control: public, max-age=31536000, immutable

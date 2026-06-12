@@ -157,10 +157,10 @@ export interface operations {
     getGroundTruth: {
         parameters: {
             query: {
-                sessionId: string;
+                body: string;
+                frame: string;
                 fromEpoch: number;
                 toEpoch: number;
-                body?: string;
                 stepSeconds?: number;
             };
             header?: never;

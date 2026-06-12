@@ -11,25 +11,23 @@ import org.springframework.stereotype.Component;
 import personal.spacesim.dtos.BodyGroundTruthTrack;
 import personal.spacesim.dtos.GroundTruthAnchor;
 import personal.spacesim.dtos.GroundTruthResponse;
-import personal.spacesim.simulation.body.CelestialBodyWrapper;
-import personal.spacesim.simulation.body.MinorBodyCatalog;
-import personal.spacesim.simulation.body.MoonCatalog;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
- * Produces sparse, Sun-relative true-position tracks for a session's bodies,
+ * Produces sparse, Sun-relative true-position tracks for requested bodies,
  * sampled from Orekit's bundled DE-440 ephemeris. Used by the reality-drift
  * overlay: the client compares these true positions against the integrator's
  * predicted positions.
  *
- * <p>Only planets + Pluto are supported in v1 (bodies the local ephemeris
- * covers and that orbit the Sun directly). Moons and Horizons-sourced minor
- * bodies are omitted — see {@link #isSupported}.
+ * <p>Only planets + Pluto are supported (bodies the local ephemeris covers
+ * and that orbit the Sun directly). Moons and Horizons-sourced minor bodies
+ * are omitted via a static name allowlist in {@code SUPPORTED_BODIES}.
  *
  * <p>Sun-relative convention matches {@code Simulation.snapshotFromState}:
- * each body's state minus the Sun's state, both expressed in the session
+ * each body's state minus the Sun's state, both expressed in the requested
  * frame. This is computed from the ephemeris (not the integrator), so at the
  * simulation start the truth coincides with the seeded predicted state and
  * then diverges as the integrator accumulates error.
@@ -50,17 +48,27 @@ public class GroundTruthProvider {
      *  to stay well under this; this is the safety net. */
     private static final int MAX_ANCHORS_PER_BODY = 5_000;
 
+    /** Sun-orbiting bodies the bundled DE-440 covers: the major planets plus
+     *  Pluto. The Sun itself is excluded (tracks are Sun-relative, so its own
+     *  track would be zero) and so is the Moon (it orbits Earth, not the Sun).
+     *  A static allowlist (rather than wrapper construction) also guarantees a
+     *  sessionless request can never trigger a Horizons lookup. */
+    private static final Set<String> SUPPORTED_BODIES = Set.of(
+            "MERCURY", "VENUS", "EARTH", "MARS", "JUPITER",
+            "SATURN", "URANUS", "NEPTUNE", "PLUTO");
+
     public GroundTruthResponse sampleTracks(
-            List<CelestialBodyWrapper> bodies,
+            List<String> bodyNames,
             Frame frame,
             AbsoluteDate from,
             AbsoluteDate to,
             double stepSeconds
     ) {
         List<BodyGroundTruthTrack> tracks = new ArrayList<>();
-        for (CelestialBodyWrapper body : bodies) {
-            if (isSupported(body)) {
-                tracks.add(sampleBody(body.getName(), frame, from, to, stepSeconds));
+        for (String name : bodyNames) {
+            String upper = name.toUpperCase();
+            if (SUPPORTED_BODIES.contains(upper)) {
+                tracks.add(sampleBody(upper, frame, from, to, stepSeconds));
             }
         }
         return new GroundTruthResponse(tracks);
@@ -101,25 +109,4 @@ public class GroundTruthProvider {
         return new BodyGroundTruthTrack(name, anchors);
     }
 
-    /**
-     * A body is supported iff it is a Sun-orbiting body whose state Orekit
-     * sources from the bundled DE-440 — i.e. a major planet or Pluto. Excludes
-     * the Sun itself, Earth's Moon (orbits Earth), catalog moons, and
-     * Horizons-sourced minor bodies. Mirrors the Orekit-path branch in
-     * {@code CelestialBodyWrapperFactory}.
-     */
-    private boolean isSupported(CelestialBodyWrapper w) {
-        String upper = w.getName().toUpperCase();
-        if (upper.equals("SUN")) {
-            return false;
-        }
-        if (!"SUN".equalsIgnoreCase(w.getOrbitingBody())) {
-            return false; // moons orbit a planet, not the Sun
-        }
-        if (MoonCatalog.get(upper) != null) {
-            return false;
-        }
-        MinorBodyCatalog.Entry minor = MinorBodyCatalog.get(upper);
-        return minor == null || minor.isOrekitSourced();
-    }
 }

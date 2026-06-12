@@ -67,7 +67,14 @@
         "tags" : [ "simulation-controller" ],
         "operationId" : "getGroundTruth",
         "parameters" : [ {
-          "name" : "sessionId",
+          "name" : "body",
+          "in" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "frame",
           "in" : "query",
           "required" : true,
           "schema" : {
@@ -88,13 +95,6 @@
           "schema" : {
             "type" : "integer",
             "format" : "int64"
-          }
-        }, {
-          "name" : "body",
-          "in" : "query",
-          "required" : false,
-          "schema" : {
-            "type" : "string"
           }
         }, {
           "name" : "stepSeconds",

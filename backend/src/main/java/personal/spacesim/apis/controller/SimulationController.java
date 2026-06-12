@@ -1,5 +1,6 @@
 package personal.spacesim.apis.controller;
 
+import org.orekit.frames.Frame;
 import org.orekit.time.AbsoluteDate;
 import org.orekit.time.TimeScalesFactory;
 import org.slf4j.Logger;
@@ -10,18 +11,18 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import personal.spacesim.constants.FidelityBucket;
+import personal.spacesim.dtos.GroundTruthResponse;
 import personal.spacesim.dtos.SimulationChunkRequest;
 import personal.spacesim.dtos.SimulationRequestDTO;
 import personal.spacesim.dtos.SimulationResponseDTO;
+import personal.spacesim.services.GroundTruthProvider;
 import personal.spacesim.services.SessionCapacityExceededException;
 import personal.spacesim.services.SimulationSessionService;
 import personal.spacesim.simulation.body.BodyCatalog;
+import personal.spacesim.simulation.frame.CustomFrameFactory;
 
 import java.util.Date;
 import java.util.List;
-import personal.spacesim.dtos.GroundTruthResponse;
-import personal.spacesim.services.GroundTruthProvider;
-import personal.spacesim.simulation.Simulation;
 
 @RestController
 @RequestMapping("/api/simulation")
@@ -38,14 +39,17 @@ public class SimulationController {
 
     private final SimulationSessionService simulationSessionService;
     private final GroundTruthProvider groundTruthProvider;
+    private final CustomFrameFactory customFrameFactory;
 
     @Autowired
     public SimulationController(
             SimulationSessionService simulationSessionService,
-            GroundTruthProvider groundTruthProvider
+            GroundTruthProvider groundTruthProvider,
+            CustomFrameFactory customFrameFactory
     ) {
         this.simulationSessionService = simulationSessionService;
         this.groundTruthProvider = groundTruthProvider;
+        this.customFrameFactory = customFrameFactory;
     }
 
     /**
@@ -174,48 +178,46 @@ public class SimulationController {
 
     /**
      * Returns sparse, Sun-relative true-position tracks (from local DE-440)
-     * for the planets + Pluto in the given session, across [fromEpoch, toEpoch]
-     * (millis since the Unix epoch, UTC). Powers the reality-drift overlay.
-     * Read-only and idempotent; does not advance the session.
+     * for the requested body across [fromEpoch, toEpoch] (millis since the
+     * Unix epoch, UTC), in the requested display frame. Powers the
+     * reality-drift overlay. Sessionless by design: preset clip playback has
+     * no session, and the data is public ephemeris, so the endpoint needs
+     * only a body name and a frame code. Read-only and idempotent.
      */
     @GetMapping("/ground-truth")
     public ResponseEntity<GroundTruthResponse> getGroundTruth(
-            @RequestParam String sessionId,
+            @RequestParam String body,
+            @RequestParam String frame,
             @RequestParam long fromEpoch,
             @RequestParam long toEpoch,
-            // Optional: restrict to a single body (the client requests only the
-            // focused body, since that is all the overlay renders). Absent → all
-            // supported bodies (kept for backward compatibility).
-            @RequestParam(required = false) String body,
             // Optional cadence in seconds between samples. Absent → daily. The
             // client sizes this to the visible window so the anchor count stays
             // bounded regardless of the simulation's time-per-step.
             @RequestParam(required = false) Double stepSeconds
     ) {
-        Simulation simulation = simulationSessionService.getSimulation(sessionId);
-        if (simulation == null) {
-            return ResponseEntity.notFound().build();
-        }
         // Reject malformed windows (reversed or implausibly large) with 400
         // rather than letting an out-of-range step count overflow downstream.
-        if (toEpoch <= fromEpoch || (toEpoch - fromEpoch) > MAX_GROUND_TRUTH_WINDOW_MS) {
+        // With toEpoch > fromEpoch the true difference is positive, so a
+        // negative result means the subtraction overflowed (epochs at the
+        // extremes of the long range): reject those as garbage too.
+        long windowMs = toEpoch - fromEpoch;
+        if (toEpoch <= fromEpoch || windowMs < 0 || windowMs > MAX_GROUND_TRUTH_WINDOW_MS) {
+            return ResponseEntity.badRequest().build();
+        }
+        Frame resolvedFrame;
+        try {
+            resolvedFrame = customFrameFactory.createFrame(frame);
+        } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().build();
         }
         AbsoluteDate from = new AbsoluteDate(new Date(fromEpoch), TimeScalesFactory.getUTC());
         AbsoluteDate to = new AbsoluteDate(new Date(toEpoch), TimeScalesFactory.getUTC());
-
-        var bodies = simulation.getCelestialBodies();
-        if (body != null && !body.isBlank()) {
-            bodies = bodies.stream()
-                    .filter(b -> b.getName().equalsIgnoreCase(body))
-                    .toList();
-        }
         double cadence = (stepSeconds != null && stepSeconds > 0)
                 ? stepSeconds
                 : GroundTruthProvider.DAILY_CADENCE_SECONDS;
 
         GroundTruthResponse response = groundTruthProvider.sampleTracks(
-                bodies, simulation.getFrame(), from, to, cadence);
+                List.of(body), resolvedFrame, from, to, cadence);
         return ResponseEntity.ok(response);
     }
 

@@ -24,6 +24,7 @@ import personal.spacesim.services.GroundTruthProvider;
 import personal.spacesim.services.SimulationSessionService;
 import personal.spacesim.simulation.Simulation;
 import personal.spacesim.simulation.SimulationFactory;
+import personal.spacesim.simulation.body.CelestialBodyWrapper;
 
 /**
  * Measurement tool: quantifies JSON payload sizes for the two HTTP endpoints
@@ -133,7 +134,8 @@ class JsonPayloadBenchmark {
         // figure this benchmark reports. (sampleTracks gained a stepSeconds
         // param for visible-window fetching after this harness was written.)
         GroundTruthResponse response = groundTruthProvider.sampleTracks(
-            sim.getCelestialBodies(), sim.getFrame(), from, to,
+            sim.getCelestialBodies().stream().map(CelestialBodyWrapper::getName).toList(),
+            sim.getFrame(), from, to,
             GroundTruthProvider.DAILY_CADENCE_SECONDS
         );
 
@@ -224,7 +226,7 @@ class JsonPayloadBenchmark {
         printTableHeader();
         printRow("jsonRaw",  jsonRaw.length,  jsonRaw.length);
         printRow("jsonGzip", jsonGzip.length, jsonRaw.length);
-        System.out.println("  (binary encoding not measured for /initialize — payload is already small)");
+        System.out.println("  (binary encoding not measured for /initialize: payload is already small)");
         System.out.println();
     }
 
