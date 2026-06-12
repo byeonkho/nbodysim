@@ -191,17 +191,14 @@ export function GhostLabel({
       frameCounter.current = 0;
       if (orbitingIdx >= 0) {
         readBodyPositionInto(orbitingPosVec.current, buffer, idx, orbitingIdx);
-        const bodySimple = {
-          x: bodyPosVec.current.x,
-          y: bodyPosVec.current.y,
-          z: bodyPosVec.current.z,
-        };
-        const orbSimple = {
-          x: orbitingPosVec.current.x,
-          y: orbitingPosVec.current.y,
-          z: orbitingPosVec.current.z,
-        };
-        const au = calculateDistance(bodySimple, orbSimple, "AU");
+        // THREE.Vector3 is structurally a Vector3Simple (x/y/z fields); pass
+        // the scratch vectors directly instead of copying into per-call
+        // literals. Mirrors Reticle.tsx.
+        const au = calculateDistance(
+          bodyPosVec.current,
+          orbitingPosVec.current,
+          "AU",
+        );
         if (au !== lastAu.current && auRef.current) {
           auRef.current.textContent = au;
           lastAu.current = au;
