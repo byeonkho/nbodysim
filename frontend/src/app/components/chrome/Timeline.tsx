@@ -44,6 +44,12 @@ import {
 import { DRIFT_CHIP_TOOLTIP } from "@/app/constants/driftTooltipCopy";
 import { InfoTooltip } from "@/app/components/chrome/InfoTooltip";
 import {
+  TOGGLE_BUTTON_CLASS,
+  ToggleContent,
+  toggleTone,
+  VIEW_TOGGLE_ICONS,
+} from "@/app/components/chrome/ViewToggleIcons";
+import {
   AXES_COPY,
   GRID_COPY,
   LABELS_COPY,
@@ -322,62 +328,69 @@ function ViewToggles() {
   const scaleLabel = scale.name === "Realistic" ? "Real" : "Stylized";
 
   return (
-    // Fixed width so the chip grid doesn't grow when the Scale chip's
-    // value changes length (e.g. "Real" vs "Stylized"). Without this,
-    // the flex-1 Scrubber sibling shifts in response to chip content
-    // length, which reads as the whole panel jittering. 348px is sized
-    // so the longest chip content ("Scale" + "Stylized") fits naturally
-    // in its 1/3 cell with no truncation — short-value chips get extra
-    // breathing room between label and dot, which is acceptable.
-    <div className="grid grid-cols-3 gap-[5px] w-[348px] shrink-0">
+    // Fixed width so the row doesn't grow when the Scale caption changes
+    // length (e.g. "Real" vs "Stylized"). Without this, the flex-1 Scrubber
+    // sibling shifts in response to content length, which reads as the whole
+    // panel jittering. 400px gives each of the 8 equal-share items enough
+    // room for the longest caption ("STYLIZED") with no truncation. On/off
+    // toggles lead, the two mode toggles (value captions) close the row.
+    <div className="flex w-[400px] shrink-0 justify-between gap-0.5">
       <ToggleChip
-        label="Grid"
-        on={grid}
-        onClick={() => dispatch(toggleShowGrid())}
-        tooltip={GRID_COPY}
-      />
-      <ToggleChip
+        icon={VIEW_TOGGLE_ICONS.trails}
         label="Trails"
         on={trails}
         onClick={() => dispatch(toggleShowTrails())}
         tooltip="The fading line behind each body, tracing where it has just been."
       />
       <ToggleChip
+        icon={VIEW_TOGGLE_ICONS.orbits}
         label="Orbits"
         on={orbits}
         onClick={() => dispatch(toggleShowOrbitPaths())}
         tooltip="The full loop each body would trace forever if no other body's gravity ever changed its path. Slowly shifts as nearby bodies tug on it."
       />
       <ToggleChip
+        icon={VIEW_TOGGLE_ICONS.labels}
         label="Labels"
         on={labels}
         onClick={() => dispatch(toggleShowPlanetInfoOverlay())}
         tooltip={LABELS_COPY}
       />
       <ToggleChip
+        icon={VIEW_TOGGLE_ICONS.axes}
         label="Axes"
         on={axes}
         onClick={() => dispatch(toggleShowAxes())}
         tooltip={AXES_COPY}
       />
       <ToggleChip
+        icon={VIEW_TOGGLE_ICONS.grid}
+        label="Grid"
+        on={grid}
+        onClick={() => dispatch(toggleShowGrid())}
+        tooltip={GRID_COPY}
+      />
+      <ToggleChip
+        icon={VIEW_TOGGLE_ICONS.drift}
+        label="Drift"
+        on={drift}
+        busy={drift && driftBusy}
+        onClick={() => dispatch(setOverlayEnabled(!drift))}
+        tooltip={DRIFT_CHIP_TOOLTIP}
+      />
+      <ToggleChip
+        icon={VIEW_TOGGLE_ICONS.scale}
         label="Scale"
         value={scaleLabel}
         onClick={() => dispatch(cycleSimulationScale())}
         tooltip={SCALE_COPY}
       />
       <ToggleChip
+        icon={VIEW_TOGGLE_ICONS.camera}
         label="Camera"
         value={cameraLabel}
         onClick={() => dispatch(toggleCameraPreset())}
         tooltip="Switches between a straight-down map view and a free view you can orbit around the scene."
-      />
-      <ToggleChip
-        label="Drift"
-        on={drift}
-        busy={drift && driftBusy}
-        onClick={() => dispatch(setOverlayEnabled(!drift))}
-        tooltip={DRIFT_CHIP_TOOLTIP}
       />
     </div>
   );
@@ -389,6 +402,7 @@ function ViewToggles() {
 const noopSubscribe = () => () => {};
 
 function ToggleChip({
+  icon,
   label,
   on,
   busy,
@@ -396,9 +410,10 @@ function ToggleChip({
   onClick,
   tooltip,
 }: {
+  icon: React.ReactNode;
   label: string;
   on?: boolean;
-  /** Pulses the state glyph while the chip's data is still loading. */
+  /** Pulses the icon while the chip's data is still loading. */
   busy?: boolean;
   value?: string;
   onClick: () => void;
@@ -406,7 +421,6 @@ function ToggleChip({
   tooltip?: string;
 }) {
   const hasValue = value !== undefined;
-  const lit = hasValue ? value !== "OFF" : Boolean(on);
 
   // Tooltip mechanics mirror InfoTooltip: portal into document.body to
   // escape every ancestor's stacking context / overflow / backdrop-filter;
@@ -458,27 +472,18 @@ function ToggleChip({
         type="button"
         onClick={onClick}
         aria-pressed={hasValue ? undefined : Boolean(on)}
+        aria-label={hasValue ? `${label}: ${value}` : undefined}
         aria-describedby={tooltip && open ? tooltipId : undefined}
         {...tooltipHandlers}
-        className={[
-          // w-full + justify-between: chip fills its grid cell; label sticks
-          // to the left, value sticks to the right. Stable column widths
-          // regardless of value text length. min-w-0 lets the spans truncate
-          // if absolutely needed rather than blowing out the cell.
-          "flex w-full min-w-0 items-center justify-between gap-1.5 rounded-[7px] border px-[9px] py-[5px] text-[10px] font-medium transition-colors",
-          lit
-            ? "bg-[rgba(164,168,255,0.12)] border-[rgba(164,168,255,0.28)] text-accent"
-            : "bg-white/[0.04] border-white/[0.06] text-[#9b9ea9] hover:bg-white/[0.06]",
-        ].join(" ")}
+        className={`${TOGGLE_BUTTON_CLASS} ${toggleTone(hasValue, Boolean(on))}`}
       >
-        <span>{label}</span>
-        <span
-          className={`tabular font-mono text-[9px] ${
-            busy ? "animate-pulse opacity-90" : "opacity-70"
-          }`}
-        >
-          {hasValue ? value : lit ? "●" : "○"}
-        </span>
+        <ToggleContent
+          icon={icon}
+          label={label}
+          on={on}
+          value={value}
+          busy={busy}
+        />
       </button>
       {tooltip &&
         mounted &&

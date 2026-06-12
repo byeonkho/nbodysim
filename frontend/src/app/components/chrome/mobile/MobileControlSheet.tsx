@@ -23,6 +23,12 @@ import {
 } from "@/app/store/slices/GroundTruthSlice";
 import { MobileTransportBar } from "./MobileTransportBar";
 import { MOBILE_BUILD_TOUR_TARGET } from "@/app/constants/mobileTourSteps";
+import {
+  TOGGLE_BUTTON_CLASS,
+  ToggleContent,
+  toggleTone,
+  VIEW_TOGGLE_ICONS,
+} from "@/app/components/chrome/ViewToggleIcons";
 
 // This is a plain CSS sheet rather than a vaul drawer: the persistent
 // always-open peek pattern fought vaul's snap-point math (it parked the sheet
@@ -37,39 +43,42 @@ import { MOBILE_BUILD_TOUR_TARGET } from "@/app/constants/mobileTourSteps";
 const BOTTOM_INSET = "calc(env(safe-area-inset-bottom, 0px) + 14px)";
 
 function Chip({
+  icon,
   on = false,
   label,
   value,
   busy = false,
   onClick,
 }: {
+  icon: React.ReactNode;
   on?: boolean;
   label: string;
   value?: string;
-  /** Pulses the label while the chip's data is still loading. */
+  /** Pulses the icon while the chip's data is still loading. */
   busy?: boolean;
   onClick: () => void;
 }) {
-  // A value chip (value provided) is a selector with no "off" state, so it
-  // always renders lit and shows its current value on the right, matching the
-  // desktop Scale/Camera chips. An on/off chip lights only when active.
+  // Borderless icon + label + indicator column, the same treatment as the
+  // desktop Timeline toggles (shared pieces); only the tooltip mechanics are
+  // desktop-only. A value chip (value provided) is a selector with no "off"
+  // state, so it stays neutral and captions its current value; an on/off chip
+  // lights accent only when active.
   const hasValue = value !== undefined;
-  const lit = hasValue || on;
   return (
     <button
+      type="button"
       onClick={onClick}
-      // 44px tall (the touch-target floor); on/off chips trim their side
-      // padding so four fit across a 360px portrait row.
-      className={`flex h-11 w-full items-center gap-1.5 rounded-chip border text-sm transition-colors ${
-        hasValue ? "justify-between px-3" : "justify-center px-2"
-      } ${
-        lit
-          ? "border-[rgba(164,168,255,0.28)] bg-[rgba(164,168,255,0.12)] text-accent"
-          : "border-white/[0.06] text-dim hover:bg-white/[0.04] hover:text-hi"
-      }`}
+      aria-pressed={hasValue ? undefined : on}
+      aria-label={hasValue ? `${label}: ${value}` : undefined}
+      className={`${TOGGLE_BUTTON_CLASS} ${toggleTone(hasValue, on)}`}
     >
-      <span className={busy ? "animate-pulse" : undefined}>{label}</span>
-      {hasValue && <span className="text-hi tabular">{value}</span>}
+      <ToggleContent
+        icon={icon}
+        label={label}
+        on={on}
+        value={value}
+        busy={busy}
+      />
     </button>
   );
 }
@@ -225,20 +234,40 @@ export function MobileControlSheet({
           >
             {/* View controls only: body selection lives in the planet rail at
                 the top of the screen, and with a single section an eyebrow
-                heading would just cost a row. */}
-            <div className="space-y-2">
-              <div className="grid grid-cols-4 gap-2">
-                <Chip label="Orbits" on={showOrbits} onClick={() => dispatch(toggleShowOrbitPaths())} />
-                <Chip label="Labels" on={showLabels} onClick={() => dispatch(toggleShowPlanetInfoOverlay())} />
-                <Chip label="Trails" on={showTrails} onClick={() => dispatch(toggleShowTrails())} />
-                <Chip
-                  label="Drift"
-                  on={drift}
-                  busy={drift && driftBusy}
-                  onClick={() => dispatch(setOverlayEnabled(!drift))}
-                />
-              </div>
-              <Chip label="Scale" value={scaleLabel} onClick={() => dispatch(cycleSimulationScale())} />
+                heading would just cost a row. One equal-share row; on/off
+                toggles lead, the Scale mode toggle closes the row. */}
+            <div className="flex gap-0.5">
+              <Chip
+                icon={VIEW_TOGGLE_ICONS.trails}
+                label="Trails"
+                on={showTrails}
+                onClick={() => dispatch(toggleShowTrails())}
+              />
+              <Chip
+                icon={VIEW_TOGGLE_ICONS.orbits}
+                label="Orbits"
+                on={showOrbits}
+                onClick={() => dispatch(toggleShowOrbitPaths())}
+              />
+              <Chip
+                icon={VIEW_TOGGLE_ICONS.labels}
+                label="Labels"
+                on={showLabels}
+                onClick={() => dispatch(toggleShowPlanetInfoOverlay())}
+              />
+              <Chip
+                icon={VIEW_TOGGLE_ICONS.drift}
+                label="Drift"
+                on={drift}
+                busy={drift && driftBusy}
+                onClick={() => dispatch(setOverlayEnabled(!drift))}
+              />
+              <Chip
+                icon={VIEW_TOGGLE_ICONS.scale}
+                label="Scale"
+                value={scaleLabel}
+                onClick={() => dispatch(cycleSimulationScale())}
+              />
             </div>
           </div>
         </div>
