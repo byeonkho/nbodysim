@@ -4,9 +4,7 @@ import React, { useState } from "react";
 import { createPortal } from "react-dom";
 import { useDispatch, useSelector } from "react-redux";
 import type { AppDispatch } from "@/app/store/Store";
-import type { CelestialBodyProperties } from "@/app/store/slices/SimulationSlice";
 import {
-  setActiveBody,
   cycleSimulationScale,
   toggleShowOrbitPaths,
   toggleShowPlanetInfoOverlay,
@@ -15,8 +13,12 @@ import {
   selectShowPlanetInfoOverlay,
   selectShowTrails,
   selectSimulationScale,
-  selectCelestialBodyPropertiesList,
 } from "@/app/store/slices/SimulationSlice";
+import {
+  setOverlayEnabled,
+  selectOverlayEnabled,
+  selectGroundTruthFetchInFlight,
+} from "@/app/store/slices/GroundTruthSlice";
 import { MobileTransportBar } from "./MobileTransportBar";
 
 // Collapsed peek height: the grab handle plus the transport bar. Expanded is a
@@ -35,11 +37,14 @@ function Chip({
   on = false,
   label,
   value,
+  busy = false,
   onClick,
 }: {
   on?: boolean;
   label: string;
   value?: string;
+  /** Pulses the label while the chip's data is still loading. */
+  busy?: boolean;
   onClick: () => void;
 }) {
   // A value chip (value provided) is a selector with no "off" state, so it
@@ -58,7 +63,7 @@ function Chip({
           : "border-white/[0.06] text-dim hover:bg-white/[0.04] hover:text-hi"
       }`}
     >
-      <span>{label}</span>
+      <span className={busy ? "animate-pulse" : undefined}>{label}</span>
       {hasValue && <span className="text-hi tabular">{value}</span>}
     </button>
   );
@@ -72,17 +77,13 @@ export function MobileControlSheet() {
   const showLabels = useSelector(selectShowPlanetInfoOverlay);
   const showTrails = useSelector(selectShowTrails);
   const scale = useSelector(selectSimulationScale);
-  const bodies = useSelector(selectCelestialBodyPropertiesList);
+  const drift = useSelector(selectOverlayEnabled);
+  // Flips rarely (per ground-truth fetch), so a plain subscription is fine.
+  const driftBusy = useSelector(selectGroundTruthFetchInFlight);
 
   // Mirror the desktop Timeline label: "Realistic" renders as "Real",
   // everything else (currently "Log") renders as "Stylized".
   const scaleLabel = scale?.name === "Realistic" ? "Real" : "Stylized";
-
-  const selectBody = (name: string) => {
-    // Collapse so the body detail sheet (z-30, below this sheet) is visible.
-    setExpanded(false);
-    dispatch(setActiveBody(name));
-  };
 
   // Portals to document.body so the sheet sits at the same stacking level as
   // the vaul body sheet (z-40 control over z-30 body). Mobile chrome only ever
@@ -145,36 +146,25 @@ export function MobileControlSheet() {
         inert={!expanded}
         className="flex-1 space-y-4 overflow-y-auto px-4 pb-8"
       >
+        {/* Body selection lives in the planet rail at the top of the screen,
+            so the sheet is view controls only. */}
         <div>
           <div className="eyebrow mb-2">
             View
           </div>
           <div className="space-y-2">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <Chip label="Orbits" on={showOrbits} onClick={() => dispatch(toggleShowOrbitPaths())} />
               <Chip label="Labels" on={showLabels} onClick={() => dispatch(toggleShowPlanetInfoOverlay())} />
               <Chip label="Trails" on={showTrails} onClick={() => dispatch(toggleShowTrails())} />
+              <Chip
+                label="Drift"
+                on={drift}
+                busy={drift && driftBusy}
+                onClick={() => dispatch(setOverlayEnabled(!drift))}
+              />
             </div>
             <Chip label="Scale" value={scaleLabel} onClick={() => dispatch(cycleSimulationScale())} />
-          </div>
-        </div>
-
-        <div>
-          <div className="eyebrow mb-2">
-            Bodies
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {bodies
-              .filter((b: CelestialBodyProperties): b is CelestialBodyProperties & { name: string } => !!b.name)
-              .map((b) => (
-                <button
-                  key={b.name}
-                  onClick={() => selectBody(b.name)}
-                  className="h-11 rounded-chip border border-white/[0.06] px-3 text-sm text-dim transition-colors hover:bg-white/[0.04] hover:text-hi"
-                >
-                  {b.name}
-                </button>
-              ))}
           </div>
         </div>
       </div>
