@@ -24,7 +24,6 @@ import {
 import { DEFAULT_CLIP_ID } from "@/app/constants/ClipPresets";
 import { runStaticClip } from "@/app/utils/runStaticClip";
 import { MobileTourOverlay } from "./MobileTourOverlay";
-import { MOBILE_BUILD_TOUR_TARGET } from "@/app/constants/mobileTourSteps";
 import { MobilePlanetRail } from "./MobilePlanetRail";
 
 export function MobileChrome() {
@@ -32,9 +31,9 @@ export function MobileChrome() {
   const bootedRef = useRef(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const isBodyActive = useSelector(selectIsBodyActive);
-  // The build FAB belongs to the foreground scene. Hide it while a bottom sheet
-  // is up (body detail or the build sheet). The control sheet covers it on its
-  // own via stacking order, so it needs no flag here.
+  // The build FAB rides the control sheet's top edge (rendered by the sheet so
+  // it tracks the sheet's height). Hide it while another bottom sheet is up
+  // (body detail or the build sheet itself).
   const showFab = !setupOpen && !isBodyActive;
 
   useEffect(() => {
@@ -73,50 +72,10 @@ export function MobileChrome() {
     <>
       <MobilePlanetRail />
 
-      {/* Build a simulation: a bottom-right floating action button in the
-          one-handed thumb zone. 8rem (128px) clears the collapsed control sheet,
-          which reserves its own bottom breathing room; the env terms grow the
-          gap with the home indicator and keep it off the landscape side notch.
-          Hidden while a bottom sheet is open. */}
-      {showFab && (
-        <button
-          type="button"
-          aria-label="Build simulation"
-          data-tour={MOBILE_BUILD_TOUR_TARGET}
-          onClick={() => setSetupOpen(true)}
-          className="pointer-events-auto fixed z-20 grid h-14 w-14 place-items-center rounded-full border border-white/[0.08] text-accent transition-colors hover:text-hi"
-          style={{
-            right: "calc(1rem + env(safe-area-inset-right, 0px))",
-            bottom: "calc(8rem + env(safe-area-inset-bottom, 0px))",
-            background: "rgba(20,22,30,0.62)",
-            backdropFilter: "blur(22px) saturate(150%)",
-            WebkitBackdropFilter: "blur(22px) saturate(150%)",
-            boxShadow:
-              "inset 0 1px 0 rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.4)",
-          }}
-        >
-          {/* Solar-system glyph: sun + two tilted nested orbits + two planets. */}
-          <svg
-            width="28"
-            height="28"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <ellipse cx="12" cy="12" rx="10.4" ry="5.2" transform="rotate(-25 12 12)" />
-            <ellipse cx="12" cy="12" rx="6.2" ry="3" transform="rotate(-25 12 12)" />
-            <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
-            <circle cx="21.43" cy="7.61" r="1.6" fill="currentColor" stroke="none" />
-            <circle cx="6.38" cy="14.62" r="1.3" fill="currentColor" stroke="none" />
-          </svg>
-        </button>
-      )}
-
-      <MobileControlSheet />
+      <MobileControlSheet
+        buildFabHidden={!showFab}
+        onBuildClick={() => setSetupOpen(true)}
+      />
       <MobileBodySheet />
       <MobileSimSetupSheet open={setupOpen} onOpenChange={setSetupOpen} />
       <MobileTourOverlay />
