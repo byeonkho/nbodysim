@@ -19,9 +19,17 @@ export interface ComputeNextIndexInput {
   totalTimesteps: number; // upper-bound (clamp at totalTimesteps - 1)
 }
 
+// Ceiling on the per-frame delta. rAF stops while a tab is hidden, so the
+// first frame back reports the entire hidden duration as one delta — without
+// a ceiling, ten hidden minutes at 1x teleports playback 36,000 keyframes.
+// 0.25s comfortably covers real frame hitches (GC pauses, window drags) while
+// capping any single frame's advance at a quarter-second of wall clock.
+export const MAX_FRAME_DELTA_SECONDS = 0.25;
+
 export function computeNextIndex(input: ComputeNextIndexInput): number {
   const { currentIndex, delta, speedMultiplier, fps, totalTimesteps } = input;
-  const proposed = currentIndex + delta * fps * speedMultiplier;
+  const clampedDelta = Math.min(delta, MAX_FRAME_DELTA_SECONDS);
+  const proposed = currentIndex + clampedDelta * fps * speedMultiplier;
   if (proposed < 0) return 0;
   if (proposed > totalTimesteps - 1) return totalTimesteps - 1;
   return proposed;
