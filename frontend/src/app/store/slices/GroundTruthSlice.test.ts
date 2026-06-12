@@ -80,4 +80,23 @@ describe("GroundTruthSlice", () => {
     expect(s.trueTrack).toBeNull();
     expect(s.overlayEnabled).toBe(true); // user preference survives a resubmit
   });
+
+  // The flag follows the fetch thunk's lifecycle by action TYPE (not the
+  // thunk's action creators) so the slice never imports the thunk module,
+  // which itself imports this slice.
+  it("tracks the fetch lifecycle in fetchInFlight", () => {
+    let s = reducer(initial, { type: "groundTruth/fetch/pending" });
+    expect(s.fetchInFlight).toBe(true);
+    s = reducer(s, { type: "groundTruth/fetch/fulfilled" });
+    expect(s.fetchInFlight).toBe(false);
+    s = reducer(s, { type: "groundTruth/fetch/pending" });
+    s = reducer(s, { type: "groundTruth/fetch/rejected" });
+    expect(s.fetchInFlight).toBe(false);
+  });
+
+  it("reset clears a stuck fetchInFlight so a new sim never starts spinning", () => {
+    let s = reducer(initial, { type: "groundTruth/fetch/pending" });
+    s = reducer(s, resetGroundTruth());
+    expect(s.fetchInFlight).toBe(false);
+  });
 });

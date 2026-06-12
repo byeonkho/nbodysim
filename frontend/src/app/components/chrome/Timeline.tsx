@@ -36,7 +36,11 @@ import {
 } from "@/app/store/slices/SimulationSlice";
 import { formatTPlus, isoToDateOrNull } from "@/app/utils/dateMath";
 import { formatSpeed } from "@/app/utils/formatSpeed";
-import { setOverlayEnabled, selectOverlayEnabled } from "@/app/store/slices/GroundTruthSlice";
+import {
+  setOverlayEnabled,
+  selectOverlayEnabled,
+  selectGroundTruthFetchInFlight,
+} from "@/app/store/slices/GroundTruthSlice";
 import { DRIFT_CHIP_TOOLTIP } from "@/app/constants/driftTooltipCopy";
 import { InfoTooltip } from "@/app/components/chrome/InfoTooltip";
 import {
@@ -302,6 +306,9 @@ function ViewToggles() {
   const scale = useSelector(selectSimulationScale);
   const cameraPreset = useSelector(selectCameraPreset);
   const drift = useSelector(selectOverlayEnabled);
+  // Only meaningful while the overlay is on; flips rarely (per fetch), so a
+  // plain subscription is fine here (chip row is prep, not the render loop).
+  const driftBusy = useSelector(selectGroundTruthFetchInFlight);
 
   // Camera preset is a binary viewpoint toggle (top-down vs free orbit),
   // grouped here with the other view controls. Shown as a value chip
@@ -368,6 +375,7 @@ function ViewToggles() {
       <ToggleChip
         label="Drift"
         on={drift}
+        busy={drift && driftBusy}
         onClick={() => dispatch(setOverlayEnabled(!drift))}
         tooltip={DRIFT_CHIP_TOOLTIP}
       />
@@ -383,12 +391,15 @@ const noopSubscribe = () => () => {};
 function ToggleChip({
   label,
   on,
+  busy,
   value,
   onClick,
   tooltip,
 }: {
   label: string;
   on?: boolean;
+  /** Pulses the state glyph while the chip's data is still loading. */
+  busy?: boolean;
   value?: string;
   onClick: () => void;
   /** Optional plain-English description shown above the chip on hover/focus. */
@@ -461,7 +472,11 @@ function ToggleChip({
         ].join(" ")}
       >
         <span>{label}</span>
-        <span className="tabular font-mono text-[9px] opacity-70">
+        <span
+          className={`tabular font-mono text-[9px] ${
+            busy ? "animate-pulse opacity-90" : "opacity-70"
+          }`}
+        >
           {hasValue ? value : lit ? "●" : "○"}
         </span>
       </button>

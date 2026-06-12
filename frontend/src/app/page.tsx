@@ -6,6 +6,7 @@ import { store } from "@/app/store/Store";
 import { Provider } from "react-redux";
 import Layout from "@/app/components/scene/Layout";
 import ErrorToast from "@/app/components/interface/misc/ErrorToast";
+import DriftFetchNotice from "@/app/components/interface/misc/DriftFetchNotice";
 import { PrefsHydrator } from "@/app/components/PrefsHydrator";
 
 export default function App() {
@@ -14,6 +15,7 @@ export default function App() {
       <PrefsHydrator />
       <Layout />
       <ErrorToast />
+      <DriftFetchNotice />
     </Provider>
   );
 }

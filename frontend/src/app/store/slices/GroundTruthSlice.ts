@@ -21,6 +21,10 @@ export interface GroundTruthState {
   // rebuild). serializableCheck is disabled store-wide.
   trueTrack: ChunkBuffer | null;
   trueTrackBody: string | null;
+  // True while a ground-truth fetch is in flight. UI-only signal (the Drift
+  // chip's busy state and the slow-first-fetch notice); the middleware keeps
+  // its own in-flight guard for dispatch gating.
+  fetchInFlight: boolean;
 }
 
 const initialState: GroundTruthState = {
@@ -31,6 +35,7 @@ const initialState: GroundTruthState = {
   coveredToMs: null,
   trueTrack: null,
   trueTrackBody: null,
+  fetchInFlight: false,
 };
 
 export const groundTruthSlice = createSlice({
@@ -83,7 +88,25 @@ export const groundTruthSlice = createSlice({
       state.coveredToMs = null;
       state.trueTrack = null;
       state.trueTrackBody = null;
+      // A response for the old sim may never settle visibly; don't let a new
+      // sim inherit a stuck busy indicator.
+      state.fetchInFlight = false;
     },
+  },
+  // Follow the fetch thunk's lifecycle by action TYPE rather than importing
+  // its action creators: the thunk module imports this slice, so importing it
+  // back here would be a require cycle.
+  extraReducers: (builder) => {
+    builder
+      .addCase("groundTruth/fetch/pending", (state) => {
+        state.fetchInFlight = true;
+      })
+      .addCase("groundTruth/fetch/fulfilled", (state) => {
+        state.fetchInFlight = false;
+      })
+      .addCase("groundTruth/fetch/rejected", (state) => {
+        state.fetchInFlight = false;
+      });
   },
 });
 
@@ -107,3 +130,5 @@ export const selectTrueTrackBody = (state: RootState): string | null =>
 export const selectAnchorsByBody = (
   state: RootState,
 ): Record<string, GroundTruthAnchorLike[]> => state.groundTruth.anchorsByBody;
+export const selectGroundTruthFetchInFlight = (state: RootState): boolean =>
+  state.groundTruth.fetchInFlight;
