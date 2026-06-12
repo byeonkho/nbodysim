@@ -49,7 +49,7 @@ function dummyChunkPayload(timestepCount = 5) {
   };
 }
 
-describe("SimulationSlice — initial state", () => {
+describe("SimulationSlice: initial state", () => {
   it("starts with null chunkBuffer and hasReceivedFirstChunk=false", () => {
     const state = init();
     expect(state.chunkBuffer).toBeNull();
@@ -59,7 +59,7 @@ describe("SimulationSlice — initial state", () => {
   });
 });
 
-describe("SimulationSlice — loadSimulation atomic reset", () => {
+describe("SimulationSlice: loadSimulation atomic reset", () => {
   it("clears chunkBuffer when a new session loads", () => {
     let state = init();
     // Seed an old session with a buffer.
@@ -121,7 +121,7 @@ describe("SimulationSlice — loadSimulation atomic reset", () => {
   });
 });
 
-describe("SimulationSlice — appendChunkToBuffer", () => {
+describe("SimulationSlice: appendChunkToBuffer", () => {
   it("creates the buffer on first chunk and sets hasReceivedFirstChunk=true", () => {
     let state = init();
     state = simulationReducer(state, loadSimulation(newParams("S1")));
@@ -143,5 +143,25 @@ describe("SimulationSlice — appendChunkToBuffer", () => {
     state = simulationReducer(state, appendChunkToBuffer(dummyChunkPayload(10)));
     // Chunk arrival must NOT flip isPaused.
     expect(state.timeState.isPaused).toBe(true);
+  });
+
+  it("shares bodyNameToIndex and data arrays across appends (render-cache soundness)", () => {
+    let state = init();
+    state = simulationReducer(state, loadSimulation(newParams("S1")));
+    state = simulationReducer(state, appendChunkToBuffer(dummyChunkPayload(10)));
+    const first = state.chunkBuffer!;
+    state = simulationReducer(state, appendChunkToBuffer(dummyChunkPayload(10)));
+    const second = state.chunkBuffer!;
+
+    // Immer copy-on-write may hand out a new ChunkBuffer wrapper per append,
+    // but the name map and backing arrays must be the same objects: render-
+    // side caches key on wrapper identity and re-resolve against the shared
+    // map, which is only sound if the map (and what each slot means) survives
+    // appends. If this test ever fails, every useFrame index cache and the
+    // framePivot WeakMap are unsound, not just inefficient.
+    expect(second.bodyNameToIndex).toBe(first.bodyNameToIndex);
+    expect(second.positions).toBe(first.positions);
+    expect(second.timestamps).toBe(first.timestamps);
+    expect(second.totalTimesteps).toBe(20);
   });
 });

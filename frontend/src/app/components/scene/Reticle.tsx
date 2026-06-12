@@ -66,6 +66,21 @@ export function Reticle() {
   const velScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const parentWorldScratch = useRef(new THREE.Vector3());
   const childDeltaScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  // Cached slot indices for the focused body, its orbital parent, and the
+  // frame-aware state reference. Reticle is an active-body component whose
+  // indices depend on every input the lazy resolve reads: buffer identity,
+  // the active body, the display frame (the state-reference target switches
+  // to Earth in geo mode; see stateRefNameUpper below), and the parent name
+  // derived from props. The guard keys on all four; keying on fewer would
+  // serve a stale index when one of them changes alone. Mirrors
+  // DriftOverlay's shape, plus the frame and parent keys.
+  const bodyIdxRef = useRef<number>(-1);
+  const orbitingIdxRef = useRef<number>(-1);
+  const stateRefIdxRef = useRef<number>(-1);
+  const resolvedBufferRef = useRef<object | null>(null);
+  const resolvedBodyRef = useRef<string | null>(null);
+  const resolvedFrameRef = useRef<string | null>(null);
+  const resolvedOrbitingRef = useRef<string | null>(null);
   const lastRange = useRef<string>("");
   const lastVel = useRef<string>("");
 
@@ -95,30 +110,52 @@ export function Reticle() {
     const idx = state.simulation.timeState.currentTimeStepIndex;
     if (!buffer || idx >= buffer.totalTimesteps) return;
 
-    const bodyIdx = findBodyIndexCaseInsensitive(buffer, upperName);
-    if (bodyIdx < 0) return;
-
     const displayFrame = state.simulation.simulationParameters.displayFrame;
 
-    readBodyStateInto(bodyPosVec.current, bodyVelVec.current, buffer, idx, bodyIdx);
-
-    // Orbital reference (orbitingNameUpper) is used for the scale-pipeline
-    // parent/child branch below. Frame-aware state-vector reference (computed
-    // here) is used for the range/velocity readouts.
-    const orbitingIdx = orbitingNameUpper
-      ? findBodyIndexCaseInsensitive(buffer, orbitingNameUpper)
-      : -1;
-
-    const stateRefNameUpper =
-      upperName === "MOON"
-        ? "EARTH"
-        : displayFrame === "geo"
-          ? "EARTH"
-          : orbitingNameUpper;
-    const stateRefIdx =
-      stateRefNameUpper && stateRefNameUpper !== upperName
-        ? findBodyIndexCaseInsensitive(buffer, stateRefNameUpper)
+    // Invalidate cached indices when any resolution input changes: buffer
+    // identity (new simulation), active body (focus switch), display frame
+    // (the state reference switches to Earth in geo mode), or the derived
+    // parent name.
+    if (
+      resolvedBufferRef.current !== buffer ||
+      resolvedBodyRef.current !== upperName ||
+      resolvedFrameRef.current !== displayFrame ||
+      resolvedOrbitingRef.current !== orbitingNameUpper
+    ) {
+      bodyIdxRef.current = -1;
+      orbitingIdxRef.current = -1;
+      stateRefIdxRef.current = -1;
+      resolvedBufferRef.current = buffer;
+      resolvedBodyRef.current = upperName;
+      resolvedFrameRef.current = displayFrame;
+      resolvedOrbitingRef.current = orbitingNameUpper;
+    }
+    // Lazy-resolve: one set of map scans per (sim, focus, frame, parent) change.
+    if (bodyIdxRef.current === -1) {
+      bodyIdxRef.current = findBodyIndexCaseInsensitive(buffer, upperName);
+      // Orbital reference (orbitingNameUpper) feeds the scale-pipeline
+      // parent/child branch below; the frame-aware state reference feeds
+      // the range/velocity readouts.
+      orbitingIdxRef.current = orbitingNameUpper
+        ? findBodyIndexCaseInsensitive(buffer, orbitingNameUpper)
         : -1;
+      const stateRefNameUpper =
+        upperName === "MOON"
+          ? "EARTH"
+          : displayFrame === "geo"
+            ? "EARTH"
+            : orbitingNameUpper;
+      stateRefIdxRef.current =
+        stateRefNameUpper && stateRefNameUpper !== upperName
+          ? findBodyIndexCaseInsensitive(buffer, stateRefNameUpper)
+          : -1;
+    }
+    const bodyIdx = bodyIdxRef.current;
+    if (bodyIdx < 0) return;
+    const orbitingIdx = orbitingIdxRef.current;
+    const stateRefIdx = stateRefIdxRef.current;
+
+    readBodyStateInto(bodyPosVec.current, bodyVelVec.current, buffer, idx, bodyIdx);
 
     posSimple.current.x = bodyPosVec.current.x;
     posSimple.current.y = bodyPosVec.current.y;
@@ -194,34 +231,18 @@ export function Reticle() {
       stateRefIdx,
     );
 
-    const bodyPosSimple = {
-      x: bodyPosVec.current.x,
-      y: bodyPosVec.current.y,
-      z: bodyPosVec.current.z,
-    };
-    const stateRefPosSimple = {
-      x: stateRefPosVec.current.x,
-      y: stateRefPosVec.current.y,
-      z: stateRefPosVec.current.z,
-    };
-    const range = calculateDistance(bodyPosSimple, stateRefPosSimple, "AU");
+    // THREE.Vector3 is structurally a Vector3Simple (x/y/z fields); pass the
+    // scratch vectors directly instead of copying into per-frame literals.
+    const range = calculateDistance(
+      bodyPosVec.current,
+      stateRefPosVec.current,
+      "AU",
+    );
     if (range !== lastRange.current && rangeRef.current) {
       rangeRef.current.textContent = range;
       lastRange.current = range;
     }
-    subtractInto(
-      velScratch.current,
-      {
-        x: bodyVelVec.current.x,
-        y: bodyVelVec.current.y,
-        z: bodyVelVec.current.z,
-      },
-      {
-        x: stateRefVelVec.current.x,
-        y: stateRefVelVec.current.y,
-        z: stateRefVelVec.current.z,
-      },
-    );
+    subtractInto(velScratch.current, bodyVelVec.current, stateRefVelVec.current);
     const vel = formatToKM(calculateMagnitude(velScratch.current));
     if (vel !== lastVel.current && velRef.current) {
       velRef.current.textContent = vel;

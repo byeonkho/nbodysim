@@ -24,16 +24,35 @@ import * as THREE from "three";
 
 const EARTH_NAME_UPPER = "EARTH";
 
+// Earth's slot index, cached per buffer identity. Identity changes on each
+// new session AND on every chunk append: the appendChunkToBuffer reducer
+// writes scalar fields through the Immer draft, so copy-on-write yields a new
+// ChunkBuffer wrapper per append, while bodyNameToIndex and the data arrays
+// are shared across wrappers. Re-resolution is therefore idempotent and runs
+// at most once per chunk append, never per call (previously: once per trail
+// point per frame in geo mode). -1 (Earth absent) is cached too, hence the
+// explicit undefined check. Entries die with their wrappers (WeakMap), so
+// resubmits can neither leak nor serve stale slots.
+const earthIndexCache = new WeakMap<ChunkBuffer, number>();
+
 /**
  * Resolve Earth's body index from the buffer's name map. Case-insensitive
  * match since backend may emit "Earth" or "earth". Returns -1 if Earth isn't
  * in the body list — callers should fall back to helio (zero pivot).
+ * Cached per buffer identity; callers must not add their own bookkeeping.
  */
 export function findEarthBodyIndex(buffer: ChunkBuffer): number {
-  for (const [name, idx] of buffer.bodyNameToIndex.entries()) {
-    if (name.trim().toUpperCase() === EARTH_NAME_UPPER) return idx;
+  const cached = earthIndexCache.get(buffer);
+  if (cached !== undefined) return cached;
+  let idx = -1;
+  for (const [name, i] of buffer.bodyNameToIndex.entries()) {
+    if (name.trim().toUpperCase() === EARTH_NAME_UPPER) {
+      idx = i;
+      break;
+    }
   }
-  return -1;
+  earthIndexCache.set(buffer, idx);
+  return idx;
 }
 
 // Module-level scratch reused inside writePivotInto so callers don't pass

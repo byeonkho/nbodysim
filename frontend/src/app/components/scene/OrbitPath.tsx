@@ -114,6 +114,12 @@ const OrbitPath: React.FC<OrbitPathProps> = ({
   const bodyIndexRef = useRef<number>(-1);
   const parentIndexRef = useRef<number>(-1);
   const muRef = useRef<number>(0);
+  // Buffer the cached indices were resolved against. A new simulation creates
+  // a fresh ChunkBuffer whose body order depends on the selected set, so a
+  // reused OrbitPath (same bodyName, no remount) must re-resolve its slots or
+  // it reads the wrong body's state. Keyed on buffer identity, not bodyName,
+  // because the name never changes for a reused component. Mirrors Sphere.tsx.
+  const resolvedBufferRef = useRef<object | null>(null);
 
   const orbitScratch = useRef<OrbitScratch>(makeOrbitScratch());
   const ellipseLocal = useRef<Float32Array>(
@@ -129,12 +135,6 @@ const OrbitPath: React.FC<OrbitPathProps> = ({
   const parentMetresScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const vertexMetresScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const deltaScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
-
-  useEffect(() => {
-    bodyIndexRef.current = -1;
-    parentIndexRef.current = -1;
-    muRef.current = 0;
-  }, [bodyName]);
 
   /* eslint-disable react-hooks/immutability */
   useFrame(() => {
@@ -167,6 +167,14 @@ const OrbitPath: React.FC<OrbitPathProps> = ({
     if (currentTimeStepIndex < 0 || currentTimeStepIndex >= buffer.totalTimesteps) {
       lineObject.visible = false;
       return;
+    }
+
+    // Invalidate cached indices when the buffer changes (new simulation).
+    if (resolvedBufferRef.current !== buffer) {
+      bodyIndexRef.current = -1;
+      parentIndexRef.current = -1;
+      muRef.current = 0;
+      resolvedBufferRef.current = buffer;
     }
 
     // Lazy-resolve body / parent indices and parent µ on the first valid

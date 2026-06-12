@@ -14,7 +14,7 @@ import {
 } from "@/app/store/slices/SimulationSlice";
 import { readBodyPositionInto } from "@/app/store/chunkBuffer";
 import { writeBodyWorldPositionToArrayWithPreset } from "@/app/utils/coordinates";
-import { findEarthBodyIndex, writePivotInto } from "@/app/utils/framePivot";
+import { writePivotInto } from "@/app/utils/framePivot";
 import { worldDistance, worldRadius, worldDistanceFromParent } from "@/app/utils/scalePipeline";
 import { getDevSettings } from "@/app/dev/devSettingsStore";
 import { shouldShowMoonDetail } from "@/app/constants/BodyCatalog";
@@ -122,7 +122,6 @@ const Trail: React.FC<TrailProps> = ({
   // lookups thereafter.
   const bodyIndexRef = useRef<number>(-1);
   const orbitingIndexRef = useRef<number>(-1);
-  const earthIndexRef = useRef<number>(-1);
   // Buffer the cached indices were resolved against. A new simulation creates a
   // fresh ChunkBuffer whose body order depends on the selected set, so a reused
   // Trail (same bodyName, no remount) must re-resolve its slot or it reads the
@@ -179,7 +178,6 @@ const Trail: React.FC<TrailProps> = ({
     if (resolvedBufferRef.current !== buffer) {
       bodyIndexRef.current = -1;
       orbitingIndexRef.current = -1;
-      earthIndexRef.current = -1;
       resolvedBufferRef.current = buffer;
     }
 
@@ -200,7 +198,6 @@ const Trail: React.FC<TrailProps> = ({
           }
         }
       }
-      earthIndexRef.current = findEarthBodyIndex(buffer);
     }
     const bodyIdx = bodyIndexRef.current;
     if (bodyIdx < 0) {
