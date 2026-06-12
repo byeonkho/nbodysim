@@ -12,6 +12,7 @@ import { SimSetupModal } from "@/app/components/chrome/simSetup/SimSetupModal";
 import { Timeline } from "@/app/components/chrome/Timeline";
 import { TopStatusStrip } from "@/app/components/chrome/TopStatusStrip";
 import { DevPanel } from "@/app/components/dev/DevPanel";
+import { PlaybackGate } from "@/app/components/chrome/PlaybackGate";
 import { TourOverlay } from "@/app/components/interface/tour/TourOverlay";
 import { useIsMobile } from "@/app/utils/useIsMobile";
 import { MobileChrome } from "@/app/components/chrome/mobile/MobileChrome";
@@ -92,6 +93,10 @@ const Layout: React.FC = () => {
               <TourOverlay simSetupOpen={simSetupOpen} />
             </>
           )}
+
+          {/* Shared by both chromes: hidden-tab auto-pause + the idle
+              "still watching?" card for unattended live sessions. */}
+          <PlaybackGate />
 
           {devMode && <DevPanel />}
         </div>
