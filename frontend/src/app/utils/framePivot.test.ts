@@ -52,9 +52,10 @@ describe("findEarthBodyIndex caching", () => {
       { name: "Earth", x: 7, y: 8, z: 9 },
     ]);
     expect(findEarthBodyIndex(buf)).toBe(1);
-    // Mutate the map underneath. Within one buffer identity the body set is
-    // immutable by contract (created once per session, appended in place),
-    // so the cached slot must keep winning. This proves the scan didn't rerun.
+    // Mutate the map underneath. Within one wrapper identity the name map
+    // never changes (Immer makes a new wrapper per chunk append; the map is
+    // shared across wrappers), so the cached slot must keep winning. This
+    // proves the scan didn't rerun.
     buf.bodyNameToIndex.clear();
     expect(findEarthBodyIndex(buf)).toBe(1);
   });

@@ -24,12 +24,14 @@ import * as THREE from "three";
 
 const EARTH_NAME_UPPER = "EARTH";
 
-// Earth's slot index, cached per buffer identity. A ChunkBuffer is created
-// once per session (the appendChunkToBuffer reducer's first-chunk branch) and
-// mutated in place thereafter; its bodyNameToIndex never changes. So the scan
-// runs once per simulation, not once per call (previously: once per trail
+// Earth's slot index, cached per buffer identity. Identity changes on each
+// new session AND on every chunk append: the appendChunkToBuffer reducer
+// writes scalar fields through the Immer draft, so copy-on-write yields a new
+// ChunkBuffer wrapper per append, while bodyNameToIndex and the data arrays
+// are shared across wrappers. Re-resolution is therefore idempotent and runs
+// at most once per chunk append, never per call (previously: once per trail
 // point per frame in geo mode). -1 (Earth absent) is cached too, hence the
-// explicit undefined check. Entries die with their buffer (WeakMap), so
+// explicit undefined check. Entries die with their wrappers (WeakMap), so
 // resubmits can neither leak nor serve stale slots.
 const earthIndexCache = new WeakMap<ChunkBuffer, number>();
 
