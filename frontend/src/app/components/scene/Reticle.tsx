@@ -67,18 +67,20 @@ export function Reticle() {
   const parentWorldScratch = useRef(new THREE.Vector3());
   const childDeltaScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   // Cached slot indices for the focused body, its orbital parent, and the
-  // frame-aware state reference. Reticle is an active-body component, with a
-  // third resolution input: the state-reference target depends on the display
-  // frame (geo pins it to Earth; see stateRefNameUpper below). So the guard
-  // keys on buffer identity AND active body AND frame; keying on fewer would
-  // serve a stale index after a focus switch or a helio/geo toggle while
-  // focused. Mirrors DriftOverlay's shape, plus the frame key.
+  // frame-aware state reference. Reticle is an active-body component whose
+  // indices depend on every input the lazy resolve reads: buffer identity,
+  // the active body, the display frame (the state-reference target switches
+  // to Earth in geo mode; see stateRefNameUpper below), and the parent name
+  // derived from props. The guard keys on all four; keying on fewer would
+  // serve a stale index when one of them changes alone. Mirrors
+  // DriftOverlay's shape, plus the frame and parent keys.
   const bodyIdxRef = useRef<number>(-1);
   const orbitingIdxRef = useRef<number>(-1);
   const stateRefIdxRef = useRef<number>(-1);
   const resolvedBufferRef = useRef<object | null>(null);
   const resolvedBodyRef = useRef<string | null>(null);
   const resolvedFrameRef = useRef<string | null>(null);
+  const resolvedOrbitingRef = useRef<string | null>(null);
   const lastRange = useRef<string>("");
   const lastVel = useRef<string>("");
 
@@ -111,12 +113,14 @@ export function Reticle() {
     const displayFrame = state.simulation.simulationParameters.displayFrame;
 
     // Invalidate cached indices when any resolution input changes: buffer
-    // identity (new simulation), active body (focus switch), or display
-    // frame (the state reference switches to Earth in geo mode).
+    // identity (new simulation), active body (focus switch), display frame
+    // (the state reference switches to Earth in geo mode), or the derived
+    // parent name.
     if (
       resolvedBufferRef.current !== buffer ||
       resolvedBodyRef.current !== upperName ||
-      resolvedFrameRef.current !== displayFrame
+      resolvedFrameRef.current !== displayFrame ||
+      resolvedOrbitingRef.current !== orbitingNameUpper
     ) {
       bodyIdxRef.current = -1;
       orbitingIdxRef.current = -1;
@@ -124,6 +128,7 @@ export function Reticle() {
       resolvedBufferRef.current = buffer;
       resolvedBodyRef.current = upperName;
       resolvedFrameRef.current = displayFrame;
+      resolvedOrbitingRef.current = orbitingNameUpper;
     }
     // Lazy-resolve: one set of map scans per (sim, focus, frame) change.
     if (bodyIdxRef.current === -1) {
