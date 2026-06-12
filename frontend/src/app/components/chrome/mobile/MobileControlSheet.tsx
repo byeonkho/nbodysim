@@ -25,6 +25,11 @@ import { MobileTransportBar } from "./MobileTransportBar";
 // parked the sheet off-screen), so the control surface owns its own height.
 const COLLAPSED_PX = 96;
 const EXPANDED_HEIGHT = "60dvh";
+// Breathing room below the controls so the transport row never kisses the
+// screen edge, plus the device safe area (an iPhone home indicator) when the
+// page opts into it. Added as bottom padding, with the sheet height grown to
+// match so the visible content area stays put.
+const BOTTOM_INSET = "calc(env(safe-area-inset-bottom, 0px) + 14px)";
 
 function Chip({
   on = false,
@@ -89,16 +94,45 @@ export function MobileControlSheet() {
     <section
       aria-label="Playback and view controls"
       className="glass-dock pointer-events-auto fixed inset-x-0 bottom-0 z-40 flex flex-col overflow-hidden text-text transition-[height] duration-300 ease-out"
-      style={{ height: expanded ? EXPANDED_HEIGHT : `${COLLAPSED_PX}px` }}
+      style={{
+        height: expanded
+          ? EXPANDED_HEIGHT
+          : `calc(${COLLAPSED_PX}px + ${BOTTOM_INSET})`,
+        paddingBottom: BOTTOM_INSET,
+        // Keep controls out of the side safe areas (landscape notch / rounded
+        // corners). Zero in portrait, so the dock still spans edge to edge.
+        paddingLeft: "env(safe-area-inset-left, 0px)",
+        paddingRight: "env(safe-area-inset-right, 0px)",
+      }}
     >
       <button
         type="button"
         aria-label={expanded ? "Collapse controls" : "Expand controls"}
         aria-expanded={expanded}
         onClick={() => setExpanded((v) => !v)}
-        className="flex w-full shrink-0 items-center justify-center py-3"
+        // Fixed 30px: matches the old grab-handle's height exactly so the
+        // collapsed peek's transport bar (in the fixed 96px sheet) is not pushed
+        // down and clipped. The taller chevron box must not change this height.
+        className="flex h-[30px] w-full shrink-0 items-center justify-center"
       >
-        <span className="h-1.5 w-10 rounded-full bg-white/20" />
+        {/* A chevron, not a drag grab-handle: this sheet toggles on tap. Points
+            up to expand when collapsed, flips down to collapse when open. */}
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+          className={`text-white/40 transition-transform duration-300 ${
+            expanded ? "rotate-180" : ""
+          }`}
+        >
+          <path d="M6 15l6-6 6 6" />
+        </svg>
       </button>
 
       <div className="shrink-0">

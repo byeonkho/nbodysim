@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -19,6 +19,14 @@ const jetbrains = JetBrains_Mono({
 const SITE_TITLE = "nbodysim: real-time solar system simulator";
 const SITE_DESCRIPTION =
   "A real-time simulation of the solar system. Pick the bodies you want, hit run, and watch their orbits play back in 3D, computed from real astronomy data.";
+
+export const viewport: Viewport = {
+  // Extend the layout viewport into the display's unsafe areas (notch, home
+  // indicator, rounded corners) so the immersive scene fills the whole screen.
+  // The mobile chrome pads itself back out of those areas via the CSS
+  // env(safe-area-inset-*) values that viewport-fit: cover makes non-zero.
+  viewportFit: "cover",
+};
 
 export const metadata: Metadata = {
   // Absolute base for OG/Twitter image URLs. Set NEXT_PUBLIC_SITE_URL to the

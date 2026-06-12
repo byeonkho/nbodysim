@@ -216,9 +216,18 @@ export function MobileBodySheet() {
           className="glass-dock pointer-events-auto fixed inset-x-0 bottom-0 z-30 text-text"
         >
           <Drawer.Handle className="my-3" />
-          {/* pb-28 clears the persistent transport bar (control sheet, z-40)
-              so inspecting a body never hides transport. */}
-          <div className="px-5 pb-28">
+          {/* The bottom pad clears the persistent transport bar (control sheet,
+              z-40) so inspecting a body never hides transport, plus the device
+              safe area below it. 112px is the base (the dock's own height); the
+              env term grows with the dock and the home indicator. Sides clear
+              the landscape safe areas. */}
+          <div
+            style={{
+              paddingLeft: "calc(env(safe-area-inset-left, 0px) + 1.25rem)",
+              paddingRight: "calc(env(safe-area-inset-right, 0px) + 1.25rem)",
+              paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 112px)",
+            }}
+          >
             <Drawer.Title className="text-hi text-lg font-medium">{activeName}</Drawer.Title>
             <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
               <dt className="text-dim">Range</dt>

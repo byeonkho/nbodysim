@@ -30,7 +30,8 @@ const ErrorToast: React.FC = () => {
     <div
       role="alert"
       aria-live="assertive"
-      className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 pointer-events-auto flex items-center gap-3 min-w-[300px] rounded-md bg-red-600 px-4 py-3 text-sm font-medium text-white shadow-lg"
+      className="fixed left-1/2 z-50 -translate-x-1/2 pointer-events-auto flex items-center gap-3 min-w-[300px] rounded-md bg-red-600 px-4 py-3 text-sm font-medium text-white shadow-lg"
+      style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 1.5rem)" }}
     >
       <span className="grow">{errorMessage}</span>
       <button
