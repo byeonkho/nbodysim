@@ -212,6 +212,15 @@ describe("dispatchChunkRequest: supersede/abort", () => {
     expect(store.getState().simulation.chunkBuffer).toBeNull();
     expect(store.getState().request.errorMessage).toBeNull();
 
+    // The superseder set isRequestInProgress(true) synchronously at
+    // dispatch; the aborted request's cleanup runs a microtask later and
+    // must NOT knock the flag back to false while the second request is
+    // still in flight: the prefetch gate keys on this flag, and a false
+    // reading mid-flight lets it dispatch duplicate chunk requests. The
+    // macrotask flush guarantees the aborted catch has run.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(store.getState().request.isRequestInProgress).toBe(true);
+
     // The second proceeds normally: release its fetch, complete its decode.
     await vi.waitFor(() => {
       expect(releaseFetches.length).toBe(2);
@@ -226,6 +235,53 @@ describe("dispatchChunkRequest: supersede/abort", () => {
     // Exactly one chunk landed (the second's): the aborted request neither
     // double-fetched nor appended late.
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(store.getState().simulation.chunkBuffer?.totalTimesteps).toBe(
+      TIMESTEPS,
+    );
+    expect(store.getState().request.errorMessage).toBeNull();
+    expect(store.getState().request.isRequestInProgress).toBe(false);
+  });
+
+  it("drops a request superseded while its chunk was decoding", async () => {
+    const store = buildStore();
+    store.dispatch(loadSimulation(sessionParams("LIVE")));
+    const dispatch = store.dispatch as AppDispatch;
+
+    const first = dispatchChunkRequest(dispatch, { sessionID: "LIVE" });
+    await vi.waitFor(() => {
+      expect(releaseFetches.length).toBe(1);
+    });
+    releaseFetches[0]();
+    await vi.waitFor(() => {
+      expect(FakeWorker.last?.pending.length).toBe(1);
+    });
+
+    // Supersede after the fetch resolved, while the decode is in flight.
+    // The abort can no longer reject the fetch, and both requests share a
+    // session, so neither the AbortError catch nor the stale-session guard
+    // stands between the doomed request and a late append.
+    const second = dispatchChunkRequest(dispatch, { sessionID: "LIVE" });
+    FakeWorker.last?.reply();
+    await first;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The doomed request's decode completed, but it must drop its chunk
+    // and leave the in-progress flag (owned by the superseder) alone.
+    expect(store.getState().simulation.chunkBuffer).toBeNull();
+    expect(store.getState().request.isRequestInProgress).toBe(true);
+    expect(store.getState().request.errorMessage).toBeNull();
+
+    // The second still lands its chunk normally.
+    await vi.waitFor(() => {
+      expect(releaseFetches.length).toBe(2);
+    });
+    releaseFetches[1]();
+    await vi.waitFor(() => {
+      expect(FakeWorker.last?.pending.length).toBe(1);
+    });
+    FakeWorker.last?.reply();
+    await second;
+
     expect(store.getState().simulation.chunkBuffer?.totalTimesteps).toBe(
       TIMESTEPS,
     );
