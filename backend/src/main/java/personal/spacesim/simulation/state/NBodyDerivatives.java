@@ -17,62 +17,61 @@ import java.util.List;
  *       {@code dr_i/dt = v_i}</li>
  *   <li>velocity derivative for body i is the gravitational acceleration
  *       summed over each massive body j (excluding self):
- *       {@code dv_i/dt = sum_{j massive, j != i} G * m_j * (r_j - r_i) / |r_j - r_i|^3}</li>
+ *       {@code dv_i/dt = sum_{j massive, j != i} µ_j * (r_j - r_i) / |r_j - r_i|^3}</li>
  * </ul>
  *
  * <p><b>Test-particle dispatch.</b> State buffer layout is
  * {@code [massive | test]}: the first {@code massiveCount} bodies are
  * massive (mutually gravitating); the remaining bodies are test particles
- * (feel gravity from the massive prefix but exert none — their mass
+ * (feel gravity from the massive prefix but exert none — their µ
  * doesn't enter any force sum). This preserves Newton's 3rd law on the
  * massive subsystem while letting the catalog grow with small bodies at
  * cost {@code M*(M-1) + T*M} per step instead of {@code (M+T)*(M+T-1)}.
  *
- * <p>Masses are captured at construction; the bodies in the system are
- * assumed not to gain or lose mass during simulation.
+ * <p>Gravitational parameters (µ = G·M) are captured at construction; the
+ * bodies in the system are assumed not to gain or lose mass during
+ * simulation. Consuming µ directly avoids the precision round-trip of
+ * dividing Orekit's canonical GM by G and multiplying it back.
  */
 public final class NBodyDerivatives {
 
-    /** Pre-computed G * m_i for each body, indexed by body position. */
-    private final double[] gm;
+    /** Gravitational parameter µ_i = G·m_i for each body, indexed by body position. */
+    private final double[] mu;
 
     /**
      * Count of leading massive bodies in the state buffer. Force sums
      * over the {@code [0, massiveCount)} prefix only. Equals
-     * {@code gm.length} when no test particles are present.
+     * {@code mu.length} when no test particles are present.
      */
     private final int massiveCount;
 
     /**
-     * Build a derivatives function for the given masses and massive-body
-     * count. The first {@code massiveCount} entries are massive
-     * (mutually gravitating); the rest are test particles. Order of the
-     * array must match the body ordering used in the {@link GlobalState}
-     * this is applied to.
+     * Build a derivatives function for the given gravitational parameters
+     * and massive-body count. The first {@code massiveCount} entries are
+     * massive (mutually gravitating); the rest are test particles. Order
+     * of the array must match the body ordering used in the
+     * {@link GlobalState} this is applied to.
      */
-    public NBodyDerivatives(double[] masses, int massiveCount) {
-        if (massiveCount < 0 || massiveCount > masses.length) {
+    public NBodyDerivatives(double[] mu, int massiveCount) {
+        if (massiveCount < 0 || massiveCount > mu.length) {
             throw new IllegalArgumentException(
-                "massiveCount " + massiveCount + " out of [0, " + masses.length + "]");
+                "massiveCount " + massiveCount + " out of [0, " + mu.length + "]");
         }
-        this.gm = new double[masses.length];
-        for (int i = 0; i < masses.length; i++) {
-            this.gm[i] = PhysicsConstants.GRAVITATIONAL_CONSTANT * masses[i];
-        }
+        this.mu = mu.clone();
         this.massiveCount = massiveCount;
     }
 
     /**
-     * Backwards-compatible constructor: all bodies treated as massive
-     * (equivalent to {@code massiveCount = masses.length}).
+     * Convenience constructor: all bodies treated as massive
+     * (equivalent to {@code massiveCount = mu.length}).
      */
-    public NBodyDerivatives(double[] masses) {
-        this(masses, masses.length);
+    public NBodyDerivatives(double[] mu) {
+        this(mu, mu.length);
     }
 
     /**
-     * Convenience constructor: extract masses from a list of celestial bodies.
-     * All bodies treated as massive.
+     * Convenience constructor: extract gravitational parameters from a
+     * list of celestial bodies. All bodies treated as massive.
      */
     public static NBodyDerivatives forBodies(List<CelestialBodyWrapper> bodies) {
         return forBodies(bodies, bodies.size());
@@ -84,11 +83,11 @@ public final class NBodyDerivatives {
     public static NBodyDerivatives forBodies(
             List<CelestialBodyWrapper> bodies, int massiveCount
     ) {
-        double[] masses = new double[bodies.size()];
+        double[] mu = new double[bodies.size()];
         for (int i = 0; i < bodies.size(); i++) {
-            masses[i] = bodies.get(i).getMass();
+            mu[i] = bodies.get(i).getMu();
         }
-        return new NBodyDerivatives(masses, massiveCount);
+        return new NBodyDerivatives(mu, massiveCount);
     }
 
     /**
@@ -107,9 +106,9 @@ public final class NBodyDerivatives {
      */
     public void derivativesInto(double[] out, double[] state) {
         int n = state.length / GlobalState.COORDS_PER_BODY;
-        if (n != gm.length) {
+        if (n != mu.length) {
             throw new IllegalArgumentException(
-                "state bodyCount " + n + " does not match this derivatives' bodyCount " + gm.length);
+                "state bodyCount " + n + " does not match this derivatives' bodyCount " + mu.length);
         }
         if (out.length != state.length) {
             throw new IllegalArgumentException(
@@ -134,7 +133,7 @@ public final class NBodyDerivatives {
             out[baseI + 1] = vyi;
             out[baseI + 2] = vzi;
 
-            // dv_i / dt = sum over massive j != i of gm[j] * (r_j - r_i) / |r_j - r_i|^3
+            // dv_i / dt = sum over massive j != i of mu[j] * (r_j - r_i) / |r_j - r_i|^3
             double ax = 0, ay = 0, az = 0;
             for (int j = 0; j < sumBound; j++) {
                 if (i == j) continue;
@@ -144,7 +143,7 @@ public final class NBodyDerivatives {
                 double dz = state[baseJ + 2] - zi;
                 double r2 = dx * dx + dy * dy + dz * dz;
                 double invR3 = 1.0 / (r2 * Math.sqrt(r2));
-                double factor = gm[j] * invR3;
+                double factor = mu[j] * invR3;
                 ax += factor * dx;
                 ay += factor * dy;
                 az += factor * dz;
@@ -167,21 +166,20 @@ public final class NBodyDerivatives {
      *
      * <p>Hot path: called once per emitted snapshot (~5000 times per
      * DP853 chunk). Allocation-free; single indexed pair loop over the
-     * massive prefix. {@code 1/G} is factored out so we reuse the
-     * existing {@code gm[]} array rather than carrying a parallel mass
-     * array.
+     * massive prefix. {@code 1/G} is factored out so the loops read
+     * {@code mu[]} directly rather than carrying a parallel mass array.
      *
      * <p>Math:
      * <pre>
-     * T = 0.5 / G · Σ_{i massive} gm[i] · |v_i|²
-     * U = -1.0 / G · Σ_{i&lt;j, both massive} gm[i] · gm[j] / r_ij
+     * T = 0.5 / G · Σ_{i massive} µ_i · |v_i|²
+     * U = -1.0 / G · Σ_{i&lt;j, both massive} µ_i · µ_j / r_ij
      * </pre>
      */
     public double totalEnergy(double[] state) {
         int n = state.length / GlobalState.COORDS_PER_BODY;
-        if (n != gm.length) {
+        if (n != mu.length) {
             throw new IllegalArgumentException(
-                "state bodyCount " + n + " does not match this derivatives' bodyCount " + gm.length);
+                "state bodyCount " + n + " does not match this derivatives' bodyCount " + mu.length);
         }
 
         double kineticSum = 0.0;
@@ -195,7 +193,7 @@ public final class NBodyDerivatives {
             double vyi = state[baseI + 4];
             double vzi = state[baseI + 5];
 
-            kineticSum += gm[i] * (vxi * vxi + vyi * vyi + vzi * vzi);
+            kineticSum += mu[i] * (vxi * vxi + vyi * vyi + vzi * vzi);
 
             for (int j = i + 1; j < massiveCount; j++) {
                 int baseJ = j * GlobalState.COORDS_PER_BODY;
@@ -203,7 +201,7 @@ public final class NBodyDerivatives {
                 double dy = state[baseJ + 1] - yi;
                 double dz = state[baseJ + 2] - zi;
                 double r = Math.sqrt(dx * dx + dy * dy + dz * dz);
-                potentialSum += gm[i] * gm[j] / r;
+                potentialSum += mu[i] * mu[j] / r;
             }
         }
 

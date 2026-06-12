@@ -13,13 +13,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NBodyDerivativesEnergyTest {
 
+    private static final double G = PhysicsConstants.GRAVITATIONAL_CONSTANT;
+
     @Test
     void loneBodyHasOnlyKineticEnergy() {
         // One body, mass M, velocity (vx, 0, 0). T = 0.5·M·vx². U = 0
         // (no pairs). E = T.
         double M = 1e24;
         double vx = 1e3;
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{M});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * M});
 
         double[] state = {0, 0, 0, vx, 0, 0};
         double e = derivs.totalEnergy(state);
@@ -34,7 +36,7 @@ class NBodyDerivativesEnergyTest {
         // U = -G·M·M / r.
         double M = 1e24;
         double r = 1e10;
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{M, M});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * M, G * M});
 
         double[] state = {
                 0, 0, 0, 0, 0, 0,
@@ -53,7 +55,7 @@ class NBodyDerivativesEnergyTest {
         // absolute position instead of pairwise separation.
         double M = 1e24;
         double r = 1e10;
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{M, M});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * M, G * M});
 
         double[] origin = {
                 0, 0, 0, 100, 0, 0,
@@ -71,7 +73,7 @@ class NBodyDerivativesEnergyTest {
 
     @Test
     void rejectsMismatchedStateLength() {
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{1e24, 1e24});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * 1e24, G * 1e24});
         // state has 1 body but derivs is configured for 2
         double[] tooShort = {0, 0, 0, 0, 0, 0};
         assertThrows(IllegalArgumentException.class, () -> derivs.totalEnergy(tooShort));
@@ -92,7 +94,7 @@ class NBodyDerivativesEnergyTest {
         double vCircular = Math.sqrt(
                 PhysicsConstants.GRAVITATIONAL_CONSTANT * sunMass / au);
 
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{sunMass, earthMass});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * sunMass, G * earthMass});
 
         double[] initialState = {
                 0, 0, 0,                    // Sun position

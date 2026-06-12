@@ -1,6 +1,7 @@
 package personal.spacesim.utils.math.integrators;
 
 import org.junit.jupiter.api.Test;
+import personal.spacesim.constants.PhysicsConstants;
 import personal.spacesim.simulation.state.GlobalState;
 import personal.spacesim.simulation.state.NBodyDerivatives;
 
@@ -8,12 +9,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class RK4IntegratorTest {
 
+    private static final double G = PhysicsConstants.GRAVITATIONAL_CONSTANT;
+
     @Test
     void zeroForceSingleBodyAdvancesExactlyByDtTimesVelocity() {
         // Single body with no other masses → zero acceleration. With constant
         // velocity, the derivative function returns (v, 0) regardless of
         // intermediate state, so RK4 reduces to y_n + dt * (v, 0) — exact.
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{1e24});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * 1e24});
         GlobalState state = new GlobalState(new double[]{0, 0, 0, 1, 2, 3}, 1);
 
         GlobalState next = new RK4Integrator().step(state, 10.0, derivs);
@@ -35,7 +38,7 @@ class RK4IntegratorTest {
         // body 0's resulting (x, vx) equals body 1's negated (x, vx).
         double M = 1e24;
         double d = 1e10;
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{M, M});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * M, G * M});
 
         GlobalState state = new GlobalState(new double[]{
             -d, 0, 0, 0, 0, 0,  // body 0
@@ -60,7 +63,7 @@ class RK4IntegratorTest {
     @Test
     void doesNotMutateInputState() {
         // RK4 returns a new state; the caller's input array must be untouched.
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{1e24});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * 1e24});
         double[] data = {0, 0, 0, 1, 2, 3};
         GlobalState state = new GlobalState(data, 1);
 
