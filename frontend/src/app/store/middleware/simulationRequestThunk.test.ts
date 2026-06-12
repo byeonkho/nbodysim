@@ -6,7 +6,11 @@ import simulationReducer, {
 } from "@/app/store/slices/SimulationSlice";
 import requestReducer from "@/app/store/slices/RequestSlice";
 import SimConstants from "@/app/constants/SimConstants";
-import { requestRunSimulation } from "./simulationRequestThunk";
+import type { AppDispatch } from "@/app/store/Store";
+import {
+  dispatchChunkRequest,
+  requestRunSimulation,
+} from "./simulationRequestThunk";
 
 // The thunk decodes chunks through a module-singleton zstd Worker. Node has
 // no Worker global; this fake captures each decode request and lets the test
@@ -133,5 +137,99 @@ describe("requestRunSimulation: stale-session guard", () => {
     expect(buffer?.totalTimesteps).toBe(TIMESTEPS);
     expect(store.getState().request.isRequestInProgress).toBe(false);
     expect(store.getState().request.errorMessage).toBeNull();
+  });
+});
+
+// The supersede path is the stale-session guard's sibling: dispatchChunkRequest
+// aborts the previous in-flight dispatch before issuing the next one. Both
+// requests here share ONE session, so the stale-session guard above cannot
+// catch the first request — only the abort keeps it from appending. The
+// simple fetch stub above ignores the abort signal, which would let the
+// superseded request run to completion; this block's stub parks each fetch
+// under test control and rejects with AbortError when its signal fires,
+// matching real fetch semantics.
+describe("dispatchChunkRequest: supersede/abort", () => {
+  let releaseFetches: Array<() => void>;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    FakeWorker.last?.pending.splice(0);
+    releaseFetches = [];
+    vi.stubGlobal("Worker", FakeWorker);
+    fetchMock = vi.fn(
+      (_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise((resolve, reject) => {
+          const abort = () => {
+            const err = new Error("The operation was aborted.");
+            err.name = "AbortError";
+            reject(err);
+          };
+          if (init?.signal?.aborted) {
+            abort();
+            return;
+          }
+          init?.signal?.addEventListener("abort", abort);
+          releaseFetches.push(() =>
+            resolve({
+              ok: true,
+              status: 200,
+              headers: { get: () => null },
+              arrayBuffer: async () => new ArrayBuffer(8),
+            }),
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("aborts the first request when a second supersedes it, and the second proceeds", async () => {
+    const store = buildStore();
+    store.dispatch(loadSimulation(sessionParams("LIVE")));
+    // Same cast the prefetch middleware uses at its dispatchChunkRequest call site.
+    const dispatch = store.dispatch as AppDispatch;
+
+    const first = dispatchChunkRequest(dispatch, { sessionID: "LIVE" });
+    await vi.waitFor(() => {
+      expect(releaseFetches.length).toBe(1);
+    });
+
+    // Supersede while the first request's fetch is still in flight.
+    const second = dispatchChunkRequest(dispatch, { sessionID: "LIVE" });
+
+    // The first settles as aborted with the supersede reason, silently:
+    // no chunk appended, no user-facing error.
+    const firstAction = (await first) as {
+      meta: { requestStatus: string; aborted: boolean };
+      error?: { name?: string; message?: string };
+    };
+    expect(firstAction.meta.requestStatus).toBe("rejected");
+    expect(firstAction.meta.aborted).toBe(true);
+    expect(firstAction.error?.message).toBe("superseded");
+    expect(store.getState().simulation.chunkBuffer).toBeNull();
+    expect(store.getState().request.errorMessage).toBeNull();
+
+    // The second proceeds normally: release its fetch, complete its decode.
+    await vi.waitFor(() => {
+      expect(releaseFetches.length).toBe(2);
+    });
+    releaseFetches[1]();
+    await vi.waitFor(() => {
+      expect(FakeWorker.last?.pending.length).toBe(1);
+    });
+    FakeWorker.last?.reply();
+    await second;
+
+    // Exactly one chunk landed (the second's): the aborted request neither
+    // double-fetched nor appended late.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(store.getState().simulation.chunkBuffer?.totalTimesteps).toBe(
+      TIMESTEPS,
+    );
+    expect(store.getState().request.errorMessage).toBeNull();
+    expect(store.getState().request.isRequestInProgress).toBe(false);
   });
 });
