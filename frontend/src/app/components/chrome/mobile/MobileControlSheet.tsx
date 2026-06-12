@@ -9,6 +9,8 @@ import {
   toggleShowOrbitPaths,
   toggleShowPlanetInfoOverlay,
   toggleShowTrails,
+  setIsBodyActive,
+  selectIsBodyActive,
   selectShowOrbitPaths,
   selectShowPlanetInfoOverlay,
   selectShowTrails,
@@ -72,6 +74,24 @@ function Chip({
 export function MobileControlSheet() {
   const dispatch = useDispatch<AppDispatch>();
   const [expanded, setExpanded] = useState(false);
+  const isBodyActive = useSelector(selectIsBodyActive);
+
+  // Mutual exclusivity with the body detail sheet: both surfaces are
+  // bottom-docked translucent glass, so stacking them reads as text soup.
+  // Selecting a body (planet rail or a tap on the scene) collapses the
+  // controls; expanding the controls dismisses the body sheet (below).
+  // Guarded set-state-in-render per the repo's set-state-in-effect lint rule.
+  const [prevBodyActive, setPrevBodyActive] = useState(isBodyActive);
+  if (prevBodyActive !== isBodyActive) {
+    setPrevBodyActive(isBodyActive);
+    if (isBodyActive) setExpanded(false);
+  }
+
+  const toggleExpanded = () => {
+    const next = !expanded;
+    if (next && isBodyActive) dispatch(setIsBodyActive(false));
+    setExpanded(next);
+  };
 
   const showOrbits = useSelector(selectShowOrbitPaths);
   const showLabels = useSelector(selectShowPlanetInfoOverlay);
@@ -110,7 +130,7 @@ export function MobileControlSheet() {
         type="button"
         aria-label={expanded ? "Collapse controls" : "Expand controls"}
         aria-expanded={expanded}
-        onClick={() => setExpanded((v) => !v)}
+        onClick={toggleExpanded}
         // Fixed 30px: matches the old grab-handle's height exactly so the
         // collapsed peek's transport bar (in the fixed 96px sheet) is not pushed
         // down and clipped. The taller chevron box must not change this height.
