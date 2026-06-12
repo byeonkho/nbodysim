@@ -197,7 +197,7 @@ describe("readBodyStateInto", () => {
   });
 });
 
-describe("readBodyPositionInto — fractional index (Hermite)", () => {
+describe("readBodyPositionInto: fractional index (Hermite)", () => {
   it("interpolates position at midpoint via cubic Hermite", () => {
     // Constant velocity → linear position; midpoint = (0.5, 0, 0).
     const buf = createChunkBuffer(["Earth"], 4);
@@ -248,7 +248,7 @@ describe("readBodyPositionInto — fractional index (Hermite)", () => {
   });
 });
 
-describe("readBodyStateInto — fractional index (Hermite)", () => {
+describe("readBodyStateInto: fractional index (Hermite)", () => {
   it("interpolates position and velocity at midpoint via Hermite", () => {
     // Constant velocity → linear position, vel constant.
     const buf = createChunkBuffer(["Earth"], 4);
@@ -286,7 +286,7 @@ describe("readBodyStateInto — fractional index (Hermite)", () => {
   });
 });
 
-describe("readBodyPositionInto — boundaries and edge cases", () => {
+describe("readBodyPositionInto: boundaries and edge cases", () => {
   it("clamps floatIdx > totalTimesteps - 1 to last keyframe", () => {
     const buf = createChunkBuffer(["Earth"], 4);
     const positions = new Float64Array([
@@ -333,7 +333,7 @@ describe("readBodyPositionInto — boundaries and edge cases", () => {
   });
 });
 
-describe("readBodyPositionInto — integer index (regression)", () => {
+describe("readBodyPositionInto: integer index (regression)", () => {
   it("returns stored position exactly at integer keyframe", () => {
     const buf = createChunkBuffer(["Earth"], 4);
     const positions = new Float64Array([
@@ -356,7 +356,7 @@ describe("readBodyPositionInto — integer index (regression)", () => {
   });
 });
 
-describe("readBodyStateInto — integer index (regression)", () => {
+describe("readBodyStateInto: integer index (regression)", () => {
   it("returns stored position and velocity exactly at integer keyframe", () => {
     const buf = createChunkBuffer(["Earth"], 4);
     const positions = new Float64Array([
@@ -448,7 +448,7 @@ describe("readDeltaERelativeAt", () => {
   });
 });
 
-describe("appendChunk — chunk-level DP853 telemetry", () => {
+describe("appendChunk: chunk-level DP853 telemetry", () => {
   it("captures latest-write-wins telemetry on each append", () => {
     const buf = createChunkBuffer(["Earth"], 100);
     expect(buf.dp853AvgStepSeconds).toBeNull();

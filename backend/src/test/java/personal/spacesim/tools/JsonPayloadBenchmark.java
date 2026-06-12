@@ -226,7 +226,7 @@ class JsonPayloadBenchmark {
         printTableHeader();
         printRow("jsonRaw",  jsonRaw.length,  jsonRaw.length);
         printRow("jsonGzip", jsonGzip.length, jsonRaw.length);
-        System.out.println("  (binary encoding not measured for /initialize — payload is already small)");
+        System.out.println("  (binary encoding not measured for /initialize: payload is already small)");
         System.out.println();
     }
 
