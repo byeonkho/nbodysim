@@ -1,6 +1,7 @@
 package personal.spacesim.utils.math.integrators;
 
 import org.junit.jupiter.api.Test;
+import personal.spacesim.constants.PhysicsConstants;
 import personal.spacesim.simulation.state.GlobalState;
 import personal.spacesim.simulation.state.NBodyDerivatives;
 
@@ -8,11 +9,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class EulerIntegratorTest {
 
+    private static final double G = PhysicsConstants.GRAVITATIONAL_CONSTANT;
+
     @Test
     void zeroForceSingleBodyAdvancesExactlyByDtTimesVelocity() {
         // Single body, no others. f(y) returns (v, 0); Euler yields
         // y + dt * (v, 0) — exact for this trivial case.
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{1e24});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * 1e24});
         GlobalState state = new GlobalState(new double[]{0, 0, 0, 1, 2, 3}, 1);
 
         GlobalState next = new EulerIntegrator().step(state, 10.0, derivs);
@@ -32,7 +35,7 @@ class EulerIntegratorTest {
         // derivative function, not the integrator's accuracy.
         double M = 1e24;
         double d = 1e10;
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{M, M});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * M, G * M});
 
         GlobalState state = new GlobalState(new double[]{
             -d, 0, 0, 0, 0, 0,
@@ -51,7 +54,7 @@ class EulerIntegratorTest {
 
     @Test
     void doesNotMutateInputState() {
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{1e24});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * 1e24});
         double[] data = {0, 0, 0, 1, 2, 3};
         GlobalState state = new GlobalState(data, 1);
 

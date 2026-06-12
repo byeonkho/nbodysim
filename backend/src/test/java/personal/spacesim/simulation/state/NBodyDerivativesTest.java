@@ -9,11 +9,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NBodyDerivativesTest {
 
+    private static final double G = PhysicsConstants.GRAVITATIONAL_CONSTANT;
+
     @Test
     void positionDerivativeEqualsVelocity() {
         // Single body with known velocity. The position-derivative slot of
         // dy/dt should equal that velocity (verbatim copy).
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{1e24});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * 1e24});
 
         // position (10, 20, 30), velocity (1, 2, 3)
         GlobalState state = new GlobalState(new double[]{10, 20, 30, 1, 2, 3}, 1);
@@ -39,7 +41,7 @@ class NBodyDerivativesTest {
         double expectedAccelMag =
             PhysicsConstants.GRAVITATIONAL_CONSTANT * M / (4.0 * d * d);
 
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{M, M});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * M, G * M});
 
         double[] data = {
             -d, 0, 0, 0, 0, 0,  // body 0
@@ -62,7 +64,7 @@ class NBodyDerivativesTest {
     @Test
     void selfDoesNotAttractSelf() {
         // Lone body — its acceleration should be zero (no other body to pull it).
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{1e24});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * 1e24});
 
         GlobalState state = new GlobalState(new double[]{5, 5, 5, 0, 0, 0}, 1);
         GlobalState dy = derivs.derivatives(state);
@@ -74,7 +76,7 @@ class NBodyDerivativesTest {
 
     @Test
     void rejectsMismatchedBodyCount() {
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{1e24});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * 1e24});
         // state has 2 bodies but derivs is configured for 1
         GlobalState state = new GlobalState(new double[12], 2);
 
@@ -88,9 +90,9 @@ class NBodyDerivativesTest {
         // Sun's acceleration sum.
         double sunMass = 1.989e30;        // kg
         double tpMass  = 1.0e15;          // tiny but non-zero
-        double[] masses = { sunMass, tpMass };
+        double[] mu = { G * sunMass, G * tpMass };
 
-        NBodyDerivatives tp = new NBodyDerivatives(masses, 1);
+        NBodyDerivatives tp = new NBodyDerivatives(mu, 1);
 
         double[] state = new double[12];
         state[6] = 1e11;  // test particle at (1e11, 0, 0), at rest
@@ -114,8 +116,8 @@ class NBodyDerivativesTest {
         // Sun at origin, test particle at (1e11, 0, 0). Test particle must
         // accelerate toward the Sun (-x direction).
         double sunMass = 1.989e30;
-        double[] masses = { sunMass, 1.0e15 };
-        NBodyDerivatives tp = new NBodyDerivatives(masses, 1);
+        double[] mu = { G * sunMass, G * 1.0e15 };
+        NBodyDerivatives tp = new NBodyDerivatives(mu, 1);
 
         double[] state = new double[12];
         state[6] = 1e11;
@@ -141,7 +143,7 @@ class NBodyDerivativesTest {
         double expectedAccelMag =
             PhysicsConstants.GRAVITATIONAL_CONSTANT * M / (4.0 * d * d);
 
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{M, M});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * M, G * M});
 
         double[] data = {
             -d, 0, 0, 0, 0, 0,
@@ -164,8 +166,8 @@ class NBodyDerivativesTest {
         double M = 1e30;       // sun-like massive
         double mTp = 1e20;     // very heavy "test particles" — would dominate
                                // if they could interact
-        double[] masses = { M, M, mTp, mTp };
-        NBodyDerivatives tp = new NBodyDerivatives(masses, 2);
+        double[] mu = { G * M, G * M, G * mTp, G * mTp };
+        NBodyDerivatives tp = new NBodyDerivatives(mu, 2);
 
         double[] state = new double[24];
         state[0] = -1e11;                // body 0 massive
@@ -192,11 +194,11 @@ class NBodyDerivativesTest {
 
     @Test
     void massiveCountValidation() {
-        double[] masses = { 1e24, 1e24 };
+        double[] mu = { G * 1e24, G * 1e24 };
         assertThrows(IllegalArgumentException.class,
-            () -> new NBodyDerivatives(masses, -1));
+            () -> new NBodyDerivatives(mu, -1));
         assertThrows(IllegalArgumentException.class,
-            () -> new NBodyDerivatives(masses, 3));
+            () -> new NBodyDerivatives(mu, 3));
     }
 
     @Test
@@ -214,7 +216,7 @@ class NBodyDerivativesTest {
             -d, 0, 0, 0, 0, 0,
              d, 0, 0, 0, 0, 0,
         };
-        NBodyDerivatives derivs2 = new NBodyDerivatives(new double[]{M, M}, 2);
+        NBodyDerivatives derivs2 = new NBodyDerivatives(new double[]{G * M, G * M}, 2);
         double e2 = derivs2.totalEnergy(state2);
 
         // Same configuration + test particle at random position with non-zero velocity.
@@ -222,7 +224,7 @@ class NBodyDerivativesTest {
         System.arraycopy(state2, 0, state3, 0, 12);
         state3[12] = 5e10; state3[13] = 5e10;
         state3[15] = 1e4;  // velocity
-        NBodyDerivatives derivs3 = new NBodyDerivatives(new double[]{M, M, 1.0}, 2);
+        NBodyDerivatives derivs3 = new NBodyDerivatives(new double[]{G * M, G * M, G * 1.0}, 2);
         double e3 = derivs3.totalEnergy(state3);
 
         // The test particle's contribution must be zero — energy unchanged.

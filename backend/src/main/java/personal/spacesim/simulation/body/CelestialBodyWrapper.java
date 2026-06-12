@@ -20,12 +20,14 @@ import personal.spacesim.constants.PhysicsConstants;
 @ToString
 public class CelestialBodyWrapper {
 
+    // Display-only: ships in the JSON body-properties payload for the UI's
+    // Mass readout. Physics never reads this — the force model and
+    // orbital-element code consume µ directly (below), because the mu/G
+    // division loses precision.
     private final double mass;
     // Standard gravitational parameter (µ = G·M, units m³/s²). Sourced
     // directly from Orekit's getGM() — the canonical value JPL ephemerides
-    // are computed against. Kept alongside `mass` to avoid the round-trip
-    // precision loss of dividing by G and multiplying back when downstream
-    // code (e.g. orbital-element computation) needs µ directly.
+    // are computed against.
     private final double mu;
     private final double radius;
     private final String name;
@@ -68,8 +70,9 @@ public class CelestialBodyWrapper {
      * Eros) — Orekit's bundled DE-440 doesn't cover them, and Orekit doesn't
      * natively read SPK files.
      *
-     * <p>{@code mass} is derived from {@code mu / G} for backwards-compat with
-     * downstream code that uses {@link #getMass()}.
+     * <p>{@code mass} is derived from {@code mu / G} for the JSON
+     * body-properties payload (UI display only); physics consumes
+     * {@code mu} directly.
      */
     public CelestialBodyWrapper(
             String name,

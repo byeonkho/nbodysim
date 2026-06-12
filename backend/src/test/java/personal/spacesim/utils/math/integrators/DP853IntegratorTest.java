@@ -1,6 +1,7 @@
 package personal.spacesim.utils.math.integrators;
 
 import org.junit.jupiter.api.Test;
+import personal.spacesim.constants.PhysicsConstants;
 import personal.spacesim.simulation.state.GlobalState;
 import personal.spacesim.simulation.state.NBodyDerivatives;
 
@@ -14,12 +15,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DP853IntegratorTest {
 
+    private static final double G = PhysicsConstants.GRAVITATIONAL_CONSTANT;
+
     @Test
     void zeroForceSingleBodyAdvancesByDtTimesVelocity() {
         // Single body, no others to attract it. Adaptive solver should
         // recognize the trivial case (constant derivative) and advance in
         // essentially one step — result very close to exact.
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{1e24});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * 1e24});
         GlobalState state = new GlobalState(new double[]{0, 0, 0, 1, 2, 3}, 1);
 
         GlobalState next = new DP853Integrator().step(state, 10.0, derivs);
@@ -38,7 +41,7 @@ class DP853IntegratorTest {
         // integrator should also preserve the mirror symmetry exactly.
         double M = 1e24;
         double d = 1e10;
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{M, M});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * M, G * M});
 
         GlobalState state = new GlobalState(new double[]{
             -d, 0, 0, 0, 0, 0,
@@ -55,7 +58,7 @@ class DP853IntegratorTest {
 
     @Test
     void doesNotMutateInputState() {
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{1e24});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * 1e24});
         double[] data = {0, 0, 0, 1, 2, 3};
         GlobalState state = new GlobalState(data, 1);
 
@@ -83,7 +86,7 @@ class DP853IntegratorTest {
         double mEarth = 5.972e24;
         double r = 1.496e11;
         double v = 2.978e4;
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{mSun, mEarth});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * mSun, G * mEarth});
         GlobalState state = new GlobalState(new double[]{
                 0, 0, 0, 0, 0, 0,
                 r, 0, 0, 0, v, 0,
@@ -117,7 +120,7 @@ class DP853IntegratorTest {
         double mEarth = 5.972e24;
         double r = 1.496e11;
         double v = 2.978e4;
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{mSun, mEarth});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * mSun, G * mEarth});
         GlobalState state = new GlobalState(new double[]{
                 0, 0, 0, 0, 0, 0,
                 r, 0, 0, 0, v, 0,
@@ -142,7 +145,7 @@ class DP853IntegratorTest {
 
     @Test
     void substepHandlerNotCalledWhenUnset() {
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{1.989e30, 5.972e24});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * 1.989e30, G * 5.972e24});
         GlobalState state = new GlobalState(new double[]{
                 0, 0, 0, 0, 0, 0,
                 1.496e11, 0, 0, 0, 2.978e4, 0,

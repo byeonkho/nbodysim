@@ -1,6 +1,7 @@
 package personal.spacesim.utils.math.integrators;
 
 import org.junit.jupiter.api.Test;
+import personal.spacesim.constants.PhysicsConstants;
 import personal.spacesim.simulation.state.NBodyDerivatives;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -8,13 +9,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DP853IntegratorEvalCountTest {
 
+    private static final double G = PhysicsConstants.GRAVITATIONAL_CONSTANT;
+
     @Test
     void evaluationCountIncreasesAcrossSteps() {
         // After two non-trivial steps, the eval counter must have
         // advanced — proves we're piping to Hipparchus's
         // AbstractIntegrator.getEvaluations() and that it's monotone.
         DP853Integrator integrator = new DP853Integrator();
-        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{1.989e30, 5.972e24});
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * 1.989e30, G * 5.972e24});
 
         double[] state = {
                 0, 0, 0, 0, 0, 0,

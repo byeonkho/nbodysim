@@ -151,12 +151,6 @@ Runs end-to-end on `master`: three integrators (Euler / RK4 / Dormand–Prince 8
 
 > Already in place: reality-drift overlay (predicted vs DE-440 truth, with the visible-window ground-truth model, see the architecture decision above), integrator residuals (`ΔE/E₀`) in the body card and top strip, log-compressed distance scaling (the Stylized preset, see decision 16), cubic Hermite client-side interpolation between keyframes using the integrator's exact velocities (which replaced the originally-planned Catmull-Rom approach), orbital trails, planet rotation, decoupled render loop (R3F `useFrame` + refs), Sun unlit material, web-worker zstd decompression, custom binary wire format, fully imperative scene graph, frame switching (helio/geo) with honest geocentric trail reprojection, Keplerian elements display, hot-path allocation discipline.
 
-### Architectural cleanup
-
-- Use μ (gravitational parameter) directly throughout the simulation; drop the imprecise `mass = body.getGM() / G` conversion in `CelestialBodyWrapper`. (µ is already exposed via `getMu()`; the broader refactor of acceleration calculations remains.)
-- Coalesce overlapping Redux middleware that both intercept `setCurrentTimeStepIndex`.
-- Reset frontend state cleanly on sim resubmit (currently the chunk buffer + time state can carry stale values across resubmits).
-
 ### Quality plumbing
 
 - Mobile responsive review: touch interactions for camera, sheet behaviour on narrow viewports.
