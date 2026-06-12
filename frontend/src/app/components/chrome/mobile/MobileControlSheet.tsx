@@ -22,17 +22,18 @@ import {
   selectGroundTruthFetchInFlight,
 } from "@/app/store/slices/GroundTruthSlice";
 import { MobileTransportBar } from "./MobileTransportBar";
+import { MOBILE_BUILD_TOUR_TARGET } from "@/app/constants/mobileTourSteps";
 
-// Collapsed peek height: the grab handle plus the transport bar. Expanded is a
-// share of the viewport. This is a plain CSS sheet rather than a vaul drawer:
-// the persistent always-open peek pattern fought vaul's snap-point math (it
-// parked the sheet off-screen), so the control surface owns its own height.
-const COLLAPSED_PX = 96;
-const EXPANDED_HEIGHT = "60dvh";
+// This is a plain CSS sheet rather than a vaul drawer: the persistent
+// always-open peek pattern fought vaul's snap-point math (it parked the sheet
+// off-screen), so the control surface owns its own height. The sheet hugs its
+// content: collapsed = chevron + transport bar; expanded adds the View section
+// via an animated 0fr -> 1fr grid row (the CSS way to transition to an auto
+// height), so no empty space below the last control.
+//
 // Breathing room below the controls so the transport row never kisses the
 // screen edge, plus the device safe area (an iPhone home indicator) when the
-// page opts into it. Added as bottom padding, with the sheet height grown to
-// match so the visible content area stays put.
+// page opts into it.
 const BOTTOM_INSET = "calc(env(safe-area-inset-bottom, 0px) + 14px)";
 
 function Chip({
@@ -71,7 +72,14 @@ function Chip({
   );
 }
 
-export function MobileControlSheet() {
+export function MobileControlSheet({
+  buildFabHidden,
+  onBuildClick,
+}: {
+  /** Hide the build button while another bottom sheet is up. */
+  buildFabHidden: boolean;
+  onBuildClick: () => void;
+}) {
   const dispatch = useDispatch<AppDispatch>();
   const [expanded, setExpanded] = useState(false);
   const isBodyActive = useSelector(selectIsBodyActive);
@@ -114,11 +122,8 @@ export function MobileControlSheet() {
   return createPortal(
     <section
       aria-label="Playback and view controls"
-      className="glass-dock pointer-events-auto fixed inset-x-0 bottom-0 z-40 flex flex-col overflow-hidden text-text transition-[height] duration-300 ease-out"
+      className="glass-dock pointer-events-auto fixed inset-x-0 bottom-0 z-40 flex flex-col text-text"
       style={{
-        height: expanded
-          ? EXPANDED_HEIGHT
-          : `calc(${COLLAPSED_PX}px + ${BOTTOM_INSET})`,
         paddingBottom: BOTTOM_INSET,
         // Keep controls out of the side safe areas (landscape notch / rounded
         // corners). Zero in portrait, so the dock still spans edge to edge.
@@ -126,6 +131,46 @@ export function MobileControlSheet() {
         paddingRight: "env(safe-area-inset-right, 0px)",
       }}
     >
+      {/* Build a simulation: floats just above the sheet's top edge, anchored
+          to the sheet itself so it rides along as the sheet grows and shrinks
+          (including mid-animation). Stays in the one-handed thumb zone. */}
+      {!buildFabHidden && (
+        <button
+          type="button"
+          aria-label="Build simulation"
+          data-tour={MOBILE_BUILD_TOUR_TARGET}
+          onClick={onBuildClick}
+          className="absolute grid h-14 w-14 place-items-center rounded-full border border-white/[0.08] text-accent transition-colors hover:text-hi"
+          style={{
+            top: -70, // 56px button + a 14px gap above the sheet
+            right: "calc(1rem + env(safe-area-inset-right, 0px))",
+            background: "rgba(20,22,30,0.62)",
+            backdropFilter: "blur(22px) saturate(150%)",
+            WebkitBackdropFilter: "blur(22px) saturate(150%)",
+            boxShadow:
+              "inset 0 1px 0 rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.4)",
+          }}
+        >
+          {/* Solar-system glyph: sun + two tilted nested orbits + two planets. */}
+          <svg
+            width="28"
+            height="28"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <ellipse cx="12" cy="12" rx="10.4" ry="5.2" transform="rotate(-25 12 12)" />
+            <ellipse cx="12" cy="12" rx="6.2" ry="3" transform="rotate(-25 12 12)" />
+            <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
+            <circle cx="21.43" cy="7.61" r="1.6" fill="currentColor" stroke="none" />
+            <circle cx="6.38" cy="14.62" r="1.3" fill="currentColor" stroke="none" />
+          </svg>
+        </button>
+      )}
       <button
         type="button"
         aria-label={expanded ? "Collapse controls" : "Expand controls"}
@@ -160,31 +205,43 @@ export function MobileControlSheet() {
         <MobileTransportBar />
       </div>
 
-      {/* Expanded controls. inert when collapsed: clipped by overflow-hidden,
-          and kept out of the tab order / accessibility tree until revealed. */}
+      {/* Expanded controls. The 0fr -> 1fr grid row is what animates the
+          sheet between its collapsed peek and a content-hugging expanded
+          height; the inner row clips during the transition. inert when
+          collapsed keeps the hidden controls out of the tab order and the
+          accessibility tree. */}
       <div
-        inert={!expanded}
-        className="flex-1 space-y-4 overflow-y-auto px-4 pb-8"
+        className="grid transition-[grid-template-rows] duration-300 ease-out"
+        style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
       >
-        {/* Body selection lives in the planet rail at the top of the screen,
-            so the sheet is view controls only. */}
-        <div>
-          <div className="eyebrow mb-2">
-            View
-          </div>
-          <div className="space-y-2">
-            <div className="grid grid-cols-2 gap-2">
-              <Chip label="Orbits" on={showOrbits} onClick={() => dispatch(toggleShowOrbitPaths())} />
-              <Chip label="Labels" on={showLabels} onClick={() => dispatch(toggleShowPlanetInfoOverlay())} />
-              <Chip label="Trails" on={showTrails} onClick={() => dispatch(toggleShowTrails())} />
-              <Chip
-                label="Drift"
-                on={drift}
-                busy={drift && driftBusy}
-                onClick={() => dispatch(setOverlayEnabled(!drift))}
-              />
+        <div inert={!expanded} className="min-h-0 overflow-hidden">
+          {/* Cap so a short landscape viewport scrolls instead of pushing the
+              transport bar off-screen. */}
+          <div
+            className="space-y-4 overflow-y-auto px-4 pb-2"
+            style={{ maxHeight: "55dvh" }}
+          >
+            {/* Body selection lives in the planet rail at the top of the
+                screen, so the sheet is view controls only. */}
+            <div>
+              <div className="eyebrow mb-2">
+                View
+              </div>
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <Chip label="Orbits" on={showOrbits} onClick={() => dispatch(toggleShowOrbitPaths())} />
+                  <Chip label="Labels" on={showLabels} onClick={() => dispatch(toggleShowPlanetInfoOverlay())} />
+                  <Chip label="Trails" on={showTrails} onClick={() => dispatch(toggleShowTrails())} />
+                  <Chip
+                    label="Drift"
+                    on={drift}
+                    busy={drift && driftBusy}
+                    onClick={() => dispatch(setOverlayEnabled(!drift))}
+                  />
+                </div>
+                <Chip label="Scale" value={scaleLabel} onClick={() => dispatch(cycleSimulationScale())} />
+              </div>
             </div>
-            <Chip label="Scale" value={scaleLabel} onClick={() => dispatch(cycleSimulationScale())} />
           </div>
         </div>
       </div>
