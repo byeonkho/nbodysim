@@ -22,6 +22,9 @@ export interface PresetClipParams {
   fidelityBucket: string;
   bodies: string[];
   chunkCount: number;
+  // Kept samples per chunk as captured. The staleness guard pins this to
+  // CLIP_SAMPLES_PER_CHUNK, which the pre-fetch budget guard estimates with.
+  samplesPerChunk: number;
 }
 
 export interface PresetClipManifest {

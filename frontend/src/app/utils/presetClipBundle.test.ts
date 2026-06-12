@@ -31,6 +31,7 @@ describe("parsePresetClipBundle", () => {
         fidelityBucket: "medLow",
         bodies: ["Earth", "Sun"],
         chunkCount: 2,
+        samplesPerChunk: 1_000,
       },
       celestialBodyPropertiesList: [{ name: "Sun" }, { name: "Earth" }],
     };

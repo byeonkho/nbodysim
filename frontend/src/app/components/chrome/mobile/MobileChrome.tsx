@@ -57,8 +57,6 @@ export function MobileChrome() {
     void (async () => {
       const ok = await runStaticClip(dispatch, DEFAULT_CLIP_ID);
       if (ok) return;
-      // Asset unreachable (a build shipped without it): live run of the same
-      // default scenario so the scene still appears.
       void runSimulation(dispatch, {
         celestialBodyNames: DEFAULT_SELECTED.map((k) => BODY_DISPLAY[k]),
         date: PRESET_EPOCH,

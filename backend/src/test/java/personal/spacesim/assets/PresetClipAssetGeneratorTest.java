@@ -151,6 +151,11 @@ class PresetClipAssetGeneratorTest {
         params.put("timeStepUnit", TIME_UNIT);
         params.put("fidelityBucket", BUCKET.wireName());
         params.put("chunkCount", preset.chunkCount());
+        // Pinned by the frontend staleness guard against CLIP_SAMPLES_PER_CHUNK:
+        // the client budget guard estimates decoded size from that constant, so
+        // a backend chunk-size or thinning change must fail CI, not silently
+        // mis-size the buffer.
+        params.put("samplesPerChunk", SAMPLES_PER_CHUNK);
         ArrayNode bodies = params.putArray("bodies");
         preset.bodies().stream().sorted().forEach(bodies::add);
         manifest.set("celestialBodyPropertiesList",

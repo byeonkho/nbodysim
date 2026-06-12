@@ -9,7 +9,10 @@ import {
 } from "./runSimulation";
 import { DEFAULT_FRAME } from "@/app/constants/SimParams";
 import { INTEGRATOR_DEFAULT_BUCKETS } from "@/app/constants/PlaybackQuality";
-import { CLIP_PRESETS } from "@/app/constants/ClipPresets";
+import {
+  CLIP_PRESETS,
+  CLIP_SAMPLES_PER_CHUNK,
+} from "@/app/constants/ClipPresets";
 import { BODY_DISPLAY } from "@/app/constants/BodyVisuals";
 
 const REGEN =
@@ -49,6 +52,10 @@ describe.each(CLIP_PRESETS)("preset clip staleness guard: $id", (preset) => {
     expect(p.timeStepUnit, drift).toBe(PRESET_TIME_UNIT);
     expect(p.fidelityBucket, drift).toBe(expectedBucket);
     expect(p.chunkCount, drift).toBe(preset.chunkCount);
+    // The pre-fetch budget guard estimates decoded size from
+    // CLIP_SAMPLES_PER_CHUNK, so a backend chunk-size or thinning change must
+    // fail here rather than silently mis-size the client buffer.
+    expect(p.samplesPerChunk, drift).toBe(CLIP_SAMPLES_PER_CHUNK);
     expect([...p.bodies].sort(), drift).toEqual(expectedBodies);
 
     // The captured body list must actually be populated, not just the params.

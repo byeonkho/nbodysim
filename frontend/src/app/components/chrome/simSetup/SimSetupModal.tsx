@@ -23,6 +23,11 @@ import { SimParamsPane } from "@/app/components/chrome/simSetup/SimParamsPane";
 import { BodyCatalogPane } from "@/app/components/chrome/simSetup/BodyCatalogPane";
 import { matchPresetClip } from "@/app/utils/presetClipMatch";
 import { runStaticClip } from "@/app/utils/runStaticClip";
+import {
+  PRESET_EPOCH,
+  PRESET_INTEGRATOR,
+  PRESET_TIME_UNIT,
+} from "@/app/utils/runSimulation";
 
 // Centered two-pane Sim Setup modal: simulation params (left) + body catalog
 // (right). Replaces the left-anchored SimSetupDrawer. Radix Dialog substrate is
@@ -41,10 +46,13 @@ export function SimSetupModal({ open, onOpenChange }: SimSetupModalProps) {
   const [selectedBodies, setSelectedBodies] = useState<Set<BodyKey>>(
     new Set(DEFAULT_SELECTED),
   );
-  const [epoch, setEpoch] = useState("2024-06-05T00:00:00.000");
+  // Defaults derive from the shared preset constants so an untouched Run
+  // stays an exact match for the precomputed default clip; a literal here
+  // would silently break the interception if the constants ever moved.
+  const [epoch, setEpoch] = useState(PRESET_EPOCH);
   const [frame, setFrame] = useState<string>(DEFAULT_FRAME);
-  const [integrator, setIntegrator] = useState<string>("rk4");
-  const [timeUnit, setTimeUnit] = useState<TimeUnit>("Hours");
+  const [integrator, setIntegrator] = useState<string>(PRESET_INTEGRATOR);
+  const [timeUnit, setTimeUnit] = useState<TimeUnit>(PRESET_TIME_UNIT);
   const [fidelityBucket, setFidelityBucket] = useState<FidelityBucket>(
     INTEGRATOR_DEFAULT_BUCKETS[integrator] ?? "medLow",
   );
