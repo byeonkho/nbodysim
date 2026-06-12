@@ -130,7 +130,7 @@ export function Reticle() {
       resolvedFrameRef.current = displayFrame;
       resolvedOrbitingRef.current = orbitingNameUpper;
     }
-    // Lazy-resolve: one set of map scans per (sim, focus, frame) change.
+    // Lazy-resolve: one set of map scans per (sim, focus, frame, parent) change.
     if (bodyIdxRef.current === -1) {
       bodyIdxRef.current = findBodyIndexCaseInsensitive(buffer, upperName);
       // Orbital reference (orbitingNameUpper) feeds the scale-pipeline
