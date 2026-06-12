@@ -58,6 +58,13 @@ export function GhostLabel({
   const pivotScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const parentWorldScratch = useRef(new THREE.Vector3());
   const childDeltaScratch = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
+  // Cached chunk-buffer slot indices, resolved once per buffer identity. A
+  // new simulation creates a fresh ChunkBuffer whose body order depends on
+  // the selected set, so a reused GhostLabel (same bodyName, no remount)
+  // must re-resolve or it reads the wrong body's position. Mirrors Sphere.tsx.
+  const bodyIdxRef = useRef<number>(-1);
+  const orbitingIdxRef = useRef<number>(-1);
+  const resolvedBufferRef = useRef<object | null>(null);
   const frameCounter = useRef(0);
   const lastAu = useRef<string>("");
 
@@ -98,14 +105,28 @@ export function GhostLabel({
     const idx = state.simulation.timeState.currentTimeStepIndex;
     if (!buffer || idx >= buffer.totalTimesteps) return;
 
-    let bodyIdx = -1;
-    let orbitingIdx = -1;
-    for (const [bn, i] of buffer.bodyNameToIndex.entries()) {
-      const bnUpper = bn.toUpperCase();
-      if (bnUpper === upperName) bodyIdx = i;
-      if (orbitingNameUpper && bnUpper === orbitingNameUpper) orbitingIdx = i;
-      if (bodyIdx >= 0 && (orbitingIdx >= 0 || !orbitingNameUpper)) break;
+    // Invalidate cached indices when the buffer changes (new simulation).
+    if (resolvedBufferRef.current !== buffer) {
+      bodyIdxRef.current = -1;
+      orbitingIdxRef.current = -1;
+      resolvedBufferRef.current = buffer;
     }
+    // Lazy-resolve: one map pass per simulation, O(1) reads per frame after.
+    if (bodyIdxRef.current === -1) {
+      for (const [bn, i] of buffer.bodyNameToIndex.entries()) {
+        const bnUpper = bn.toUpperCase();
+        if (bnUpper === upperName) bodyIdxRef.current = i;
+        if (orbitingNameUpper && bnUpper === orbitingNameUpper)
+          orbitingIdxRef.current = i;
+        if (
+          bodyIdxRef.current >= 0 &&
+          (orbitingIdxRef.current >= 0 || !orbitingNameUpper)
+        )
+          break;
+      }
+    }
+    const bodyIdx = bodyIdxRef.current;
+    const orbitingIdx = orbitingIdxRef.current;
     if (bodyIdx < 0) return;
 
     readBodyPositionInto(bodyPosVec.current, buffer, idx, bodyIdx);
