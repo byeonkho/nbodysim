@@ -45,6 +45,62 @@ describe("findEarthBodyIndex", () => {
   });
 });
 
+describe("findEarthBodyIndex caching", () => {
+  it("does not rescan the name map for the same buffer object", () => {
+    const buf = makeBuffer([
+      { name: "Sun", x: 0, y: 0, z: 0 },
+      { name: "Earth", x: 7, y: 8, z: 9 },
+    ]);
+    expect(findEarthBodyIndex(buf)).toBe(1);
+    // Mutate the map underneath. Within one buffer identity the body set is
+    // immutable by contract (created once per session, appended in place),
+    // so the cached slot must keep winning. This proves the scan didn't rerun.
+    buf.bodyNameToIndex.clear();
+    expect(findEarthBodyIndex(buf)).toBe(1);
+  });
+
+  it("re-resolves for a new buffer object (new simulation)", () => {
+    const bufA = makeBuffer([
+      { name: "Earth", x: 1, y: 2, z: 3 },
+      { name: "Mars", x: 4, y: 5, z: 6 },
+    ]);
+    const bufB = makeBuffer([
+      { name: "Mars", x: 4, y: 5, z: 6 },
+      { name: "Earth", x: 1, y: 2, z: 3 },
+    ]);
+    expect(findEarthBodyIndex(bufA)).toBe(0);
+    expect(findEarthBodyIndex(bufB)).toBe(1);
+  });
+
+  it("caches the Earth-absent result (-1) too", () => {
+    const buf = makeBuffer([
+      { name: "Sun", x: 0, y: 0, z: 0 },
+      { name: "Mars", x: 1, y: 2, z: 3 },
+    ]);
+    expect(findEarthBodyIndex(buf)).toBe(-1);
+    // Adding Earth to the same buffer object must NOT be picked up: the miss
+    // is cached. Real buffers never gain bodies mid-session.
+    buf.bodyNameToIndex.set("Earth", 0);
+    expect(findEarthBodyIndex(buf)).toBe(-1);
+    // A fresh buffer object resolves it.
+    const buf2 = makeBuffer([{ name: "Earth", x: 1, y: 2, z: 3 }]);
+    expect(findEarthBodyIndex(buf2)).toBe(0);
+  });
+
+  it("writePivotInto in geo mode follows the cache across buffer identities", () => {
+    const out = { x: 999, y: 999, z: 999 };
+    const bufA = makeBuffer([{ name: "Earth", x: 1, y: 2, z: 3 }]);
+    const bufB = makeBuffer([
+      { name: "Sun", x: 0, y: 0, z: 0 },
+      { name: "Earth", x: 4, y: 5, z: 6 },
+    ]);
+    writePivotInto(out, bufA, 0, "geo");
+    expect(out).toEqual({ x: 1, y: 2, z: 3 });
+    writePivotInto(out, bufB, 0, "geo");
+    expect(out).toEqual({ x: 4, y: 5, z: 6 });
+  });
+});
+
 describe("writePivotInto", () => {
   const out = { x: 999, y: 999, z: 999 };
 
