@@ -19,6 +19,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -71,9 +72,11 @@ class SimulationTelemetryTest {
                 "avg step must be positive, got " + t.avgStepSeconds());
         assertTrue(t.acceptRate() > 0 && t.acceptRate() <= 1.0,
                 "accept rate must be in (0, 1], got " + t.acceptRate());
-        // Benign two-body scenario — accept rate should be high.
-        assertTrue(t.acceptRate() > 0.7,
-                "accept rate for sun-earth circular orbit should be >0.7, got " + t.acceptRate());
+        // Benign two-body scenario: under step-size seeding the accept
+        // rate sits near 100%, which also pins M7's fix (the old /12
+        // estimate read ~78% on this same orbit).
+        assertTrue(t.acceptRate() > 0.95,
+                "accept rate for sun-earth circular orbit should be >0.95, got " + t.acceptRate());
     }
 
     @Test
@@ -91,5 +94,25 @@ class SimulationTelemetryTest {
         ChunkResult result = sim.run();
         assertNull(result.telemetry(),
                 "fixed-step integrators must report null telemetry");
+    }
+
+    @Test
+    void attemptsEstimateInvertsTheEvalArithmetic() {
+        // Hipparchus 3.0 DP853: 15 stage evaluations per attempt (accepted
+        // or rejected) plus one initIntegration evaluation per integrate()
+        // call (the initializeStep probe is skipped by step-size seeding).
+        // evals = externalSteps + 15 * attempts, so the estimator must
+        // invert that exactly.
+        long evals = 10_000 + 15L * 12_345;
+        assertEquals(12_345.0, Simulation.estimateDp853Attempts(evals, 10_000), 1e-9);
+    }
+
+    @Test
+    void allAcceptedSingleSubstepChunkEstimatesOneAttemptPerStep() {
+        // Smooth-orbit steady state under seeding: one accepted attempt per
+        // call, 16 evaluations each (1 init + 15 stages). The estimate must
+        // equal the external-step count, which makes acceptRate exactly 1.0.
+        long evals = 16L * 10_000;
+        assertEquals(10_000.0, Simulation.estimateDp853Attempts(evals, 10_000), 1e-9);
     }
 }

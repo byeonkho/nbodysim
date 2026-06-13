@@ -71,6 +71,26 @@ public final class DP853Integrator implements Integrator {
     private long cumulativeEvaluations = 0;
 
     /**
+     * Largest accepted substep duration (seconds) observed during the
+     * current {@link #stepInto} call. Reset at the top of each call and
+     * folded into {@link #seedStepSeconds} afterwards. The max (rather
+     * than the last) is used because the final substep of a call is
+     * usually truncated to land exactly on dt and would under-seed.
+     */
+    private double maxAcceptedStepThisCall = 0.0;
+
+    /**
+     * Step-size seed for the next {@link #stepInto} call, carried across
+     * calls and across chunks (one integrator instance per session). The
+     * controller resumes near the previously accepted step instead of
+     * re-deriving a rough guess and re-ramping inside every call; each
+     * derivative evaluation is the O(N^2) force pass, so cold restarts
+     * multiplied the dominant DP853 chunk cost ~6x. 0 until the first
+     * call completes.
+     */
+    private double seedStepSeconds = 0.0;
+
+    /**
      * Reused across steps. Holds {@link #currentDerivatives} and
      * {@link #derivScratch} via closure over the outer instance.
      */
@@ -91,12 +111,19 @@ public final class DP853Integrator implements Integrator {
         hipparchusIntegrator.addStepHandler(new ODEStepHandler() {
             @Override
             public void handleStep(ODEStateInterpolator interpolator) {
+                double prevTime = interpolator.getPreviousState().getTime();
+                double currTime = interpolator.getCurrentState().getTime();
+                // Record for next-call step-size seeding regardless of
+                // whether a substep consumer is attached. One subtraction,
+                // compare, and store per accepted substep, no allocations.
+                double accepted = currTime - prevTime;
+                if (accepted > maxAcceptedStepThisCall) {
+                    maxAcceptedStepThisCall = accepted;
+                }
                 SubstepHandler h = substepHandler;
                 if (h == null) {
                     return;
                 }
-                double prevTime = interpolator.getPreviousState().getTime();
-                double currTime = interpolator.getCurrentState().getTime();
                 // Adapter: forward the per-step interpolator as a typed
                 // evaluator. Lifetime is bounded by this callback — the
                 // interpolator is reused by Hipparchus on subsequent
@@ -120,9 +147,23 @@ public final class DP853Integrator implements Integrator {
         }
         currentDerivatives = derivatives;
 
+        // Seed the adaptive controller with the previous call's converged
+        // step so it resumes at speed instead of restarting cold (rough
+        // 0.01*||y||/||y'|| guess + Euler probe + growth ramp) on every
+        // external step. Hipparchus uses an in-range seed directly and
+        // skips initializeStep's probe evaluation; out-of-range values
+        // fall back to auto, so MIN_STEP/MAX_STEP cannot be violated.
+        if (seedStepSeconds > 0) {
+            hipparchusIntegrator.setInitialStepSize(Math.min(seedStepSeconds, dt));
+        }
+        maxAcceptedStepThisCall = 0.0;
+
         ODEState start = new ODEState(0.0, state);
         ODEState end = hipparchusIntegrator.integrate(ode, start, dt);
         cumulativeEvaluations += hipparchusIntegrator.getEvaluations();
+        if (maxAcceptedStepThisCall > 0) {
+            seedStepSeconds = maxAcceptedStepThisCall;
+        }
 
         // Hipparchus returns an internal array; copy into caller's buffer.
         System.arraycopy(end.getCompleteState(), 0, out, 0, out.length);
