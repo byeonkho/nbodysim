@@ -131,8 +131,12 @@ export function createChunkBuffer(
 /**
  * Appends a chunk of timesteps to the buffer. If the new data won't fit,
  * shifts the buffer left by `chunkLen` slots to make room (evicting the
- * oldest entries) and advances `bufferStartTimestep` accordingly. Returns
- * the number of timesteps shifted (0 if no eviction occurred).
+ * oldest entries) and advances `bufferStartTimestep` accordingly. If a
+ * single chunk is larger than the whole buffer, evicts everything resident
+ * and keeps only the newest `capacity` samples of the incoming chunk.
+ * Returns the number of timesteps dropped from the global window (0 if no
+ * eviction occurred); the reducer slides the playback head left by this
+ * amount.
  *
  * `chunkPositions.length` must equal `chunkLen × bodyCount × 6`.
  * `chunkTimestamps.length` must equal `chunkLen`.
@@ -147,11 +151,41 @@ export function appendChunk(
   dp853AcceptRate: number | null = null,
 ): number {
   const stride = buffer.bodyCount * 6;
+
+  // Oversized chunk: a single chunk bigger than the whole buffer (lowMem
+  // byte budget + many bodies + a high-sample fidelity bucket). Keep only
+  // the NEWEST `capacity` samples; everything resident plus the oldest
+  // incoming samples are dropped. Keep-newest is load-bearing: the buffer
+  // must stay a contiguous global window ending at the latest sample, or
+  // the next append would leave a timestamp gap that breaks Hermite
+  // interpolation at the seam. Without this branch the eviction math below
+  // goes negative on the first chunk and positions.set throws RangeError.
+  if (chunkLen > buffer.capacity) {
+    const keep = buffer.capacity;
+    const skip = chunkLen - keep;
+    const dropped = buffer.totalTimesteps + skip;
+
+    // subarray = views, no copies; each .set is one memmove.
+    buffer.positions.set(
+      chunkPositions.subarray(skip * stride, chunkLen * stride),
+      0,
+    );
+    buffer.timestamps.set(chunkTimestamps.subarray(skip, chunkLen), 0);
+    buffer.deltaERelative.set(chunkDeltaE.subarray(skip, chunkLen), 0);
+
+    buffer.totalTimesteps = keep;
+    buffer.bufferStartTimestep += dropped;
+    buffer.dp853AvgStepSeconds = dp853AvgStepSeconds;
+    buffer.dp853AcceptRate = dp853AcceptRate;
+    return dropped;
+  }
+
   let shifted = 0;
 
   if (buffer.totalTimesteps + chunkLen > buffer.capacity) {
-    // Drop the oldest `chunkLen` timesteps. Assumes chunks are uniformly
-    // sized so a single chunk's worth of eviction always makes room.
+    // Drop the oldest `chunkLen` timesteps. One chunk's worth of eviction
+    // always makes room here: totalTimesteps <= capacity is an invariant,
+    // and the oversized case (chunkLen > capacity) was handled above.
     const dropCount = chunkLen;
     const surviveCount = buffer.totalTimesteps - dropCount;
 
