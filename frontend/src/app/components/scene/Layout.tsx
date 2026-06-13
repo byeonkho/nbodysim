@@ -3,6 +3,7 @@
 import React, { useState, useSyncExternalStore } from "react";
 
 import Scene from "@/app/components/scene/Scene";
+import { E2eSceneProbe } from "@/app/components/scene/E2eSceneProbe";
 import FirstLoadSpinner from "@/app/components/interface/misc/FirstLoadSpinner";
 import { BodySelector } from "@/app/components/chrome/BodySelector";
 import { FrameCompass } from "@/app/components/chrome/FrameCompass";
@@ -59,6 +60,7 @@ const Layout: React.FC = () => {
           }}
         >
           <Scene />
+          {process.env.NEXT_PUBLIC_E2E === "1" && <E2eSceneProbe />}
         </div>
 
         {/* UI Overlays. Each chrome component opts itself into pointer

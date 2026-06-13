@@ -154,7 +154,14 @@ export async function bootStack(): Promise<Stack> {
       ["run", "dev", "--", "-p", String(frontendPort)],
       {
         cwd: FRONTEND_DIR,
-        env: { ...process.env, NEXT_PUBLIC_BACKEND_URL: backendUrl },
+        // NEXT_PUBLIC_E2E turns on the e2e-only canvas hooks (preserveDrawingBuffer
+        // for readPixels grabs, and the window.__scene probe) so a journey can
+        // assert the scene actually painted. Absent in a normal build.
+        env: {
+          ...process.env,
+          NEXT_PUBLIC_BACKEND_URL: backendUrl,
+          NEXT_PUBLIC_E2E: "1",
+        },
         stdio: ["ignore", frontendLog, frontendLog],
         detached: true,
       },

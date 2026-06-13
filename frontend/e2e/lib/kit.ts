@@ -13,6 +13,16 @@ import { readStackFile, type StackInfo } from "./stack";
 
 const ARTIFACTS = path.resolve(__dirname, "..", ".artifacts");
 
+// Journey names are full sentences; slugify them into a clean directory name
+// for screenshots (no spaces or colons in the path).
+function slug(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
 export interface JourneyOpts {
   // Restrict which viewport projects this journey runs under. Default: both.
   viewports?: ("desktop" | "mobile")[];
@@ -64,10 +74,57 @@ export class Journey {
     expect(box!.height, "canvas height > 0").toBeGreaterThan(0);
   }
   async screenshot(name: string): Promise<void> {
-    const dir = path.join(ARTIFACTS, "screenshots", this.name);
+    const dir = path.join(ARTIFACTS, "screenshots", slug(this.name));
     fs.mkdirSync(dir, { recursive: true });
     await this.page.screenshot({
       path: path.join(dir, `${name}.${this.viewport}.png`),
+    });
+  }
+
+  // Assert the WebGL canvas actually painted (not a blank/black frame). Reads
+  // the drawing buffer via readPixels and counts non-near-black pixels. Requires
+  // the e2e build's preserveDrawingBuffer (NEXT_PUBLIC_E2E); without it the
+  // buffer reads back blank. This automates the "every assertion passed over an
+  // empty scene" failure mode the screenshot eyeball used to be the only guard
+  // against. Call it after the scene has had time to paint.
+  async expectCanvasPainted(opts: { minLitPixels?: number } = {}): Promise<void> {
+    const minLit = opts.minLitPixels ?? 50;
+    const res = await this.page.evaluate(() => {
+      const canvas = document.querySelector("canvas");
+      if (!canvas) return { ok: false as const, reason: "no canvas" };
+      const gl = (canvas.getContext("webgl2") ||
+        canvas.getContext("webgl")) as WebGLRenderingContext | null;
+      if (!gl) return { ok: false as const, reason: "no webgl context" };
+      const w = gl.drawingBufferWidth;
+      const h = gl.drawingBufferHeight;
+      const px = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      let lit = 0;
+      for (let i = 0; i < px.length; i += 4) {
+        if (px[i] + px[i + 1] + px[i + 2] > 24) lit++;
+      }
+      return { ok: true as const, lit, w, h };
+    });
+    if (!res.ok) {
+      throw new Error(`canvas not readable: ${res.reason}`);
+    }
+    expect(
+      res.lit,
+      `canvas should have painted at least ${minLit} lit pixels (got ${res.lit} of ${res.w}x${res.h}); 0 usually means preserveDrawingBuffer is off`,
+    ).toBeGreaterThanOrEqual(minLit);
+  }
+
+  // Read the e2e-only window.__scene probe (published under NEXT_PUBLIC_E2E).
+  // Lets a journey assert the scene's semantic content (body count, first-chunk
+  // painted) without diffing pixels.
+  async sceneStats(): Promise<{ bodyCount: number; painted: boolean }> {
+    return await this.page.evaluate(() => {
+      const s = (
+        window as unknown as {
+          __scene?: { bodyCount: number; painted: boolean };
+        }
+      ).__scene;
+      return s ?? { bodyCount: 0, painted: false };
     });
   }
   // Assert the page made a backend request matching method + url (+ status).
