@@ -141,7 +141,7 @@ export function BodyCard() {
   const orbitingMu = orbitingProps?.mu;
 
   useEffect(() => {
-    if (!upperName || !activeProps) return;
+    if (!isBodyActive || !upperName || !activeProps) return;
 
     const writeStateVectorDashes = () => {
       if (rangeRef.current) rangeRef.current.textContent = "—";
@@ -339,6 +339,7 @@ export function BodyCard() {
     return () => window.clearInterval(id);
   }, [
     store,
+    isBodyActive,
     upperName,
     orbitingNameUpper,
     stateVectorRefNameUpper,
