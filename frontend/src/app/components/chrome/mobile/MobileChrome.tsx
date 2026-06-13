@@ -40,7 +40,7 @@ export function MobileChrome() {
       />
       <MobileBodySheet />
       <MobileSimSetupSheet open={setupOpen} onOpenChange={setSetupOpen} />
-      <MobileTourOverlay />
+      <MobileTourOverlay buildSheetOpen={setupOpen} />
     </>
   );
 }

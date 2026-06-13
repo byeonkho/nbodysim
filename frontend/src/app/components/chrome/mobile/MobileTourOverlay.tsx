@@ -26,7 +26,7 @@ function readSeen(): boolean {
   return window.localStorage.getItem(MOBILE_TOUR_SEEN_KEY) === "1";
 }
 
-export function MobileTourOverlay() {
+export function MobileTourOverlay({ buildSheetOpen }: { buildSheetOpen: boolean }) {
   const [stepIndex, setStepIndex] = useState(0);
   const [finished, setFinished] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -52,14 +52,33 @@ export function MobileTourOverlay() {
     if (active) cardRef.current?.focus?.();
   }, [active, stepIndex]);
 
+  // Opening the builder from the spotlighted build step finishes the tour for
+  // good (it must not reappear when the sheet is closed or a run completes).
+  // Adjusting state during render on a prop change is the supported pattern and
+  // avoids the set-state-in-effect rule.
+  const [prevSheetOpen, setPrevSheetOpen] = useState(buildSheetOpen);
+  if (buildSheetOpen !== prevSheetOpen) {
+    setPrevSheetOpen(buildSheetOpen);
+    if (buildSheetOpen && step?.id === "build") {
+      setFinished(true);
+    }
+  }
+
+  // Persist the finished flag so the tour does not reappear on reload. This is
+  // a localStorage write (not setState), so it does not trip the
+  // set-state-in-effect rule, and it covers every finish path (Next on the last
+  // step, Skip, and the build-FAB latch above).
+  useEffect(() => {
+    if (finished) window.localStorage.setItem(MOBILE_TOUR_SEEN_KEY, "1");
+  }, [finished]);
+
   if (!active || !step || typeof document === "undefined") return null;
 
   const isLast = stepIndex === MOBILE_TOUR_STEPS.length - 1;
 
-  const finish = () => {
-    window.localStorage.setItem(MOBILE_TOUR_SEEN_KEY, "1");
-    setFinished(true);
-  };
+  // Persistence is handled by the finished-keyed effect above, so every finish
+  // path (this, Skip, the build-FAB latch) only needs to flip the flag.
+  const finish = () => setFinished(true);
   const next = () => {
     if (isLast) finish();
     else setStepIndex((i) => i + 1);
@@ -117,13 +136,19 @@ export function MobileTourOverlay() {
       : "transparent";
 
   return createPortal(
-    <div className="fixed inset-0 z-[60]">
+    // The z-[60] wrapper is full-screen, so it must be pointer-transparent or
+    // it swallows taps meant for a spotlit element (the build FAB) even when the
+    // capturer below is pointer-none. Blocking is delegated to the capturer; the
+    // card opts its buttons back into pointer events.
+    <div className="fixed inset-0 z-[60]" style={{ pointerEvents: "none" }}>
       {/* Full-screen capturer: makes the tour modal (blocks scene taps). The
-          scene keeps animating behind it, which is the "celebrate" beat. */}
+          scene keeps animating behind it, which is the "celebrate" beat.
+          On spotlighted steps the capturer is pointer-none so taps pass
+          through to the spotlit element (e.g. the build FAB). */}
       <div
         aria-hidden="true"
         className="fixed inset-0"
-        style={{ background: backdrop, pointerEvents: "auto" }}
+        style={{ background: backdrop, pointerEvents: spotlight ? "none" : "auto" }}
       />
       {/* Build-step spotlight: dims everything but the button and rings it. */}
       {spotlight && (
