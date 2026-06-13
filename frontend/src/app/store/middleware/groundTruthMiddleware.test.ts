@@ -159,4 +159,23 @@ describe("groundTruthMiddleware: playback-driven coverage", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(0);
   });
+
+  it("requests subtractSun=false when the session has no Sun", async () => {
+    const store = makeStore();
+    await setupCoveredAt(store, 0); // lastReq bodies are ["Mars"], no Sun
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain("subtractSun=false");
+  });
+
+  it("requests subtractSun=true when the session includes the Sun", async () => {
+    const store = makeStore();
+    store.dispatch(setLastSimRequest({ ...lastReq, celestialBodyNames: ["Sun", "Mars"] }));
+    store.dispatch(appendChunkToBuffer(chunkPayload(N, T0)));
+    store.dispatch(setCurrentTimeStepIndex(0));
+    store.dispatch(setOverlayEnabled(true));
+    store.dispatch(setActiveBody("Mars"));
+    await flush();
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain("subtractSun=true");
+  });
 });

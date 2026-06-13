@@ -13,6 +13,7 @@ interface FetchArgs {
   fromMs: number;
   toMs: number;
   stepSeconds: number; // cadence sized to the visible window by the caller
+  subtractSun: boolean; // mirror the predicted Sun convention (Sun in session?)
 }
 
 // Fetches the active body's true track for a visible window and REPLACES that
@@ -23,7 +24,7 @@ export const fetchGroundTruth = createAsyncThunk<
   void,
   FetchArgs,
   { state: RootState; dispatch: AppDispatch }
->("groundTruth/fetch", async ({ frame, body, fromMs, toMs, stepSeconds }, { dispatch }) => {
+>("groundTruth/fetch", async ({ frame, body, fromMs, toMs, stepSeconds, subtractSun }, { dispatch }) => {
   // Bind this fetch to the launch that started it. A resubmit bumps the
   // launch epoch (and resets the anchors); if that happened while this was
   // in flight, dropping it keeps the stale window from repopulating.
@@ -32,7 +33,8 @@ export const fetchGroundTruth = createAsyncThunk<
   const url =
     `${REST_URL}/ground-truth?body=${encodeURIComponent(body)}` +
     `&frame=${encodeURIComponent(frame)}` +
-    `&fromEpoch=${fromMs}&toEpoch=${toMs}&stepSeconds=${stepSeconds}`;
+    `&fromEpoch=${fromMs}&toEpoch=${toMs}&stepSeconds=${stepSeconds}` +
+    `&subtractSun=${subtractSun}`;
 
   let data: GroundTruthResponse;
   try {
