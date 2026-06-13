@@ -30,8 +30,11 @@ export function daysSinceJ2000(d: Date): number {
 // fractional component to match the design ("2 460 478.79167").
 export function formatJD(jd: number): string {
   if (!Number.isFinite(jd)) return "—";
-  const wholePart = Math.floor(jd);
-  const frac = jd - wholePart;
+  // Round to 5 decimal places first so that a fraction like 0.9999951
+  // carries into the whole part rather than printing as "1.00000".
+  const jdRounded = Math.round(jd * 1e5) / 1e5;
+  const wholePart = Math.floor(jdRounded);
+  const frac = jdRounded - wholePart;
   const wholeStr = wholePart
     .toString()
     .replace(/\B(?=(\d{3})+(?!\d))/g, " "); // thin space

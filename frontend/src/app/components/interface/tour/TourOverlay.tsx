@@ -87,6 +87,11 @@ export function TourOverlay({ simSetupOpen }: { simSetupOpen: boolean }) {
   useEffect(() => {
     if (hidden) return;
     const onKey = (e: KeyboardEvent) => {
+      // Let the button's own native activation handle Enter; only suppress the
+      // window-level advance so keyboard users don't double-fire (skip + click).
+      if (e.key === "Enter" && (e.target as HTMLElement | null)?.tagName === "BUTTON") {
+        return;
+      }
       if (e.key === "Escape") {
         dispatch(skipTour());
       } else if (e.key === "ArrowLeft") {
