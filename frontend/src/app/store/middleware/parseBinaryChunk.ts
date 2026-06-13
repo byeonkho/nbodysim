@@ -197,6 +197,26 @@ export function parseBinaryChunkToTypedArrays(
     };
   }
 
+  // Guard: ensure the buffer is large enough for every byte the parser will
+  // touch. Without this check, unshufflePlane reads via Uint8Array.subarray,
+  // which clamps silently -- a short buffer produces zeros rather than an error,
+  // making truncated/corrupt assets appear as bodies frozen at the reference
+  // position with zero velocity.
+  //
+  // Required layout when T > 0:
+  //   header.offset          end of the header region
+  //   + 16                   startMillis (int64, 8) + gapMillis (f64, 8)
+  //   + T * 4                deltaERelative plane (one f32 per timestep)
+  //   + B * 24               per-body f64 reference (3 x f64 = 24 bytes each)
+  //   + 6 * T * B * 4        six shuffled f32 planes (pos x/y/z + vel x/y/z)
+  const requiredBytes =
+    offset + 16 + timestepCount * 4 + bodyCount * 24 + 6 * timestepCount * bodyCount * 4;
+  if (bytes.byteLength < requiredBytes) {
+    throw new RangeError(
+      `Binary chunk is truncated: expected at least ${requiredBytes} bytes, got ${bytes.byteLength}`,
+    );
+  }
+
   const startMillis = Number(view.getBigInt64(offset, true));
   offset += 8;
   const gapMillis = view.getFloat64(offset, true);

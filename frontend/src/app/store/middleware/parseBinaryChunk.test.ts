@@ -363,4 +363,51 @@ describe("parseBinaryChunkToTypedArrays", () => {
     expect(result.deltaERelative[0]).toBeCloseTo(1e-12, 18);
     expect(result.deltaERelative[1]).toBeCloseTo(2e-12, 18);
   });
+
+  it("throws RangeError on truncated input (header present but plane region missing)", () => {
+    // Build a valid 2-body, 3-timestep chunk, then slice it to just past the
+    // header so the parser has enough bytes to read the header successfully but
+    // is short of the plane region. Without a guard the parser silently returns
+    // zeros; with the guard it throws a RangeError.
+    const full = buildChunkBytes(
+      [
+        { name: "Earth", mu: 3.986004418e14 },
+        { name: "Moon", mu: 4.9028000661e12 },
+      ],
+      [
+        {
+          millis: 1000,
+          deltaERelative: 0,
+          bodies: [
+            { pos: [1, 0, 0], vel: [0, 0, 0] },
+            { pos: [2, 0, 0], vel: [0, 0, 0] },
+          ],
+        },
+        {
+          millis: 2000,
+          deltaERelative: 0,
+          bodies: [
+            { pos: [3, 0, 0], vel: [0, 0, 0] },
+            { pos: [4, 0, 0], vel: [0, 0, 0] },
+          ],
+        },
+        {
+          millis: 3000,
+          deltaERelative: 0,
+          bodies: [
+            { pos: [5, 0, 0], vel: [0, 0, 0] },
+            { pos: [6, 0, 0], vel: [0, 0, 0] },
+          ],
+        },
+      ],
+    );
+
+    // Slice to 20 bytes past the full header (enough to survive parseHeader
+    // but well short of the full plane region).
+    const truncated = full.slice(0, full.byteLength - 20);
+
+    expect(() => parseBinaryChunkToTypedArrays(truncated)).toThrow(RangeError);
+    // Full chunk must still parse cleanly.
+    expect(() => parseBinaryChunkToTypedArrays(full)).not.toThrow();
+  });
 });
