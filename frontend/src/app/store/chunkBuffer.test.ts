@@ -92,9 +92,9 @@ describe("selectBufferByteBudget", () => {
 
 describe("computeBufferCapacity", () => {
   it("derives capacity from byte budget and body count", () => {
-    // 12 MB / (9 bodies × 48 bytes) = 27,962 floor
+    // 12 MiB / (9 bodies × 48 bytes) = 29,127 floor
     expect(computeBufferCapacity(9, BUFFER_BYTE_BUDGETS.lowMem)).toBe(29_127);
-    // 48 MB / (9 bodies × 48 bytes) = 116,508 floor
+    // 48 MiB / (9 bodies × 48 bytes) = 116,508 floor
     expect(computeBufferCapacity(9, BUFFER_BYTE_BUDGETS.default)).toBe(116_508);
   });
 
@@ -102,6 +102,13 @@ describe("computeBufferCapacity", () => {
     expect(computeBufferCapacity(3, BUFFER_BYTE_BUDGETS.default)).toBeGreaterThan(
       computeBufferCapacity(12, BUFFER_BYTE_BUDGETS.default),
     );
+  });
+
+  it("never returns less than one slot, even for degenerate inputs", () => {
+    // 12 MiB / (1,000,000 bodies × 48 bytes) would floor to 0; the floor of
+    // one slot keeps appendChunk's oversized-chunk clamp able to make
+    // forward progress (at least the newest sample is always playable).
+    expect(computeBufferCapacity(1_000_000, BUFFER_BYTE_BUDGETS.lowMem)).toBe(1);
   });
 });
 
@@ -156,6 +163,96 @@ describe("appendChunk", () => {
     expect(
       appendChunk(buf, makeChunkPositions(1, 10), makeChunkTimestamps(10), new Float32Array(10), 10),
     ).toBe(10);
+  });
+
+  it("clamps an oversized first chunk to the newest capacity samples instead of throwing", () => {
+    // Capacity 6 < chunkLen 10: the lowMem wedge shape (finding H1). The old
+    // eviction math went negative here and positions.set threw RangeError.
+    const buf = createChunkBuffer(["A"], 6);
+    const deltaE = new Float32Array(10);
+    for (let i = 0; i < 10; i++) deltaE[i] = i;
+
+    let dropped = -1;
+    expect(() => {
+      dropped = appendChunk(
+        buf,
+        makeChunkPositions(1, 10),
+        makeChunkTimestamps(10),
+        deltaE,
+        10,
+        3600,
+        0.94,
+      );
+    }).not.toThrow();
+
+    // Keeps the NEWEST 6 samples (4..9); the oldest 4 incoming are dropped.
+    expect(dropped).toBe(4);
+    expect(buf.totalTimesteps).toBe(6);
+    expect(buf.bufferStartTimestep).toBe(4);
+    // timestamps are startMillis + i, so slot 0 now holds sample 4.
+    expect(buf.timestamps[0]).toBe(BigInt(4));
+    expect(buf.timestamps[5]).toBe(BigInt(9));
+    // positions are value startValue + i; sample 4 of 1 body starts at flat
+    // index 4*6 = 24.
+    expect(buf.positions[0]).toBe(24);
+    expect(buf.positions[6 * 6 - 1]).toBe(59);
+    // deltaE sliced consistently.
+    expect(buf.deltaERelative[0]).toBe(4);
+    expect(buf.deltaERelative[5]).toBe(9);
+    // Telemetry still latest-write-wins on this path.
+    expect(buf.dp853AvgStepSeconds).toBeCloseTo(3600);
+    expect(buf.dp853AcceptRate).toBeCloseTo(0.94);
+  });
+
+  it("clamps an oversized chunk arriving on a partially filled buffer", () => {
+    const buf = createChunkBuffer(["A"], 6);
+    appendChunk(
+      buf,
+      makeChunkPositions(1, 4, 0),
+      makeChunkTimestamps(4, BigInt(0)),
+      new Float32Array(4),
+      4,
+    );
+    expect(buf.totalTimesteps).toBe(4);
+
+    // Incoming oversized chunk: global samples 4..13. Keep newest 6 (8..13);
+    // dropped = 4 resident + 4 skipped incoming = 8.
+    let dropped = -1;
+    expect(() => {
+      dropped = appendChunk(
+        buf,
+        makeChunkPositions(1, 10, 1000),
+        makeChunkTimestamps(10, BigInt(100)),
+        new Float32Array(10),
+        10,
+      );
+    }).not.toThrow();
+
+    expect(dropped).toBe(8);
+    expect(buf.totalTimesteps).toBe(6);
+    expect(buf.bufferStartTimestep).toBe(8);
+    // Incoming timestamps are 100 + i; slot 0 holds incoming sample 4 (=104).
+    expect(buf.timestamps[0]).toBe(BigInt(104));
+    expect(buf.timestamps[5]).toBe(BigInt(109));
+    // Incoming positions are 1000 + i; incoming sample 4 starts at 1000 + 24.
+    expect(buf.positions[0]).toBe(1024);
+  });
+
+  it("handles a chunk exactly at capacity unchanged (boundary)", () => {
+    const buf = createChunkBuffer(["A"], 10);
+    expect(
+      appendChunk(buf, makeChunkPositions(1, 10), makeChunkTimestamps(10), new Float32Array(10), 10),
+    ).toBe(0);
+    expect(buf.totalTimesteps).toBe(10);
+    expect(buf.bufferStartTimestep).toBe(0);
+
+    // A second exact-capacity chunk evicts everything resident, normally.
+    expect(
+      appendChunk(buf, makeChunkPositions(1, 10, 500), makeChunkTimestamps(10, BigInt(500)), new Float32Array(10), 10),
+    ).toBe(10);
+    expect(buf.totalTimesteps).toBe(10);
+    expect(buf.bufferStartTimestep).toBe(10);
+    expect(buf.timestamps[0]).toBe(BigInt(500));
   });
 });
 

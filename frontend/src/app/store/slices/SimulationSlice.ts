@@ -249,6 +249,16 @@ export const simulationSlice = createSlice({
         );
       }
 
+      // Field diagnosability for the oversized-chunk clamp: a truncated
+      // window otherwise looks like a mysteriously short timeline.
+      if (payload.timestepCount > state.chunkBuffer.capacity) {
+        console.info(
+          `[buffer] chunk (${payload.timestepCount} samples) exceeds ` +
+            `capacity (${state.chunkBuffer.capacity}); keeping the newest ` +
+            `samples only`,
+        );
+      }
+
       const shifted = appendChunk(
         state.chunkBuffer,
         payload.positions,
