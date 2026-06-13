@@ -1,5 +1,7 @@
-import { test, expect } from "@playwright/test";
+import { journey } from "../lib/kit";
 
-test("runner boots", () => {
-  expect(1 + 1).toBe(2);
+journey("app boots and the canvas mounts", async (j) => {
+  await j.goto("/");
+  await j.waitForCanvas();
+  await j.screenshot("loaded");
 });
