@@ -74,6 +74,12 @@ describe("formatJD", () => {
     expect(formatJD(Number.NaN)).toBe("—");
     expect(formatJD(Number.POSITIVE_INFINITY)).toBe("—");
   });
+
+  it("carries into the whole part when fraction rounds to 1.00000", () => {
+    // jd = 2451544.9999951: raw frac.toFixed(5) rounds to "1.00000", so the
+    // whole part must carry to 2451545, not stay at 2451544.
+    expect(formatJD(2451544.9999951)).toBe(`2${NNBSP}451${NNBSP}545.00000`);
+  });
 });
 
 describe("formatTPlus", () => {
