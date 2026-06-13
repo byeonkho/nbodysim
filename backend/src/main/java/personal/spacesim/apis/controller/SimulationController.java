@@ -161,7 +161,8 @@ public class SimulationController {
         long t0 = System.nanoTime();
         logger.info("[{}] Chunk request received", sessionID);
 
-        byte[] compressedData = simulationSessionService.getNextChunkBytes(sessionID);
+        byte[] compressedData = simulationSessionService.getNextChunkBytes(
+                sessionID, request.expectedChunkIndex());
 
         long tTotal = (System.nanoTime() - t0) / 1_000_000;
         logger.info(

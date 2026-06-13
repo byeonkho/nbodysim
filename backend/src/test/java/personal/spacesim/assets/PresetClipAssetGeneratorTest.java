@@ -140,7 +140,7 @@ class PresetClipAssetGeneratorTest {
 
         List<byte[]> chunks = new ArrayList<>(preset.chunkCount());
         for (int i = 0; i < preset.chunkCount(); i++) {
-            chunks.add(service.getNextChunkBytes(sessionID));
+            chunks.add(service.getNextChunkBytes(sessionID, i));
         }
         service.removeSimulation(sessionID);
 
