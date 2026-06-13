@@ -15,8 +15,10 @@ import personal.spacesim.dtos.GroundTruthResponse;
 import personal.spacesim.dtos.SimulationChunkRequest;
 import personal.spacesim.dtos.SimulationRequestDTO;
 import personal.spacesim.dtos.SimulationResponseDTO;
+import personal.spacesim.services.ChunkIndexConflictException;
 import personal.spacesim.services.GroundTruthProvider;
 import personal.spacesim.services.SessionCapacityExceededException;
+import personal.spacesim.services.SessionNotFoundException;
 import personal.spacesim.services.SimulationSessionService;
 import personal.spacesim.simulation.body.BodyCatalog;
 import personal.spacesim.simulation.frame.CustomFrameFactory;
@@ -115,6 +117,15 @@ public class SimulationController {
             return ResponseEntity.badRequest().build();
         }
 
+        // L6: free the session this request replaces, on the request the client is
+        // already making. Best-effort: null/unknown is a no-op. Done before the
+        // capacity check so a resubmit never transiently trips the session cap.
+        String previousSessionID = request.previousSessionID();
+        if (previousSessionID != null && !previousSessionID.isBlank()) {
+            simulationSessionService.removeSimulation(previousSessionID);
+            logger.info("Released prior session {} on resubmit", previousSessionID);
+        }
+
         String sessionID;
         try {
             sessionID = simulationSessionService.createSimulation(
@@ -159,18 +170,24 @@ public class SimulationController {
         }
 
         long t0 = System.nanoTime();
-        logger.info("[{}] Chunk request received", sessionID);
+        logger.info("[{}] Chunk request received (index {})", sessionID, request.expectedChunkIndex());
 
-        byte[] compressedData = simulationSessionService.getNextChunkBytes(
-                sessionID, request.expectedChunkIndex());
+        byte[] compressedData;
+        try {
+            compressedData = simulationSessionService.getNextChunkBytes(
+                    sessionID, request.expectedChunkIndex());
+        } catch (SessionNotFoundException e) {
+            // Session evicted/released: a terminal condition. 410 lets the client
+            // stop the retry loop and prompt a fresh run instead of hammering a 5xx.
+            logger.info("[{}] Chunk request for gone session", sessionID);
+            return ResponseEntity.status(HttpStatus.GONE).build();
+        } catch (ChunkIndexConflictException e) {
+            logger.warn("[{}] {}", sessionID, e.getMessage());
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        }
 
         long tTotal = (System.nanoTime() - t0) / 1_000_000;
-        logger.info(
-                "[{}] Chunk served in {}ms ({} KB)",
-                sessionID,
-                tTotal,
-                compressedData.length / 1024
-        );
+        logger.info("[{}] Chunk served in {}ms ({} KB)", sessionID, tTotal, compressedData.length / 1024);
 
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
