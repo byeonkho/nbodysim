@@ -38,7 +38,7 @@ const decodeMock = vi.fn(async () => ({
   bodyCount: 1,
   timestepCount: 1,
   positions: new Float64Array(6),
-  timestamps: new BigInt64Array(1),
+  timestamps: new Float64Array(1),
   mu: { EARTH: 1 },
   deltaERelative: new Float32Array(1),
   dp853AvgStepSeconds: null,

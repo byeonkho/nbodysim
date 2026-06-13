@@ -28,8 +28,8 @@ const T0 = 1_750_000_000_000;
 const N = 9_000; // keyframes in the buffer (> LOOKAHEAD_KEYFRAMES = 4000)
 
 function chunkPayload(n: number, startMs: number) {
-  const timestamps = new BigInt64Array(n);
-  for (let i = 0; i < n; i++) timestamps[i] = BigInt(startMs + i * HOUR_MS);
+  const timestamps = new Float64Array(n);
+  for (let i = 0; i < n; i++) timestamps[i] = startMs + i * HOUR_MS;
   return {
     bodyNames: ["Mars"],
     bodyCount: 1,

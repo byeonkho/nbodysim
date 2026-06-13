@@ -46,7 +46,7 @@ function cannedPayload() {
     bodyCount: 1,
     timestepCount: TIMESTEPS,
     positions: new Float64Array(TIMESTEPS * 6),
-    timestamps: new BigInt64Array(TIMESTEPS),
+    timestamps: new Float64Array(TIMESTEPS),
     mu: { Sun: 1 },
     deltaERelative: new Float32Array(TIMESTEPS),
     dp853AvgStepSeconds: null,

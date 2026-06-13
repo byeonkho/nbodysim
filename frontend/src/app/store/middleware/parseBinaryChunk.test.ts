@@ -328,14 +328,35 @@ describe("parseBinaryChunkToTypedArrays", () => {
       Moon: 4.9028000661e12,
     });
     expect(result.timestamps.length).toBe(2);
-    expect(result.timestamps[0]).toBe(BigInt(Date.UTC(2024, 5, 5)));
-    expect(result.timestamps[1]).toBe(BigInt(Date.UTC(2024, 5, 6)));
+    expect(result.timestamps[0]).toBe(Date.UTC(2024, 5, 5));
+    expect(result.timestamps[1]).toBe(Date.UTC(2024, 5, 6));
 
     // Layout: positions[t * bodyCount * 6 + b * 6 + c]
     expect(Array.from(result.positions.slice(0, 6))).toEqual([1, 2, 3, 4, 5, 6]);
     expect(Array.from(result.positions.slice(6, 12))).toEqual([7, 8, 9, 10, 11, 12]);
     expect(Array.from(result.positions.slice(12, 18))).toEqual([13, 14, 15, 16, 17, 18]);
     expect(Array.from(result.positions.slice(18, 24))).toEqual([19, 20, 21, 22, 23, 24]);
+  });
+
+  it("decodes timestamps as an exact Float64Array at a far-future in-range epoch", () => {
+    // Year-9999 start (~2.5e14 ms) sits ~36x below the 2^53 safe-integer
+    // ceiling, so float64 stores it (and the gap-reconstructed next step)
+    // exactly. This pins both the representation and the exactness bound the
+    // migration off BigInt64Array rests on.
+    const start = Date.UTC(9999, 0, 1);
+    const next = Date.UTC(9999, 0, 2);
+    const bytes = buildChunkBytes(
+      [{ name: "Earth", mu: 3.986004418e14 }],
+      [
+        { millis: start, deltaERelative: 0, bodies: [{ pos: [0, 0, 0], vel: [0, 0, 0] }] },
+        { millis: next, deltaERelative: 0, bodies: [{ pos: [0, 0, 0], vel: [0, 0, 0] }] },
+      ],
+    );
+
+    const result = parseBinaryChunkToTypedArrays(bytes);
+    expect(result.timestamps).toBeInstanceOf(Float64Array);
+    expect(result.timestamps[0]).toBe(start);
+    expect(result.timestamps[1]).toBe(next);
   });
 
   it("parses DP853 telemetry + deltaERelative typed array", () => {

@@ -82,7 +82,7 @@ export interface ParsedChunkTypedArrays {
   // components: 0=px 1=py 2=pz 3=vx 4=vy 5=vz
   positions: Float64Array;
   // Length = timestepCount. Millis since UNIX epoch.
-  timestamps: BigInt64Array;
+  timestamps: Float64Array;
   // Per-body µ (m³/s²) keyed by body name.
   mu: Record<string, number>;
   // Length = timestepCount. Per-snapshot (E - E₀) / |E₀| from the backend.
@@ -185,7 +185,7 @@ export function parseBinaryChunkToTypedArrays(
   let offset = header.offset;
 
   const positions = new Float64Array(timestepCount * bodyCount * 6);
-  const timestamps = new BigInt64Array(timestepCount);
+  const timestamps = new Float64Array(timestepCount);
   const deltaERelative = new Float32Array(timestepCount);
 
   if (timestepCount === 0) {
@@ -273,9 +273,10 @@ export function parseBinaryChunkToTypedArrays(
     }
   }
 
-  // Timestamps from (start, gap) — round to nearest ms.
+  // Timestamps from (start, gap) — round to nearest ms. Stored as float64:
+  // the rounded ms is an integer well below 2^53, so it is exact.
   for (let t = 0; t < timestepCount; t++) {
-    timestamps[t] = BigInt(Math.round(startMillis + t * gapMillis));
+    timestamps[t] = Math.round(startMillis + t * gapMillis);
   }
 
   return {
@@ -295,7 +296,7 @@ export function parseBinaryChunk(bytes: Uint8Array): ParsedChunk {
   const deltaERelative: Record<string, number> = {};
   const stride = ta.bodyCount * 6;
   for (let t = 0; t < ta.timestepCount; t++) {
-    const isoKey = new Date(Number(ta.timestamps[t])).toISOString();
+    const isoKey = new Date(ta.timestamps[t]).toISOString();
     deltaERelative[isoKey] = ta.deltaERelative[t];
     const snapshot: CelestialBody[] = new Array(ta.bodyCount);
     const tBase = t * stride;

@@ -45,8 +45,8 @@ export function computeTrueTrackRequest(
   const hi = Math.min(n - 1, idxFloor + lookaheadKeyframes);
   if (hi <= lo) return null;
 
-  const fromMs = Number(buffer.timestamps[lo]);
-  const toMs = Number(buffer.timestamps[hi]);
+  const fromMs = buffer.timestamps[lo];
+  const toMs = buffer.timestamps[hi];
   const spanMs = toMs - fromMs;
   if (spanMs <= 0) return null;
 
@@ -66,7 +66,7 @@ export function computeTrueTrackRequest(
 // framePivot WeakMap cache.
 const trackArraysBySession = new WeakMap<
   Float64Array,
-  { positions: Float64Array; timestamps: BigInt64Array; deltaERelative: Float32Array }
+  { positions: Float64Array; timestamps: Float64Array; deltaERelative: Float32Array }
 >();
 
 function trackArraysFor(predicted: ChunkBuffer) {
@@ -75,7 +75,7 @@ function trackArraysFor(predicted: ChunkBuffer) {
   if (!arrays || arrays.timestamps.length < cap) {
     arrays = {
       positions: new Float64Array(cap * 6), // single body, stride 6
-      timestamps: new BigInt64Array(cap),
+      timestamps: new Float64Array(cap),
       deltaERelative: new Float32Array(cap), // unused by the track, kept for shape
     };
     trackArraysBySession.set(predicted.positions, arrays);
@@ -84,7 +84,7 @@ function trackArraysFor(predicted: ChunkBuffer) {
 }
 
 function wrapTrack(
-  arrays: { positions: Float64Array; timestamps: BigInt64Array; deltaERelative: Float32Array },
+  arrays: { positions: Float64Array; timestamps: Float64Array; deltaERelative: Float32Array },
   bodyName: string,
   totalTimesteps: number,
 ): ChunkBuffer {
@@ -138,7 +138,7 @@ export function buildTrueTrack(
   let cursor = 0; // monotonic anchor cursor; predicted timestamps are ascending
 
   for (let i = 0; i < n; i++) {
-    const t = Number(predicted.timestamps[i]);
+    const t = predicted.timestamps[i];
     const base = i * 6; // single body, stride 6
 
     // Clamp outside the anchor window (no extrapolation).

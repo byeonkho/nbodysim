@@ -67,7 +67,7 @@ function seedSession(
       bodyCount: 1,
       timestepCount: totalTimesteps,
       positions: new Float64Array(totalTimesteps * 6),
-      timestamps: new BigInt64Array(totalTimesteps),
+      timestamps: new Float64Array(totalTimesteps),
       mu: { Sun: 1 },
       deltaERelative: new Float32Array(totalTimesteps),
       dp853AvgStepSeconds: null,

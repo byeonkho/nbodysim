@@ -78,7 +78,7 @@ function DevMetrics() {
   const buffer = useSelector(selectChunkBuffer);
   // Cheap O(1) calc — no JSON.stringify or Blob construction. Includes the
   // positions Float64Array (totalTimesteps × bodyCount × 48 bytes) and the
-  // timestamps BigInt64Array (capacity × 8 bytes).
+  // timestamps Float64Array (capacity × 8 bytes).
   const bytes = buffer
     ? buffer.totalTimesteps * buffer.bodyCount * BYTES_PER_TIMESTEP_PER_BODY +
       buffer.capacity * 8
