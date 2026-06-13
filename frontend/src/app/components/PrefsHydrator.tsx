@@ -9,6 +9,7 @@ import {
   setDisplayFrame,
 } from "@/app/store/slices/SimulationSlice";
 import { readTourSeen, startTour } from "@/app/store/slices/TourSlice";
+import { isDesktopTourViewport } from "@/app/utils/useIsMobile";
 
 // Reconciles the SSR-safe initial Redux state with values persisted in
 // localStorage. Runs once on mount, post-hydration, so the server-rendered
@@ -37,12 +38,10 @@ export function PrefsHydrator() {
     // First-timer intro tour: auto-start once, desktop only. Suppressed on
     // narrow/coarse-pointer viewports (the spotlight + glass tooltip are not
     // designed to reflow to a phone). We intentionally do NOT mark it seen on
-    // mobile — a visitor who first lands on a phone still gets the tour if
+    // mobile -- a visitor who first lands on a phone still gets the tour if
     // they later return on desktop.
-    const isDesktop =
-      window.innerWidth >= 768 &&
-      !window.matchMedia("(pointer: coarse)").matches;
-    if (isDesktop && !readTourSeen()) {
+    const prefersCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+    if (isDesktopTourViewport(window.innerWidth, prefersCoarsePointer) && !readTourSeen()) {
       dispatch(startTour(undefined));
     }
 

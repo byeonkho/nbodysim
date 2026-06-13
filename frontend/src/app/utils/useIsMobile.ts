@@ -9,6 +9,17 @@ export const MOBILE_MAX_WIDTH = 1280;
 
 const QUERY = `(max-width: ${MOBILE_MAX_WIDTH - 1}px)`;
 
+// Pure helper used by PrefsHydrator to decide whether to auto-start the
+// desktop intro tour. Keeps the auto-start cutoff pinned to the same
+// constant as the mobile chrome breakpoint so the tour never fires while
+// the mobile UI is active.
+export function isDesktopTourViewport(
+  innerWidth: number,
+  prefersCoarsePointer: boolean
+): boolean {
+  return innerWidth >= MOBILE_MAX_WIDTH && !prefersCoarsePointer;
+}
+
 function subscribe(callback: () => void): () => void {
   const mql = window.matchMedia(QUERY);
   mql.addEventListener("change", callback);
