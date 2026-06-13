@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { appendChunkToBuffer } from "@/app/store/slices/SimulationSlice";
+import {
+  appendChunkToBuffer,
+  loadSimulation,
+} from "@/app/store/slices/SimulationSlice";
 import { beginLaunch, resetLaunchEpochForTests } from "@/app/store/launchEpoch";
 import { DEFAULT_CLIP_ID } from "@/app/constants/ClipPresets";
 
@@ -87,5 +90,29 @@ describe("runStaticClip stale-launch guard", () => {
     const ok = await runStaticClip(dispatch as never, DEFAULT_CLIP_ID);
     expect(ok).toBe(false);
     expect(appendCount).toBe(1); // the second chunk is dropped by the guard
+  });
+
+  it("abandons the clip before loadSimulation when a newer launch supersedes during the asset fetch", async () => {
+    // A competing launch lands while the asset is still fetching, before the
+    // clip has dispatched anything. The pre-load guard must bail so the clip's
+    // loadSimulation never wipes the newer run's freshly-built state.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        beginLaunch(); // newer launch supersedes this clip mid-fetch
+        return { ok: true, arrayBuffer: async () => new ArrayBuffer(8) };
+      }),
+    );
+    let loadCount = 0;
+    let appendCount = 0;
+    const dispatch = vi.fn((action: unknown) => {
+      if (loadSimulation.match(action as never)) loadCount++;
+      if (appendChunkToBuffer.match(action as never)) appendCount++;
+      return action;
+    });
+    const ok = await runStaticClip(dispatch as never, DEFAULT_CLIP_ID);
+    expect(ok).toBe(false);
+    expect(loadCount).toBe(0); // guard fired before the first store mutation
+    expect(appendCount).toBe(0);
   });
 });
