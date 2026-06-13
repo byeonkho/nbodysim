@@ -1,6 +1,7 @@
 import { AppDispatch } from "@/app/store/Store";
 import { beginLaunch } from "@/app/store/launchEpoch";
 import { loadSimulation } from "@/app/store/slices/SimulationSlice";
+import { resetChunkRetry } from "@/app/store/middleware/simulationRequestThunk";
 import { setErrorMessage } from "@/app/store/slices/RequestSlice";
 import { REST_URL } from "@/app/utils/backendUrls";
 import type { components } from "@/app/generated/api";
@@ -59,6 +60,10 @@ export const initializeCelestialBodies = async (
 
       if (response.ok) {
         const data: InitializeResponse = await response.json();
+        // A fresh run cancels any pending chunk-retry timer from a prior
+        // session and zeroes the attempt counter, so the backoff window only
+        // ever applies to the current session's failure streak.
+        resetChunkRetry();
         dispatch(
           loadSimulation({
             celestialBodyPropertiesList: data.celestialBodyPropertiesList ?? [],

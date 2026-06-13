@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import simulationReducer, {
   appendChunkToBuffer,
+  expireSession,
   loadSimulation,
   selectHasActiveSimulation,
   setActiveBody,
@@ -213,5 +214,23 @@ describe("selectHasActiveSimulation", () => {
     // First chunk arrives: now something is playing despite the null session.
     state = simulationReducer(state, appendChunkToBuffer(dummyChunkPayload()));
     expect(selectHasActiveSimulation(asRoot(state))).toBe(true);
+  });
+});
+
+describe("SimulationSlice: expireSession", () => {
+  it("clears the session metadata but keeps the chunk buffer", () => {
+    let state = simulationReducer(undefined, { type: "@@init" });
+    state = simulationReducer(state, loadSimulation(newParams("S1")));
+    state = simulationReducer(state, appendChunkToBuffer(dummyChunkPayload(10)));
+
+    expect(state.simulationParameters.simulationMetaData?.sessionID).toBe("S1");
+    expect(state.chunkBuffer).not.toBeNull();
+
+    state = simulationReducer(state, expireSession());
+
+    expect(state.simulationParameters.simulationMetaData).toBeNull();
+    // Buffer survives so the user can still scrub what already streamed.
+    expect(state.chunkBuffer).not.toBeNull();
+    expect(state.chunkBuffer?.totalTimesteps).toBe(10);
   });
 });

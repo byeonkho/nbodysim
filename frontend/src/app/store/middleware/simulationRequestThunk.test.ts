@@ -9,8 +9,10 @@ import requestReducer from "@/app/store/slices/RequestSlice";
 import SimConstants from "@/app/constants/SimConstants";
 import type { AppDispatch } from "@/app/store/Store";
 import {
+  chunkRetryAttempts,
   dispatchChunkRequest,
   requestRunSimulation,
+  resetChunkRetry,
 } from "./simulationRequestThunk";
 
 // The thunk decodes chunks through a module-singleton zstd Worker. Node has
@@ -334,5 +336,111 @@ describe("dispatchChunkRequest: supersede/abort", () => {
     );
     expect(store.getState().request.errorMessage).toBeNull();
     expect(store.getState().request.isRequestInProgress).toBe(false);
+  });
+});
+
+// 410 (session gone) and 409 (cursor conflict) are terminal: retrying recovers
+// neither, so the thunk clears the session and prompts a fresh run. 429/5xx and
+// network errors are transient: the thunk arms an exponential backoff timer
+// (keeping isRequestInProgress true so the prefetch middleware doesn't also
+// re-fire), and the timer drives the retry independent of playback dispatches.
+describe("requestRunSimulation: terminal + backoff handling", () => {
+  let store: ReturnType<typeof buildStore>;
+
+  beforeEach(() => {
+    store = buildStore();
+    store.dispatch(loadSimulation(sessionParams("abc")));
+  });
+
+  afterEach(() => {
+    // Module-level retry state leaks across tests unless reset.
+    vi.useRealTimers();
+    resetChunkRetry();
+    vi.unstubAllGlobals();
+  });
+
+  it("expires the session and shows a run-again message on 410", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        status: 410,
+        ok: false,
+        headers: new Headers(),
+      }),
+    );
+
+    await store.dispatch(requestRunSimulation({ sessionID: "abc" }));
+
+    expect(
+      store.getState().simulation.simulationParameters.simulationMetaData,
+    ).toBeNull();
+    expect(store.getState().request.errorMessage).toMatch(/run/i);
+    expect(store.getState().request.isRequestInProgress).toBe(false);
+    expect(chunkRetryAttempts()).toBe(0);
+  });
+
+  it("drops a 410 for a stale session without clearing the current one", async () => {
+    // A retry timer for an OLD session lands a 410 after the user started a new
+    // run: the slice's current session is "abc", but this response is for "OLD".
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        status: 410,
+        ok: false,
+        headers: new Headers(),
+      }),
+    );
+
+    await store.dispatch(requestRunSimulation({ sessionID: "OLD" }));
+
+    // The current session survives: the stale 410 was dropped silently.
+    expect(
+      store.getState().simulation.simulationParameters.simulationMetaData
+        ?.sessionID,
+    ).toBe("abc");
+    expect(store.getState().request.errorMessage).toBeNull();
+    expect(store.getState().request.isRequestInProgress).toBe(false);
+  });
+
+  it("schedules a backoff retry on a 503 instead of erroring", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 503,
+      ok: false,
+      headers: new Headers(),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await store.dispatch(requestRunSimulation({ sessionID: "abc" }));
+
+    // No terminal error; the loop stays "occupied" so the middleware won't re-fire.
+    expect(store.getState().request.isRequestInProgress).toBe(true);
+    expect(chunkRetryAttempts()).toBe(1);
+
+    // The timer drives the retry, not a playback dispatch.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up with a terminal toast after the attempt budget is spent", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 503,
+      ok: false,
+      headers: new Headers(),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await store.dispatch(requestRunSimulation({ sessionID: "abc" }));
+
+    // Drive the backoff to exhaustion: each fire schedules the next, growing
+    // 1s, 2s, 4s, 8s, 16s. Run the clock well past the cap to flush them all.
+    for (let i = 0; i < 8; i++) {
+      await vi.advanceTimersByTimeAsync(30_000);
+    }
+
+    expect(store.getState().request.errorMessage).toMatch(/run/i);
+    expect(store.getState().request.isRequestInProgress).toBe(false);
+    expect(chunkRetryAttempts()).toBe(0);
   });
 });

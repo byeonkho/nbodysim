@@ -316,6 +316,15 @@ export const simulationSlice = createSlice({
       state.chunksAppended += 1;
     },
 
+    // Marks the live session gone WITHOUT wiping the buffer: the prefetch loop
+    // stops (selectSessionID becomes undefined) but the user keeps the
+    // timesteps already streamed and can still scrub them. Used by the chunk
+    // thunk when the backend reports the session is gone (410) or out of sync
+    // (409).
+    expireSession: (state) => {
+      state.simulationParameters.simulationMetaData = null;
+    },
+
     togglePause: (state) => {
       state.timeState.isPaused = !state.timeState.isPaused;
     },
@@ -611,6 +620,7 @@ export const selectHasActiveSimulation = (state: RootState): boolean =>
 export const {
   loadSimulation,
   appendChunkToBuffer,
+  expireSession,
   togglePause,
   toggleShowGrid,
   toggleShowAxes,
