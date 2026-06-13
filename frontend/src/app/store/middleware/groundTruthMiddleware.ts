@@ -3,6 +3,7 @@ import type { AppDispatch, RootState } from "@/app/store/Store";
 import {
   appendChunkToBuffer,
   setActiveBody,
+  setCurrentTimeStepIndex,
   setLastSimRequest,
   loadSimulation,
 } from "@/app/store/slices/SimulationSlice";
@@ -28,6 +29,20 @@ const TARGET_ANCHORS = 400;
 // One fetch in flight at a time. Cleared when the thunk settles, so a failed or
 // superseded fetch is retried on the next trigger. Module-level is safe: single store.
 let fetchInFlight = false;
+
+// Minimum interval between playback-driven fetch attempts. The fetch thunk
+// swallows failures by design (the overlay is a side channel), so coverage
+// never advances against a dead backend and an unthrottled per-frame trigger
+// would refire once per round-trip. Chunk- and focus-driven triggers are not
+// throttled (they are already bounded by their own cadence).
+const PLAYBACK_FETCH_MIN_INTERVAL_MS = 3000;
+let lastPlaybackFetchAttemptMs = 0;
+
+// Test-only seam: module-level guards otherwise leak between vitest cases.
+export function resetGroundTruthMiddlewareState(): void {
+  fetchInFlight = false;
+  lastPlaybackFetchAttemptMs = 0;
+}
 
 type Store = { getState: () => RootState; dispatch: AppDispatch };
 
@@ -112,10 +127,13 @@ export const groundTruthMiddleware: Middleware =
     const result = next(action);
     const typedStore = store as unknown as Store;
 
-    // New simulation: reset and clear any in-flight guard. No eager fetch — the
-    // first fetch fires once a body is focused with the overlay on (below).
+    // New simulation: reset both module-level guards (in-flight flag and the
+    // playback throttle clock) so a new session is not throttled by the prior
+    // session's last playback fetch. No eager fetch — the first fetch fires
+    // once a body is focused with the overlay on (below).
     if (setLastSimRequest.match(action)) {
       fetchInFlight = false;
+      lastPlaybackFetchAttemptMs = 0;
       typedStore.dispatch(resetGroundTruth());
       return result;
     }
@@ -138,6 +156,49 @@ export const groundTruthMiddleware: Middleware =
     // Fresh /initialize JSON (new session): clear stale Tier-2 immediately.
     if (loadSimulation.match(action)) {
       typedStore.dispatch(clearTrueTrack());
+      return result;
+    }
+
+    // Playback advanced: refetch if the visible window has outrun coverage.
+    // The per-frame index dispatch is the ONLY signal during preset-clip
+    // playback (all chunks append at launch), where coverage otherwise
+    // froze at the initial window and the overlay showed AU-scale phantom
+    // drift once playback passed it. Also heals the live-session gap when
+    // playback outruns the lookahead between chunk arrivals. The pre-check
+    // is a few O(1) reads; maybeFetch re-verifies coverage and the
+    // in-flight guard.
+    if (setCurrentTimeStepIndex.match(action)) {
+      const state = typedStore.getState();
+      const { overlayEnabled, coveredBody, coveredToMs } = state.groundTruth;
+      const activeBody = state.simulation.activeBodyState.activeBodyName;
+      const predicted = state.simulation.chunkBuffer;
+      if (
+        overlayEnabled &&
+        activeBody &&
+        predicted &&
+        predicted.totalTimesteps > 1 &&
+        coveredToMs !== null &&
+        coveredBody === activeBody.toUpperCase()
+      ) {
+        const n = predicted.totalTimesteps;
+        const idxFloor = Math.max(
+          0,
+          Math.min(
+            n - 1,
+            Math.floor(state.simulation.timeState.currentTimeStepIndex),
+          ),
+        );
+        const hi = Math.min(n - 1, idxFloor + LOOKAHEAD_KEYFRAMES);
+        const wantToMs = Number(predicted.timestamps[hi]);
+        const now = Date.now();
+        if (
+          wantToMs > coveredToMs &&
+          now - lastPlaybackFetchAttemptMs >= PLAYBACK_FETCH_MIN_INTERVAL_MS
+        ) {
+          lastPlaybackFetchAttemptMs = now;
+          maybeFetch(typedStore, /* immediate */ false);
+        }
+      }
       return result;
     }
 
