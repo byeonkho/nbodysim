@@ -11,18 +11,7 @@ import {
 import { MobileControlSheet } from "./MobileControlSheet";
 import { MobileBodySheet } from "./MobileBodySheet";
 import { MobileSimSetupSheet } from "./MobileSimSetupSheet";
-import { DEFAULT_SELECTED } from "@/app/constants/BodyCatalog";
-import { BODY_DISPLAY } from "@/app/constants/BodyVisuals";
-import { DEFAULT_FRAME } from "@/app/constants/SimParams";
-import { INTEGRATOR_DEFAULT_BUCKETS } from "@/app/constants/PlaybackQuality";
-import {
-  runSimulation,
-  PRESET_EPOCH,
-  PRESET_INTEGRATOR,
-  PRESET_TIME_UNIT,
-} from "@/app/utils/runSimulation";
-import { DEFAULT_CLIP_ID } from "@/app/constants/ClipPresets";
-import { runStaticClip } from "@/app/utils/runStaticClip";
+import { autorunDefaultScenario } from "@/app/utils/autorunDefaultScenario";
 import { MobileTourOverlay } from "./MobileTourOverlay";
 import { MobilePlanetRail } from "./MobilePlanetRail";
 
@@ -50,22 +39,16 @@ export function MobileChrome() {
       !!store.getState().simulation.simulationParameters?.simulationMetaData
         ?.sessionID;
     if (hasSession) return;
-    // Default scenario plays from the precomputed static asset: zero backend
-    // calls on a bounce. If the asset is somehow unreachable (a build that
-    // shipped without it), fall back to a live run so the scene still appears.
-    void (async () => {
-      const ok = await runStaticClip(dispatch, DEFAULT_CLIP_ID);
-      if (ok) return;
-      void runSimulation(dispatch, {
-        celestialBodyNames: DEFAULT_SELECTED.map((k) => BODY_DISPLAY[k]),
-        date: PRESET_EPOCH,
-        frame: DEFAULT_FRAME,
-        integrator: PRESET_INTEGRATOR,
-        timeStepUnit: PRESET_TIME_UNIT,
-        fidelityBucket:
-          INTEGRATOR_DEFAULT_BUCKETS[PRESET_INTEGRATOR] ?? "medLow",
-      });
-    })();
+    // Default scenario plays from the precomputed static asset (zero backend
+    // calls). If the asset is unreachable, fall back to a live run. The
+    // fallback re-reads the session in case the user submitted their own sim
+    // while the clip was loading; see autorunDefaultScenario for details.
+    void autorunDefaultScenario(
+      dispatch,
+      () =>
+        store.getState().simulation.simulationParameters?.simulationMetaData
+          ?.sessionID,
+    );
   }, [dispatch]);
 
   return (
