@@ -16,6 +16,7 @@ import { PlaybackGate } from "@/app/components/chrome/PlaybackGate";
 import { TourOverlay } from "@/app/components/interface/tour/TourOverlay";
 import { useIsMobile } from "@/app/utils/useIsMobile";
 import { MobileChrome } from "@/app/components/chrome/mobile/MobileChrome";
+import { FirstMountAutorun } from "@/app/components/chrome/FirstMountAutorun";
 
 const Layout: React.FC = () => {
   const [simSetupOpen, setSimSetupOpen] = useState(false);
@@ -94,8 +95,12 @@ const Layout: React.FC = () => {
             </>
           )}
 
-          {/* Shared by both chromes: hidden-tab auto-pause + the idle
-              "still watching?" card for unattended live sessions. */}
+          {/* Shared by both chromes, rendered once outside the responsive
+              branch so they survive the breakpoint swap. FirstMountAutorun
+              plays the default clip a single time on first load; PlaybackGate
+              handles hidden-tab auto-pause + the idle "still watching?" card
+              for unattended live sessions. */}
+          <FirstMountAutorun />
           <PlaybackGate />
 
           {devMode && <DevPanel />}
