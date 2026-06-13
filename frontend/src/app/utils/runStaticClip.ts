@@ -8,6 +8,7 @@
 // is unknown, the clip is too large for this client's buffer budget, or the
 // asset is unreachable or corrupt, so the caller can fall back to a live run.
 import type { AppDispatch } from "@/app/store/Store";
+import { beginLaunch, isCurrentLaunch } from "@/app/store/launchEpoch";
 import {
   appendChunkToBuffer,
   loadSimulation,
@@ -45,6 +46,10 @@ export async function runStaticClip(
     return false;
   }
 
+  // This launch's identity. Re-checked after every await below so a run that
+  // starts mid-decode (live sim, or another clip) is not spliced into.
+  const myEpoch = beginLaunch();
+
   let bytes: Uint8Array;
   try {
     const res = await fetch(clipUrl(presetId));
@@ -63,6 +68,10 @@ export async function runStaticClip(
   } catch {
     return false;
   }
+
+  // A newer launch began while the asset was fetching/parsing: abandon this
+  // clip rather than wiping the new run's state with loadSimulation.
+  if (!isCurrentLaunch(myEpoch)) return false;
 
   // simulationMetaData: null => no session => no chunk prefetch ever.
   dispatch(
@@ -90,6 +99,9 @@ export async function runStaticClip(
   try {
     for (const chunk of chunks) {
       const payload = await decodeOffMainThread(chunk.slice().buffer);
+      // Superseded mid-decode: stop splicing clip chunks into a run that has
+      // moved on. Mirrors the live chunk thunk's post-decode session check.
+      if (!isCurrentLaunch(myEpoch)) return false;
       dispatch(
         appendChunkToBuffer({
           bodyNames: payload.bodyNames,

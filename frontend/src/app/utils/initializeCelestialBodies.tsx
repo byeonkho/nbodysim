@@ -1,4 +1,5 @@
 import { AppDispatch } from "@/app/store/Store";
+import { beginLaunch } from "@/app/store/launchEpoch";
 import { loadSimulation } from "@/app/store/slices/SimulationSlice";
 import { setErrorMessage } from "@/app/store/slices/RequestSlice";
 import { REST_URL } from "@/app/utils/backendUrls";
@@ -41,6 +42,10 @@ export const initializeCelestialBodies = async (
   requestBody: InitializeRequest,
   options: InitializeOptions = {},
 ): Promise<boolean> => {
+  // A new live run supersedes any in-flight clip decode or ground-truth fetch
+  // from a prior launch. Bump before the retry loop so the supersession takes
+  // effect the moment the user commits, not only once the session id lands.
+  beginLaunch();
   const maxAttempts = RETRY_DELAYS_MS.length + 1;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
