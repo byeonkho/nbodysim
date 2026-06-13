@@ -1,6 +1,7 @@
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import { REST_URL } from "@/app/utils/backendUrls";
 import { setBodyAnchors } from "@/app/store/slices/GroundTruthSlice";
+import { currentLaunchEpoch, isCurrentLaunch } from "@/app/store/launchEpoch";
 import type { components } from "@/app/generated/api";
 import type { AppDispatch, RootState } from "@/app/store/Store";
 
@@ -23,6 +24,11 @@ export const fetchGroundTruth = createAsyncThunk<
   FetchArgs,
   { state: RootState; dispatch: AppDispatch }
 >("groundTruth/fetch", async ({ frame, body, fromMs, toMs, stepSeconds }, { dispatch }) => {
+  // Bind this fetch to the launch that started it. A resubmit bumps the
+  // launch epoch (and resets the anchors); if that happened while this was
+  // in flight, dropping it keeps the stale window from repopulating.
+  const myEpoch = currentLaunchEpoch();
+
   const url =
     `${REST_URL}/ground-truth?body=${encodeURIComponent(body)}` +
     `&frame=${encodeURIComponent(frame)}` +
@@ -53,5 +59,6 @@ export const fetchGroundTruth = createAsyncThunk<
     velocity: a.velocity ?? [0, 0, 0],
   }));
 
+  if (!isCurrentLaunch(myEpoch)) return; // superseded by a newer launch
   dispatch(setBodyAnchors({ body, anchors, fromMs, toMs }));
 });
