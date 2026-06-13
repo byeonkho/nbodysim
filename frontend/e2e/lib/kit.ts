@@ -83,6 +83,29 @@ export class Journey {
     ).toBeTruthy();
     return match!;
   }
+  // Wait until the page makes a backend request matching method + url (+ status),
+  // polling the recorded responses. Use this after an interaction that triggers a
+  // request (click resolves before the response arrives). expectRequest is the
+  // synchronous "already happened" variant.
+  async waitForRequest(
+    method: string,
+    urlPattern: string | RegExp,
+    status?: number,
+    opts: { timeoutMs?: number } = {},
+  ): Promise<RecordedResponse> {
+    const timeoutMs = opts.timeoutMs ?? 10000;
+    const deadline = Date.now() + timeoutMs;
+    let match = matchResponse(this.responses, method, urlPattern, status);
+    while (!match && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+      match = matchResponse(this.responses, method, urlPattern, status);
+    }
+    expect(
+      match,
+      `expected a ${method} ${String(urlPattern)}${status ? ` -> ${status}` : ""} request within ${timeoutMs}ms`,
+    ).toBeTruthy();
+    return match!;
+  }
   expectNoRequest(method: string, urlPattern: string | RegExp): void {
     const match = matchResponse(this.responses, method, urlPattern);
     expect(
@@ -103,11 +126,18 @@ export class Journey {
       if (re.test(tail)) return;
       await new Promise((r) => setTimeout(r, 250));
     }
-    expect(re.test(tail), `backend log should match ${re}`).toBe(true);
+    expect(re.test(tail), `backend log should match ${re}; tail was:\n${tail.slice(-500)}`).toBe(true);
   }
-  expectNoLog(re: RegExp): void {
+  // Assert the backend log does NOT contain `re`. Waits a short settle window
+  // first so a not-yet-flushed line has time to appear (logging lags the HTTP
+  // response), then checks the tail once.
+  async expectNoLog(re: RegExp, opts: { settleMs?: number } = {}): Promise<void> {
+    await new Promise((r) => setTimeout(r, opts.settleMs ?? 750));
     const tail = readTail(this.stack.backendLogPath, this.logStartOffset);
-    expect(re.test(tail), `backend log should NOT match ${re}`).toBe(false);
+    expect(
+      re.test(tail),
+      `backend log should NOT match ${re}; tail was:\n${tail.slice(-500)}`,
+    ).toBe(false);
   }
 }
 
@@ -124,8 +154,7 @@ export function journey(
       ? "mobile"
       : "desktop";
     if (opts.viewports && !opts.viewports.includes(viewport)) {
-      test.skip();
-      return;
+      test.skip(true, `journey restricted to ${opts.viewports.join("/")}`);
     }
 
     const stack = readStackFile();
