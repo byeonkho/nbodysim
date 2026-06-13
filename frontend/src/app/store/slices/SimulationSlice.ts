@@ -179,7 +179,7 @@ interface AppendChunkPayload {
   bodyCount: number;
   timestepCount: number;
   positions: Float64Array;
-  timestamps: BigInt64Array;
+  timestamps: Float64Array;
   mu: Record<string, number>;
   // Per-snapshot (E - E₀) / |E₀|. Length === timestepCount.
   deltaERelative: Float32Array;

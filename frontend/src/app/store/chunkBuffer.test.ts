@@ -27,10 +27,10 @@ function makeChunkPositions(
 
 function makeChunkTimestamps(
   timestepCount: number,
-  startMillis: bigint = BigInt(0),
-): BigInt64Array {
-  const arr = new BigInt64Array(timestepCount);
-  for (let i = 0; i < timestepCount; i++) arr[i] = startMillis + BigInt(i);
+  startMillis: number = 0,
+): Float64Array {
+  const arr = new Float64Array(timestepCount);
+  for (let i = 0; i < timestepCount; i++) arr[i] = startMillis + i;
   return arr;
 }
 
@@ -125,28 +125,28 @@ describe("appendChunk", () => {
     expect(buf.positions[0]).toBe(0);
     // Last slot of last body of timestep 9
     expect(buf.positions[10 * 2 * 6 - 1]).toBe(positions[positions.length - 1]);
-    expect(buf.timestamps[9]).toBe(BigInt(9));
+    expect(buf.timestamps[9]).toBe(9);
   });
 
   it("evicts oldest timesteps in chunk-sized blocks when capacity is exceeded", () => {
     // Capacity 30 = 3 × chunk-of-10. Fourth chunk forces eviction.
     const buf = createChunkBuffer(["A"], 30);
-    appendChunk(buf, makeChunkPositions(1, 10, 0), makeChunkTimestamps(10, BigInt(0)), new Float32Array(10), 10);
-    appendChunk(buf, makeChunkPositions(1, 10, 100), makeChunkTimestamps(10, BigInt(100)), new Float32Array(10), 10);
-    appendChunk(buf, makeChunkPositions(1, 10, 200), makeChunkTimestamps(10, BigInt(200)), new Float32Array(10), 10);
+    appendChunk(buf, makeChunkPositions(1, 10, 0), makeChunkTimestamps(10, 0), new Float32Array(10), 10);
+    appendChunk(buf, makeChunkPositions(1, 10, 100), makeChunkTimestamps(10, 100), new Float32Array(10), 10);
+    appendChunk(buf, makeChunkPositions(1, 10, 200), makeChunkTimestamps(10, 200), new Float32Array(10), 10);
     expect(buf.totalTimesteps).toBe(30);
     expect(buf.bufferStartTimestep).toBe(0);
 
     // Fourth chunk forces eviction of the first 10 timesteps.
-    appendChunk(buf, makeChunkPositions(1, 10, 300), makeChunkTimestamps(10, BigInt(300)), new Float32Array(10), 10);
+    appendChunk(buf, makeChunkPositions(1, 10, 300), makeChunkTimestamps(10, 300), new Float32Array(10), 10);
     expect(buf.totalTimesteps).toBe(30);
     expect(buf.bufferStartTimestep).toBe(10);
 
     // First valid timestep is now what was originally timestep 10 (value 100).
-    expect(buf.timestamps[0]).toBe(BigInt(100));
+    expect(buf.timestamps[0]).toBe(100);
     expect(buf.positions[0]).toBe(100);
     // Last valid timestep is the freshly-appended one (300+59).
-    expect(buf.timestamps[29]).toBe(BigInt(309));
+    expect(buf.timestamps[29]).toBe(309);
   });
 
   it("returns the number of timesteps shifted (0 if no eviction)", () => {
@@ -190,8 +190,8 @@ describe("appendChunk", () => {
     expect(buf.totalTimesteps).toBe(6);
     expect(buf.bufferStartTimestep).toBe(4);
     // timestamps are startMillis + i, so slot 0 now holds sample 4.
-    expect(buf.timestamps[0]).toBe(BigInt(4));
-    expect(buf.timestamps[5]).toBe(BigInt(9));
+    expect(buf.timestamps[0]).toBe(4);
+    expect(buf.timestamps[5]).toBe(9);
     // positions are value startValue + i; sample 4 of 1 body starts at flat
     // index 4*6 = 24.
     expect(buf.positions[0]).toBe(24);
@@ -209,7 +209,7 @@ describe("appendChunk", () => {
     appendChunk(
       buf,
       makeChunkPositions(1, 4, 0),
-      makeChunkTimestamps(4, BigInt(0)),
+      makeChunkTimestamps(4, 0),
       new Float32Array(4),
       4,
     );
@@ -222,7 +222,7 @@ describe("appendChunk", () => {
       dropped = appendChunk(
         buf,
         makeChunkPositions(1, 10, 1000),
-        makeChunkTimestamps(10, BigInt(100)),
+        makeChunkTimestamps(10, 100),
         new Float32Array(10),
         10,
       );
@@ -232,8 +232,8 @@ describe("appendChunk", () => {
     expect(buf.totalTimesteps).toBe(6);
     expect(buf.bufferStartTimestep).toBe(8);
     // Incoming timestamps are 100 + i; slot 0 holds incoming sample 4 (=104).
-    expect(buf.timestamps[0]).toBe(BigInt(104));
-    expect(buf.timestamps[5]).toBe(BigInt(109));
+    expect(buf.timestamps[0]).toBe(104);
+    expect(buf.timestamps[5]).toBe(109);
     // Incoming positions are 1000 + i; incoming sample 4 starts at 1000 + 24.
     expect(buf.positions[0]).toBe(1024);
   });
@@ -248,11 +248,11 @@ describe("appendChunk", () => {
 
     // A second exact-capacity chunk evicts everything resident, normally.
     expect(
-      appendChunk(buf, makeChunkPositions(1, 10, 500), makeChunkTimestamps(10, BigInt(500)), new Float32Array(10), 10),
+      appendChunk(buf, makeChunkPositions(1, 10, 500), makeChunkTimestamps(10, 500), new Float32Array(10), 10),
     ).toBe(10);
     expect(buf.totalTimesteps).toBe(10);
     expect(buf.bufferStartTimestep).toBe(10);
-    expect(buf.timestamps[0]).toBe(BigInt(500));
+    expect(buf.timestamps[0]).toBe(500);
   });
 });
 
@@ -302,7 +302,7 @@ describe("readBodyPositionInto: fractional index (Hermite)", () => {
       0, 0, 0, 1, 0, 0,
       1, 0, 0, 1, 0, 0,
     ]);
-    const timestamps = new BigInt64Array([0n, 1000n]);
+    const timestamps = new Float64Array([0, 1000]);
     appendChunk(buf, positions, timestamps, new Float32Array(2), 2);
 
     const out = new THREE.Vector3();
@@ -319,7 +319,7 @@ describe("readBodyPositionInto: fractional index (Hermite)", () => {
       0, 0, 0, 0, 0, 0,
       1, 0, 0, 0, 0, 0,
     ]);
-    const timestamps = new BigInt64Array([0n, 1000n]);
+    const timestamps = new Float64Array([0, 1000]);
     appendChunk(buf, positions, timestamps, new Float32Array(2), 2);
 
     const out = new THREE.Vector3();
@@ -336,7 +336,7 @@ describe("readBodyPositionInto: fractional index (Hermite)", () => {
       0, 0, 0, 2, 0, 0,
       1, 0, 0, 2, 0, 0,
     ]);
-    const timestamps = new BigInt64Array([0n, 500n]); // dt = 0.5s
+    const timestamps = new Float64Array([0, 500]); // dt = 0.5s
     appendChunk(buf, positions, timestamps, new Float32Array(2), 2);
 
     const out = new THREE.Vector3();
@@ -353,7 +353,7 @@ describe("readBodyStateInto: fractional index (Hermite)", () => {
       0, 0, 0, 1, 0, 0,
       1, 0, 0, 1, 0, 0,
     ]);
-    const timestamps = new BigInt64Array([0n, 1000n]);
+    const timestamps = new Float64Array([0, 1000]);
     appendChunk(buf, positions, timestamps, new Float32Array(2), 2);
 
     const outPos = new THREE.Vector3();
@@ -373,7 +373,7 @@ describe("readBodyStateInto: fractional index (Hermite)", () => {
       0, 0, 0, 0, 0, 0,
       1, 0, 0, 0, 0, 0,
     ]);
-    const timestamps = new BigInt64Array([0n, 1000n]);
+    const timestamps = new Float64Array([0, 1000]);
     appendChunk(buf, positions, timestamps, new Float32Array(2), 2);
 
     const outPos = new THREE.Vector3();
@@ -390,7 +390,7 @@ describe("readBodyPositionInto: boundaries and edge cases", () => {
       1, 2, 3, 0, 0, 0,
       4, 5, 6, 0, 0, 0,
     ]);
-    const timestamps = new BigInt64Array([0n, 1000n]);
+    const timestamps = new Float64Array([0, 1000]);
     appendChunk(buf, positions, timestamps, new Float32Array(2), 2);
 
     const out = new THREE.Vector3();
@@ -406,7 +406,7 @@ describe("readBodyPositionInto: boundaries and edge cases", () => {
       1, 2, 3, 0, 0, 0,
       4, 5, 6, 0, 0, 0,
     ]);
-    const timestamps = new BigInt64Array([0n, 1000n]);
+    const timestamps = new Float64Array([0, 1000]);
     appendChunk(buf, positions, timestamps, new Float32Array(2), 2);
 
     const out = new THREE.Vector3();
@@ -419,7 +419,7 @@ describe("readBodyPositionInto: boundaries and edge cases", () => {
   it("returns first-keyframe values for a single-keyframe buffer", () => {
     const buf = createChunkBuffer(["Earth"], 4);
     const positions = new Float64Array([1, 2, 3, 0, 0, 0]);
-    const timestamps = new BigInt64Array([0n]);
+    const timestamps = new Float64Array([0]);
     appendChunk(buf, positions, timestamps, new Float32Array(1), 1);
 
     const out = new THREE.Vector3();
@@ -437,7 +437,7 @@ describe("readBodyPositionInto: integer index (regression)", () => {
       1, 2, 3, 10, 11, 12,
       4, 5, 6, 13, 14, 15,
     ]);
-    const timestamps = new BigInt64Array([0n, 1000n]);
+    const timestamps = new Float64Array([0, 1000]);
     appendChunk(buf, positions, timestamps, new Float32Array(2), 2);
 
     const out = new THREE.Vector3();
@@ -460,7 +460,7 @@ describe("readBodyStateInto: integer index (regression)", () => {
       1, 2, 3, 10, 11, 12,
       4, 5, 6, 13, 14, 15,
     ]);
-    const timestamps = new BigInt64Array([0n, 1000n]);
+    const timestamps = new Float64Array([0, 1000]);
     appendChunk(buf, positions, timestamps, new Float32Array(2), 2);
 
     const outPos = new THREE.Vector3();
@@ -480,7 +480,7 @@ describe("readBodyStateInto: integer index (regression)", () => {
       1, 2, 3, 10, 11, 12,
       4, 5, 6, 13, 14, 15,
     ]);
-    const timestamps = new BigInt64Array([0n, 1000n]);
+    const timestamps = new Float64Array([0, 1000]);
     appendChunk(buf, positions, timestamps, new Float32Array(2), 2);
 
     const outPos = new THREE.Vector3();
@@ -496,9 +496,9 @@ describe("readBodyStateInto: integer index (regression)", () => {
 });
 
 describe("getTimestamp / getTimestampAsIsoString", () => {
-  it("returns raw millis as BigInt and ISO string for a given timestep", () => {
+  it("returns raw millis as a number and ISO string for a given timestep", () => {
     const buf = createChunkBuffer(["A"], 5);
-    const millis = BigInt(Date.UTC(2024, 5, 5));
+    const millis = Date.UTC(2024, 5, 5);
     buf.timestamps[0] = millis;
     buf.totalTimesteps = 1;
 
@@ -519,7 +519,7 @@ describe("readDeltaERelativeAt", () => {
   it("returns the stored value at integer indices", () => {
     const buf = createChunkBuffer(["Earth"], 100);
     const positions = new Float64Array(3 * 6);
-    const timestamps = new BigInt64Array([0n, 1000n, 2000n]);
+    const timestamps = new Float64Array([0, 1000, 2000]);
     const deltaE = new Float32Array([1e-12, 2e-12, 3e-12]);
 
     appendChunk(buf, positions, timestamps, deltaE, 3);
@@ -532,7 +532,7 @@ describe("readDeltaERelativeAt", () => {
   it("linearly interpolates at fractional indices", () => {
     const buf = createChunkBuffer(["Earth"], 100);
     const positions = new Float64Array(2 * 6);
-    const timestamps = new BigInt64Array([0n, 1000n]);
+    const timestamps = new Float64Array([0, 1000]);
     const deltaE = new Float32Array([1e-12, 3e-12]);
 
     appendChunk(buf, positions, timestamps, deltaE, 2);
@@ -554,7 +554,7 @@ describe("appendChunk: chunk-level DP853 telemetry", () => {
     appendChunk(
       buf,
       new Float64Array(6),
-      new BigInt64Array([0n]),
+      new Float64Array([0]),
       new Float32Array([0]),
       1,
       3600,
@@ -567,7 +567,7 @@ describe("appendChunk: chunk-level DP853 telemetry", () => {
     appendChunk(
       buf,
       new Float64Array(6),
-      new BigInt64Array([1000n]),
+      new Float64Array([1000]),
       new Float32Array([0]),
       1,
       null,
@@ -582,13 +582,13 @@ describe("appendChunk: chunk-level DP853 telemetry", () => {
   // at Trail / DevPanel / TopStatusStrip-buffered sites but missed this
   // selector path (TopStatusStrip + Timeline both consume
   // selectCurrentTimeStepIsoString). With a fractional index,
-  // BigInt64Array[3.5] returns undefined → Number(undefined) = NaN →
-  // new Date(NaN).toISOString() throws RangeError. Floor inside the
+  // Float64Array[3.5] returns undefined → new Date(undefined) is an Invalid
+  // Date whose .toISOString() throws RangeError. Floor inside the
   // function so every caller is protected from float indices.
   it("returns the keyframe-N ISO string when given a fractional index between N and N+1", () => {
     const buf = createChunkBuffer(["A"], 5);
-    const t0 = BigInt(Date.UTC(2024, 5, 5, 0));
-    const t1 = BigInt(Date.UTC(2024, 5, 5, 4));
+    const t0 = Date.UTC(2024, 5, 5, 0);
+    const t1 = Date.UTC(2024, 5, 5, 4);
     buf.timestamps[0] = t0;
     buf.timestamps[1] = t1;
     buf.totalTimesteps = 2;

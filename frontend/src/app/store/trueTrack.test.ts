@@ -9,7 +9,7 @@ import { Vector3 } from "three";
 function predictedWithTimestamps(tsMillis: number[]): ReturnType<typeof createChunkBuffer> {
   const buf = createChunkBuffer(["EARTH"], tsMillis.length);
   for (let i = 0; i < tsMillis.length; i++) {
-    buf.timestamps[i] = BigInt(tsMillis[i]);
+    buf.timestamps[i] = tsMillis[i];
   }
   buf.totalTimesteps = tsMillis.length;
   return buf;

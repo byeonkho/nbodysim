@@ -43,7 +43,7 @@ function dummyChunkPayload(timestepCount = 5) {
     bodyCount,
     timestepCount,
     positions: new Float64Array(timestepCount * bodyCount * 6),
-    timestamps: new BigInt64Array(timestepCount),
+    timestamps: new Float64Array(timestepCount),
     mu: { Mars: 4.2828e13 },
     deltaERelative: new Float32Array(timestepCount),
     dp853AvgStepSeconds: null as number | null,

@@ -18,7 +18,7 @@ interface ChunkPayload {
   bodyCount: number;
   timestepCount: number;
   positions: Float64Array;
-  timestamps: BigInt64Array;
+  timestamps: Float64Array;
   mu: Record<string, number>;
   deltaERelative: Float32Array;
   dp853AvgStepSeconds: number | null;

@@ -13,7 +13,7 @@ export const BYTES_PER_TIMESTEP_PER_BODY = 6 * 8; // 6 doubles
 
 export interface ChunkBuffer {
   positions: Float64Array;
-  timestamps: BigInt64Array;
+  timestamps: Float64Array;
   // Parallel to timestamps. Per-snapshot (E - E₀) / |E₀| from the
   // backend integrator. Stored as float32 to match the wire format —
   // it's a UI readout, the extra precision wouldn't be used.
@@ -115,7 +115,7 @@ export function createChunkBuffer(
   }
   return {
     positions: new Float64Array(capacity * bodyCount * 6),
-    timestamps: new BigInt64Array(capacity),
+    timestamps: new Float64Array(capacity),
     deltaERelative: new Float32Array(capacity),
     bodyNames,
     bodyNameToIndex: map,
@@ -144,7 +144,7 @@ export function createChunkBuffer(
 export function appendChunk(
   buffer: ChunkBuffer,
   chunkPositions: Float64Array,
-  chunkTimestamps: BigInt64Array,
+  chunkTimestamps: Float64Array,
   chunkDeltaE: Float32Array,
   chunkLen: number,
   dp853AvgStepSeconds: number | null = null,
@@ -287,7 +287,7 @@ export function readBodyPositionInto(
   const base0 = i0 * stride + bodyIdx * 6;
   const base1 = base0 + stride;
 
-  const dtMs = Number(buffer.timestamps[i0 + 1] - buffer.timestamps[i0]);
+  const dtMs = buffer.timestamps[i0 + 1] - buffer.timestamps[i0];
   const dt = dtMs / 1000;
 
   const s2 = s * s;
@@ -370,7 +370,7 @@ export function readBodyStateInto(
   const base0 = i0 * stride + bodyIdx * 6;
   const base1 = base0 + stride;
 
-  const dtMs = Number(buffer.timestamps[i0 + 1] - buffer.timestamps[i0]);
+  const dtMs = buffer.timestamps[i0 + 1] - buffer.timestamps[i0];
   const dt = dtMs / 1000;
 
   const s2 = s * s;
@@ -409,7 +409,7 @@ export function readBodyStateInto(
   outVel.z = (dh00 * p0z + dh01 * p1z) * invDt + dh10 * v0z + dh11 * v1z;
 }
 
-export function getTimestamp(buffer: ChunkBuffer, timestepIdx: number): bigint {
+export function getTimestamp(buffer: ChunkBuffer, timestepIdx: number): number {
   return buffer.timestamps[timestepIdx];
 }
 
@@ -418,14 +418,14 @@ export function getTimestampAsIsoString(
   timestepIdx: number,
 ): string {
   // Floor the index so float values from Phase 1's wall-clock-rate animation
-  // driving land on a real keyframe slot. BigInt64Array indexed with a
-  // fractional key returns undefined → Number(undefined) = NaN →
-  // new Date(NaN).toISOString() throws RangeError. Semantically: "the
+  // driving land on a real keyframe slot. Float64Array indexed with a
+  // fractional key returns undefined → new Date(undefined) is an Invalid Date
+  // whose .toISOString() throws RangeError. Semantically: "the
   // timestamp at or before this fractional position" — same reasoning as
   // Trail's tail loop ("integer indexing is semantically correct for
   // historical keyframe reads").
   const idx = Math.floor(timestepIdx);
   if (idx < 0 || idx >= buffer.totalTimesteps) return "";
-  const millis = Number(buffer.timestamps[idx]);
+  const millis = buffer.timestamps[idx];
   return new Date(millis).toISOString();
 }
