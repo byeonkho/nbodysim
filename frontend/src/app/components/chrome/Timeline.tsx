@@ -1,8 +1,10 @@
 "use client";
 
 import {
+  memo,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -189,6 +191,44 @@ function RateReadout() {
 
 const TICK_COUNT = 25;
 
+// Static SVG elements that never depend on playback position. Wrapped in
+// memo so React skips reconciling the 25 tick lines and gradient defs on
+// every frame tick while the scrubber index advances.
+const StaticTrack = memo(function StaticTrack() {
+  return (
+    <>
+      <line
+        x1="0"
+        y1="14"
+        x2="100%"
+        y2="14"
+        stroke="rgba(255,255,255,0.08)"
+        strokeWidth="1"
+      />
+      {Array.from({ length: TICK_COUNT }).map((_, i) => {
+        const major = i % 6 === 0;
+        const x = `${(i / (TICK_COUNT - 1)) * 100}%`;
+        return (
+          <line
+            key={i}
+            x1={x}
+            y1={major ? 7 : 11}
+            x2={x}
+            y2="14"
+            stroke={major ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.12)"}
+          />
+        );
+      })}
+      <defs>
+        <linearGradient id="timelineGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="rgba(164,168,255,0.25)" />
+          <stop offset="1" stopColor="var(--color-accent)" />
+        </linearGradient>
+      </defs>
+    </>
+  );
+});
+
 function Scrubber() {
   const dispatch = useDispatch();
   const total = useSelector(selectTotalTimeSteps);
@@ -197,8 +237,13 @@ function Scrubber() {
   const trackRef = useRef<HTMLDivElement>(null);
 
   const progress = total > 1 ? idx / (total - 1) : 0;
-  const utcDate = isoToDateOrNull(utcKey);
-  const tPlus = utcDate ? formatTPlus(utcDate) : "T+— d";
+  // isoToDateOrNull + formatTPlus are pure functions of utcKey, which
+  // changes per keyframe (not per frame). Memoize to avoid recreating the
+  // Date object and string on every render while the scrubber is playing.
+  const tPlus = useMemo(() => {
+    const d = isoToDateOrNull(utcKey);
+    return d ? formatTPlus(d) : "T+— d";
+  }, [utcKey]);
 
   const seek = (clientX: number) => {
     if (!trackRef.current || total <= 1) return;
@@ -242,28 +287,7 @@ function Scrubber() {
           height="32"
           className="pointer-events-none absolute inset-0 overflow-visible"
         >
-          <line
-            x1="0"
-            y1="14"
-            x2="100%"
-            y2="14"
-            stroke="rgba(255,255,255,0.08)"
-            strokeWidth="1"
-          />
-          {Array.from({ length: TICK_COUNT }).map((_, i) => {
-            const major = i % 6 === 0;
-            const x = `${(i / (TICK_COUNT - 1)) * 100}%`;
-            return (
-              <line
-                key={i}
-                x1={x}
-                y1={major ? 7 : 11}
-                x2={x}
-                y2="14"
-                stroke={major ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.12)"}
-              />
-            );
-          })}
+          <StaticTrack />
           <rect
             x="0"
             y="13"
@@ -272,12 +296,6 @@ function Scrubber() {
             fill="url(#timelineGrad)"
             rx="1"
           />
-          <defs>
-            <linearGradient id="timelineGrad" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0" stopColor="rgba(164,168,255,0.25)" />
-              <stop offset="1" stopColor="var(--color-accent)" />
-            </linearGradient>
-          </defs>
         </svg>
         <div
           className="pointer-events-none absolute top-1.5 flex flex-col items-center"
