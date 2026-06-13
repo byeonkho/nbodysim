@@ -17,8 +17,24 @@ export interface StackInfo {
   backendPort: number;
   frontendPort: number;
   backendLogPath: string;
+  frontendLogPath: string;
   backendPid: number;
   frontendPid: number;
+}
+
+function killGroup(proc: ChildProcess): void {
+  if (proc.pid && !proc.killed) {
+    try {
+      // Negative pid kills the whole process group (next/java spawn children).
+      process.kill(-proc.pid, "SIGTERM");
+    } catch {
+      try {
+        proc.kill("SIGTERM");
+      } catch {
+        // already gone
+      }
+    }
+  }
 }
 
 export class Stack {
@@ -30,18 +46,7 @@ export class Stack {
 
   stop(): void {
     for (const proc of [this.frontend, this.backend]) {
-      if (proc.pid && !proc.killed) {
-        try {
-          // Negative pid kills the whole process group (next/java spawn children).
-          process.kill(-proc.pid, "SIGTERM");
-        } catch {
-          try {
-            proc.kill("SIGTERM");
-          } catch {
-            // already gone
-          }
-        }
-      }
+      killGroup(proc);
     }
   }
 }
@@ -124,38 +129,54 @@ export async function bootStack(): Promise<Stack> {
   const orekitInSrc = path.join(BACKEND_DIR, "src", "main", "resources", "orekit-data-master");
   const orekitDataPath = fs.existsSync(orekitInTarget) ? orekitInTarget : orekitInSrc;
 
-  const backendLog = fs.openSync(backendLogPath, "w");
-  const backend = spawn("java", ["-jar", jar, `--server.port=${backendPort}`], {
-    cwd: BACKEND_DIR,
-    env: { ...process.env, OREKIT_DATA_PATH: orekitDataPath },
-    stdio: ["ignore", backendLog, backendLog],
-    detached: true,
-  });
-  await waitForHttp(`${backendUrl}/actuator/health`, "backend");
-
-  const frontendLog = fs.openSync(frontendLogPath, "w");
-  const frontend = spawn(
-    "npm",
-    ["run", "dev", "--", "-p", String(frontendPort)],
-    {
-      cwd: FRONTEND_DIR,
-      env: { ...process.env, NEXT_PUBLIC_BACKEND_URL: backendUrl },
-      stdio: ["ignore", frontendLog, frontendLog],
+  // Track spawned children so a failure mid-boot (e.g. the frontend never gets
+  // healthy) tears down whatever already started instead of orphaning it.
+  const spawned: ChildProcess[] = [];
+  try {
+    const backendLog = fs.openSync(backendLogPath, "w");
+    // detached:true puts each child in its own process group so killGroup() can
+    // reap its grandchildren. The flip side: these groups outlive a hard-killed
+    // (SIGKILL/crash) parent, so cleanup relies on stop() or global-teardown running.
+    const backend = spawn("java", ["-jar", jar, `--server.port=${backendPort}`], {
+      cwd: BACKEND_DIR,
+      env: { ...process.env, OREKIT_DATA_PATH: orekitDataPath },
+      stdio: ["ignore", backendLog, backendLog],
       detached: true,
-    },
-  );
-  await waitForHttp(frontendUrl, "frontend");
+    });
+    spawned.push(backend);
+    await waitForHttp(`${backendUrl}/actuator/health`, "backend");
 
-  const info: StackInfo = {
-    frontendUrl,
-    backendUrl,
-    backendPort,
-    frontendPort,
-    backendLogPath,
-    backendPid: backend.pid!,
-    frontendPid: frontend.pid!,
-  };
-  return new Stack(info, backend, frontend);
+    const frontendLog = fs.openSync(frontendLogPath, "w");
+    // "npm run dev -- -p <port>" appends our -p after the script's own "-p 3001";
+    // next honors the last -p, so the alt port wins.
+    const frontend = spawn(
+      "npm",
+      ["run", "dev", "--", "-p", String(frontendPort)],
+      {
+        cwd: FRONTEND_DIR,
+        env: { ...process.env, NEXT_PUBLIC_BACKEND_URL: backendUrl },
+        stdio: ["ignore", frontendLog, frontendLog],
+        detached: true,
+      },
+    );
+    spawned.push(frontend);
+    await waitForHttp(frontendUrl, "frontend");
+
+    const info: StackInfo = {
+      frontendUrl,
+      backendUrl,
+      backendPort,
+      frontendPort,
+      backendLogPath,
+      frontendLogPath,
+      backendPid: backend.pid!,
+      frontendPid: frontend.pid!,
+    };
+    return new Stack(info, backend, frontend);
+  } catch (e) {
+    for (const p of spawned) killGroup(p);
+    throw e;
+  }
 }
 
 export function writeStackFile(info: StackInfo): void {
