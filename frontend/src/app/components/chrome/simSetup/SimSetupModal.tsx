@@ -130,6 +130,13 @@ export function SimSetupModal({ open, onOpenChange }: SimSetupModalProps) {
       // button back to enabled for one render.
     }
 
+    // Capture the session this run replaces BEFORE initialize wipes it, so the
+    // backend releases it immediately rather than orphaning it for the full
+    // idle timeout. Undefined (first run) is omitted from the body, a no-op.
+    const previousSessionID =
+      store.getState().simulation.simulationParameters?.simulationMetaData
+        ?.sessionID;
+
     const requestPayload = {
       celestialBodyNames,
       date: epoch,
@@ -145,7 +152,7 @@ export function SimSetupModal({ open, onOpenChange }: SimSetupModalProps) {
       // Backend wants the frame CODE; lastRequest keeps the LABEL for display.
       const ok = await initializeCelestialBodies(
         dispatch,
-        { ...requestPayload, frame: FRAME_CODE[frame] ?? frame },
+        { ...requestPayload, frame: FRAME_CODE[frame] ?? frame, previousSessionID },
         {
           onRetry: () =>
             setSubmitMsg("Waking up the simulator, this can take a few seconds…"),

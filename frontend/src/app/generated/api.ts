@@ -63,6 +63,7 @@ export interface components {
             integrator?: string;
             timeStepUnit?: string;
             fidelityBucket?: string;
+            previousSessionID?: string;
         };
         CelestialBodyWrapper: {
             /** Format: double */
@@ -83,6 +84,8 @@ export interface components {
         };
         SimulationChunkRequest: {
             sessionID?: string;
+            /** Format: int32 */
+            expectedChunkIndex?: number;
         };
         BodyGroundTruthTrack: {
             name?: string;

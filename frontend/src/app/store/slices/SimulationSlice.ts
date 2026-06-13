@@ -137,6 +137,11 @@ interface SimulationState {
   simulationParameters: SimulationParameters;
   chunkBuffer: ChunkBuffer | null;
   hasReceivedFirstChunk: boolean;
+  // Number of chunks successfully appended this session. Doubles as the
+  // expectedChunkIndex the client sends on the next /chunk request, so a
+  // retried fetch (which never appended) asks for the same index and the
+  // backend re-serves rather than advancing the cursor.
+  chunksAppended: number;
   timeState: TimeState;
 }
 
@@ -161,6 +166,7 @@ const initialState: SimulationState = {
   },
   chunkBuffer: null,
   hasReceivedFirstChunk: false,
+  chunksAppended: 0,
   timeState: {
     isPaused: true,
     speedMultiplier: 1,
@@ -204,6 +210,7 @@ export const simulationSlice = createSlice({
       // preferences, not session state. See todo #55.
       state.chunkBuffer = null;
       state.hasReceivedFirstChunk = false;
+      state.chunksAppended = 0;
       state.timeState = {
         isPaused: true,
         speedMultiplier: 1,
@@ -306,6 +313,7 @@ export const simulationSlice = createSlice({
       }
 
       state.hasReceivedFirstChunk = true;
+      state.chunksAppended += 1;
     },
 
     togglePause: (state) => {
