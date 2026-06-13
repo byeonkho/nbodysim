@@ -20,6 +20,8 @@ import { autorunDefaultScenario } from "@/app/utils/autorunDefaultScenario";
 // effect.
 export function FirstMountAutorun() {
   const dispatch = useDispatch<AppDispatch>();
+  // Survives StrictMode's dev mount/unmount/remount (refs outlive effect
+  // teardown), so the effect below autoruns exactly once even in dev.
   const bootedRef = useRef(false);
 
   useEffect(() => {
