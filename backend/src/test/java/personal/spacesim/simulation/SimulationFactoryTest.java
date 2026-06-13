@@ -175,6 +175,35 @@ class SimulationFactoryTest {
     }
 
     @Test
+    void dp853WithSingleSnapshotThrows() {
+        // N <= 1 on the adaptive (DP853) path leaves the emission time-gap at
+        // zero, which would make run()'s substep emit loop spin forever. The
+        // constructor must reject it fast and clearly instead of hanging.
+        SimulationFactory factory = newFactory();
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> factory.createSimulation(
+                        "test", List.of("SUN", "EARTH"),
+                        "Heliocentric", "DP853", AbsoluteDate.J2000_EPOCH,
+                        "hours", 1, /* N */ 1));
+        assertTrue(ex.getMessage().contains("targetSnapshotsPerChunk"),
+                "Message should name the offending parameter: " + ex.getMessage());
+    }
+
+    @Test
+    void dp853WithTwoSnapshotsConstructs() {
+        // N = 2 is the minimum valid count for the adaptive path (one time gap
+        // spanning the two samples), so construction must succeed.
+        SimulationFactory factory = newFactory();
+        Simulation sim = factory.createSimulation(
+                "test", List.of("SUN", "EARTH"),
+                "Heliocentric", "DP853", AbsoluteDate.J2000_EPOCH,
+                "hours", 1, /* N */ 2);
+        assertNotNull(sim);
+        assertEquals(2, sim.getCelestialBodies().size());
+    }
+
+    @Test
     void titanMassive_iapetusTestParticle() {
         SimulationFactory factory = newFactory();
         Simulation sim = factory.createSimulation(
