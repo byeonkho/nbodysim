@@ -96,6 +96,22 @@ Copy `journeys/_template.spec.ts`. A journey is `journey(name, async (j) => { ..
 errors on a known-noisy path. Both default: run desktop and mobile, fail on
 console error.
 
+## Diagnose interactively, then pin it
+
+Editing a spec, rebooting, and reading the failure dump is a slow loop for
+*figuring out* what the app does (focus, event order, why a click misses). For
+that, drive the running app live with a browser MCP (for example Playwright MCP:
+`claude mcp add playwright npx @playwright/mcp@latest`): boot the warm stack,
+point the MCP at the frontend URL it prints (also in `.artifacts/stack.json`),
+and probe with snapshots and `browser_evaluate` until the behaviour is clear.
+Then crystallise the confirmed behaviour into a committed journey here.
+
+Explore with the MCP, pin the regression with the kit. The MCP drives a browser
+but does not boot the backend and leaves nothing durable, so it complements
+these specs rather than replacing them. It is also the fastest way to find out
+that a behaviour is not e2e-testable at all (see the Enter-activation gotcha
+below) before you sink time into a flaky spec.
+
 ## Gotchas and constraints
 
 - **First-load intro tour:** the tour overlay can intercept clicks on the app
