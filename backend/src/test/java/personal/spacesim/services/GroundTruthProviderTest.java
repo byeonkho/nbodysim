@@ -58,7 +58,7 @@ class GroundTruthProviderTest {
         AbsoluteDate from = new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC());
         AbsoluteDate to = from.shiftedBy(10 * 86_400.0); // 10 days
 
-        GroundTruthResponse resp = provider.sampleTracks(List.of("EARTH"), frame, from, to, 86_400.0);
+        GroundTruthResponse resp = provider.sampleTracks(List.of("EARTH"), frame, from, to, 86_400.0, true);
 
         assertEquals(1, resp.tracks().size());
         BodyGroundTruthTrack track = resp.tracks().get(0);
@@ -91,7 +91,7 @@ class GroundTruthProviderTest {
 
         // Earth's Moon orbits EARTH, so it is not a supported (Sun-relative,
         // planet/Pluto) body in v1.
-        GroundTruthResponse resp = provider.sampleTracks(List.of("MOON"), frame, from, to, 86_400.0);
+        GroundTruthResponse resp = provider.sampleTracks(List.of("MOON"), frame, from, to, 86_400.0, true);
         assertTrue(resp.tracks().isEmpty());
     }
 
@@ -101,11 +101,38 @@ class GroundTruthProviderTest {
         AbsoluteDate from = new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC());
         AbsoluteDate to = from.shiftedBy(10 * 86_400.0); // 10 days
 
-        // 2-day cadence over a 10-day window → i = 0..5 → 6 anchors.
+        // 2-day cadence over a 10-day window -> i = 0..5 -> 6 anchors.
         GroundTruthResponse resp =
-                provider.sampleTracks(List.of("EARTH"), frame, from, to, 2 * 86_400.0);
+                provider.sampleTracks(List.of("EARTH"), frame, from, to, 2 * 86_400.0, true);
 
         assertEquals(1, resp.tracks().size());
         assertEquals(6, resp.tracks().get(0).anchors().size());
+    }
+
+    @Test
+    void rawPositionsWhenSubtractSunFalse() {
+        Frame frame = FramesFactory.getICRF();
+        AbsoluteDate from = new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC());
+        AbsoluteDate to = from.shiftedBy(86_400.0);
+
+        GroundTruthResponse relative =
+                provider.sampleTracks(List.of("EARTH"), frame, from, to, 86_400.0, true);
+        GroundTruthResponse raw =
+                provider.sampleTracks(List.of("EARTH"), frame, from, to, 86_400.0, false);
+
+        GroundTruthAnchor rel0 = relative.tracks().get(0).anchors().get(0);
+        GroundTruthAnchor raw0 = raw.tracks().get(0).anchors().get(0);
+
+        // raw - relative == the Sun's position (relative = body - Sun, raw = body).
+        PVCoordinates sunPv = CelestialBodyFactory.getSun().getPVCoordinates(from, frame);
+        assertEquals(sunPv.getPosition().getX(), raw0.position()[0] - rel0.position()[0], 1.0);
+        assertEquals(sunPv.getPosition().getY(), raw0.position()[1] - rel0.position()[1], 1.0);
+        assertEquals(sunPv.getPosition().getZ(), raw0.position()[2] - rel0.position()[2], 1.0);
+
+        // raw equals direct ephemeris with no subtraction.
+        PVCoordinates bodyPv = CelestialBodyFactory.getBody("EARTH").getPVCoordinates(from, frame);
+        assertEquals(bodyPv.getPosition().getX(), raw0.position()[0], 1.0);
+        assertEquals(bodyPv.getPosition().getY(), raw0.position()[1], 1.0);
+        assertEquals(bodyPv.getPosition().getZ(), raw0.position()[2], 1.0);
     }
 }

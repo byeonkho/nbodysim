@@ -136,7 +136,7 @@ class JsonPayloadBenchmark {
         GroundTruthResponse response = groundTruthProvider.sampleTracks(
             sim.getCelestialBodies().stream().map(CelestialBodyWrapper::getName).toList(),
             sim.getFrame(), from, to,
-            GroundTruthProvider.DAILY_CADENCE_SECONDS
+            GroundTruthProvider.DAILY_CADENCE_SECONDS, true
         );
 
         int totalTracks  = response.tracks().size();
