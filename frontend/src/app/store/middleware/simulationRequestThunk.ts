@@ -112,6 +112,14 @@ export const requestRunSimulation = createAsyncThunk<
       const buffer = await response.arrayBuffer();
       const messageData = await decodeOffMainThread(buffer);
 
+      // Superseded while decoding: the abort rejects an in-flight fetch but
+      // can't interrupt the decode await, so check the signal directly. The
+      // newer request owns the in-progress flag and the buffer now; falling
+      // through would append this request's timesteps late.
+      if (signal.aborted) {
+        return;
+      }
+
       // Stale-session guard: if the user resubmitted while this chunk was
       // in flight (or being decoded), the slice's current sessionID has
       // already moved on. Drop silently — merging would splatter old
@@ -140,13 +148,22 @@ export const requestRunSimulation = createAsyncThunk<
         }),
       );
     } catch (err) {
-      dispatch(setRequestInProgress(false));
       // Aborted by dispatchChunkRequest when a newer request supersedes
-      // this one — silent, not a user-facing error.
+      // this one — silent, not a user-facing error. The superseder set
+      // isRequestInProgress(true) synchronously at dispatch, before this
+      // catch runs (the abort rejection lands a microtask later), and owns
+      // the flag from here: resetting it would knock it back to false
+      // mid-flight and re-open the prefetch gate to duplicate requests.
+      if (signal.aborted) {
+        return;
+      }
+      dispatch(setRequestInProgress(false));
+      // An AbortError without our signal aborted has no superseder owning
+      // the flag (e.g. the browser tearing down fetches on navigation):
+      // reset the flag above, but stay silent all the same.
       if (
-        signal.aborted ||
-        (err instanceof Error &&
-          (err.name === "AbortError" || err.name === "CanceledError"))
+        err instanceof Error &&
+        (err.name === "AbortError" || err.name === "CanceledError")
       ) {
         return;
       }
