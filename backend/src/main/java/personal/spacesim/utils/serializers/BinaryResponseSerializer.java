@@ -67,10 +67,17 @@ import java.util.Map;
  *   <li><b>Structure-of-arrays (planar) layout.</b> Grouping like-magnitude
  *       values into contiguous runs lets zstd find the redundancy the
  *       interleaved layout hid.</li>
- *   <li><b>Uniform-cadence timestamps.</b> Emission spacing is uniform, so a
- *       single (startMillis, gapMillis) replaces a per-timestep int64. The
- *       client reconstructs each timestamp by rounding; accurate to ~1 ms,
- *       invisible everywhere it's used (date readout, Hermite interval).</li>
+ *   <li><b>Uniform-cadence timestamps.</b> Emission spacing is uniform in TAI
+ *       (continuous SI seconds), so a single (startMillis, gapMillis) replaces a
+ *       per-timestep int64. The client reconstructs each timestamp by rounding;
+ *       accurate to ~1 ms on the normal path, invisible everywhere it's used
+ *       (date readout, Hermite interval). Caveat: the wire encodes Unix millis,
+ *       which is not uniform across a UTC leap second. A chunk whose window
+ *       crosses one of the historical leap seconds (pre-2017 epochs) smears the
+ *       missing second across the chunk, so interior reconstructed timestamps
+ *       and the date readout can drift up to ~1 s for that chunk. Bounded and
+ *       self-resetting per chunk; the per-sample ground-truth anchors are sent
+ *       exactly, not reconstructed from this gap.</li>
  *   <li><b>Byte-plane shuffle.</b> Each float32 plane's 4 bytes are split into
  *       4 contiguous runs, so zstd compresses the stable high-order bytes (which
  *       are often identical across adjacent steps) without interleaving
@@ -160,7 +167,11 @@ public class BinaryResponseSerializer {
 
         long startMillis = millis[0];
         // Best-fit uniform spacing (float64 ms). Averaging first→last cancels
-        // the per-date ms rounding; interior timestamps reconstruct within ~1 ms.
+        // the per-date ms rounding; interior timestamps reconstruct within ~1 ms
+        // in TAI. Across a UTC leap second (rare, pre-2017 epochs) the Unix-millis
+        // grid is non-uniform, so this best fit smears the leap second and
+        // interior timestamps can drift up to ~1 s for that chunk; self-resets
+        // the next chunk.
         double gapMillis = timestepCount > 1
                 ? (double) (millis[timestepCount - 1] - startMillis) / (timestepCount - 1)
                 : 0.0;
@@ -214,18 +225,28 @@ public class BinaryResponseSerializer {
             buf.putDouble(px[b]).putDouble(py[b]).putDouble(pz[b]);
         }
 
+        // Reusable scratch for the six shuffled planes: one float plane (deltas
+        // or absolute row 0) and one shuffle byte buffer, overwritten between
+        // calls. Replaces 12 transient per-chunk allocations (6 planes + 6
+        // shuffle buffers). The step-delta calls re-zero row 0, the velocity
+        // calls overwrite row 0 with absolute values, and the shuffle overwrites
+        // every byte, so neither scratch needs a full clear between uses.
+        int planeLen = timestepCount * bodyCount;
+        float[] planeScratch = new float[planeLen];
+        byte[] shuffleScratch = new byte[planeLen * 4];
+
         // Per-step position deltas, planar by axis, byte-plane shuffled.
         // Row 0 is zero (the per-body f64 reference carries timestep 0).
-        putShuffledStepDeltas(buf, px, timestepCount, bodyCount);
-        putShuffledStepDeltas(buf, py, timestepCount, bodyCount);
-        putShuffledStepDeltas(buf, pz, timestepCount, bodyCount);
+        putShuffledStepDeltas(buf, px, timestepCount, bodyCount, planeScratch, shuffleScratch);
+        putShuffledStepDeltas(buf, py, timestepCount, bodyCount, planeScratch, shuffleScratch);
+        putShuffledStepDeltas(buf, pz, timestepCount, bodyCount, planeScratch, shuffleScratch);
 
         // Velocity, planar by axis, temporal-delta (row 0 absolute), byte-plane
         // shuffled. Smooth signal => tiny deltas => highly compressible; client
         // prefix-sums in float64 (worst-case drift measured ~0.02 m/s).
-        putShuffledVelDeltas(buf, vx, timestepCount, bodyCount);
-        putShuffledVelDeltas(buf, vy, timestepCount, bodyCount);
-        putShuffledVelDeltas(buf, vz, timestepCount, bodyCount);
+        putShuffledVelDeltas(buf, vx, timestepCount, bodyCount, planeScratch, shuffleScratch);
+        putShuffledVelDeltas(buf, vy, timestepCount, bodyCount, planeScratch, shuffleScratch);
+        putShuffledVelDeltas(buf, vz, timestepCount, bodyCount, planeScratch, shuffleScratch);
 
         return buf.array();
     }
@@ -238,16 +259,19 @@ public class BinaryResponseSerializer {
      * high-order bytes; the client reconstructs by un-shuffle + prefix sum.
      */
     private static void putShuffledStepDeltas(ByteBuffer buf, double[] vals,
-                                              int timestepCount, int bodyCount) {
-        int n = timestepCount * bodyCount;
-        float[] plane = new float[n];                 // row 0 already 0.0f
+                                              int timestepCount, int bodyCount,
+                                              float[] plane, byte[] shuffleScratch) {
+        // Row 0 is the zero reference (the per-body f64 reference carries
+        // timestep 0). The plane scratch is reused across planes, so re-zero
+        // row 0 explicitly rather than relying on a fresh allocation.
+        for (int b = 0; b < bodyCount; b++) plane[b] = 0.0f;
         for (int i = 1; i < timestepCount; i++) {
             int base = i * bodyCount, prev = base - bodyCount;
             for (int b = 0; b < bodyCount; b++) {
                 plane[base + b] = (float) (vals[base + b] - vals[prev + b]);
             }
         }
-        putShuffledFloats(buf, plane);
+        putShuffledFloats(buf, plane, shuffleScratch);
     }
 
     /**
@@ -256,9 +280,10 @@ public class BinaryResponseSerializer {
      * {@code vals} is the float32-cast velocity in (timestep, body) order.
      */
     private static void putShuffledVelDeltas(ByteBuffer buf, float[] vals,
-                                             int timestepCount, int bodyCount) {
-        int n = timestepCount * bodyCount;
-        float[] plane = new float[n];
+                                             int timestepCount, int bodyCount,
+                                             float[] plane, byte[] shuffleScratch) {
+        // Overwrites every element of the reused plane: row 0 absolute, rows
+        // 1..T-1 step deltas. No clear needed.
         for (int b = 0; b < bodyCount; b++) plane[b] = vals[b];   // row 0 absolute
         for (int i = 1; i < timestepCount; i++) {
             int base = i * bodyCount, prev = base - bodyCount;
@@ -266,22 +291,23 @@ public class BinaryResponseSerializer {
                 plane[base + b] = vals[base + b] - vals[prev + b];
             }
         }
-        putShuffledFloats(buf, plane);
+        putShuffledFloats(buf, plane, shuffleScratch);
     }
 
     /**
      * Byte-plane shuffle: writes all of each float's byte 0 (n bytes), then all
      * byte 1, then byte 2, then byte 3. Byte p of value i lands at p*n + i.
      */
-    private static void putShuffledFloats(ByteBuffer buf, float[] vals) {
+    private static void putShuffledFloats(ByteBuffer buf, float[] vals, byte[] out) {
+        // Overwrites every byte of the reused scratch (offsets 0..n*4-1), so it
+        // needs no clearing between calls.
         int n = vals.length;
-        byte[] out = new byte[n * 4];
         for (int i = 0; i < n; i++) {
             int bits = Float.floatToRawIntBits(vals[i]);
             for (int p = 0; p < 4; p++) {
                 out[p * n + i] = (byte) (bits >>> (8 * p));
             }
         }
-        buf.put(out);
+        buf.put(out, 0, n * 4);
     }
 }
