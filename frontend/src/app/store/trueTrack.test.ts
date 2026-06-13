@@ -71,6 +71,23 @@ describe("buildTrueTrack", () => {
     const track = buildTrueTrack([], predicted, "EARTH");
     expect(track.totalTimesteps).toBe(0);
   });
+
+  it("reuses the typed arrays across rebuilds for the same session", () => {
+    const predicted = predictedWithTimestamps([0, 500, 1000]);
+    const t1 = buildTrueTrack(anchors, predicted, "EARTH");
+    const t2 = buildTrueTrack(anchors, predicted, "EARTH");
+    expect(t1).not.toBe(t2); // fresh wrapper each call so Redux/React see the update
+    expect(t1.positions).toBe(t2.positions); // big arrays reused, no realloc
+    expect(t1.timestamps).toBe(t2.timestamps);
+  });
+
+  it("allocates a distinct array for a different session buffer", () => {
+    const a = predictedWithTimestamps([0, 500, 1000]);
+    const b = predictedWithTimestamps([0, 500, 1000]);
+    const ta = buildTrueTrack(anchors, a, "EARTH");
+    const tb = buildTrueTrack(anchors, b, "EARTH");
+    expect(ta.positions).not.toBe(tb.positions);
+  });
 });
 
 describe("computeTrueTrackRequest", () => {
