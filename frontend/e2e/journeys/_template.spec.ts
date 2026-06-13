@@ -2,8 +2,8 @@ import { journey } from "../lib/kit";
 
 // COPY ME. Rename to <feature>.spec.ts and delete what you do not need.
 // Fast JIT loop against a warm stack:
-//   npm run e2e:stack                                     (terminal 1, leave running)
-//   npm run e2e -- --attach e2e/journeys/<feature>.spec.ts (terminal 2, repeat)
+//   npm run e2e:stack                                          (terminal 1, leave running)
+//   E2E_ATTACH=1 npm run e2e -- e2e/journeys/<feature>.spec.ts (terminal 2, repeat)
 journey("describe the path you are verifying", async (j) => {
   await j.goto("/");
   await j.waitForCanvas();

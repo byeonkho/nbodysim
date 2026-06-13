@@ -1,9 +1,29 @@
 # Frontend e2e journeys
 
 Headless full-stack verification: drive the real frontend, screenshot the UI,
-assert the backend effect. The 3D canvas is an opaque box (we confirm it
-mounted; we never diff its pixels, because headless WebGL is software-rendered
-and the scene is animated).
+assert the backend effect. The 3D canvas is not pixel-diffed (headless WebGL is
+software-rendered and the scene is animated), but a journey can assert it
+actually painted (`j.expectCanvasPainted()`, a readPixels not-blank check) and
+that it drew the right content (`j.sceneStats()` exposes the live body count),
+so a blank scene fails loudly instead of passing silently.
+
+## What it is (and isn't) for
+
+Reach for a journey when the thing you changed is only true in a real browser:
+
+- **Interaction and layering** (its sweet spot): pointer-events / z-index
+  stacking, focus traps, scroll capture, overlay hit-testing, safe-area /
+  viewport behaviour. These are invisible to unit tests and easy to get wrong in
+  code review (an overlay wrapper that silently eats a tap, a tab order that
+  double-fires). If a finding involves "what is actually on top and clickable",
+  write the journey alongside the fix, not after.
+- **Backend effects**: the network calls an interaction triggers and the backend
+  log lines it produces.
+- **Canvas liveness**: that the scene painted and drew the expected bodies (not
+  pixel regression).
+
+Do **not** use it for logic a vitest unit test already covers, or to assert the
+exact rendered pixels of the 3D scene.
 
 ## Install (once)
 
@@ -20,8 +40,15 @@ and the scene is animated).
 
 - Fast JIT loop (boot a warm stack once, re-run one journey against it):
 
-      npm run e2e:stack                                       # terminal 1, leave running
-      npm run e2e -- --attach e2e/journeys/<one>.spec.ts      # terminal 2, repeat
+      npm run e2e:stack                                      # terminal 1, leave running (or background)
+      E2E_ATTACH=1 npm run e2e -- e2e/journeys/<one>.spec.ts # terminal 2, repeat
+
+  `E2E_ATTACH=1` is the attach signal that `global-setup` reads. (A bare
+  `--attach` flag is rejected by current Playwright as an unknown option before
+  global-setup runs, so use the env var.) The warm stack is a long-lived
+  process: it prints `[e2e:stack] ready` and writes `.artifacts/stack.json`,
+  then stays up. If you launch it in the background, wait for that ready marker
+  (or for `stack.json` to exist) before attaching, not for the process to exit.
 
 - The first run builds the backend jar. After backend changes, force a rebuild:
 
@@ -30,7 +57,7 @@ and the scene is animated).
   `E2E_REBUILD` only applies to a fresh boot. A warm stack started with
   `npm run e2e:stack` keeps the jar it booted with, so after a backend change
   restart the warm stack (with `E2E_REBUILD=1`) rather than expecting an
-  `--attach` run to pick up the new backend.
+  attach run to pick up the new backend.
 
 Artifacts (gitignored) land in `e2e/.artifacts/`: `screenshots/`, `backend.log`,
 `frontend.log`, `report/` (Playwright HTML report), `stack.json`.
@@ -69,6 +96,22 @@ Copy `journeys/_template.spec.ts`. A journey is `journey(name, async (j) => { ..
 errors on a known-noisy path. Both default: run desktop and mobile, fail on
 console error.
 
+## Diagnose interactively, then pin it
+
+Editing a spec, rebooting, and reading the failure dump is a slow loop for
+*figuring out* what the app does (focus, event order, why a click misses). For
+that, drive the running app live with a browser MCP (for example Playwright MCP:
+`claude mcp add playwright npx @playwright/mcp@latest`): boot the warm stack,
+point the MCP at the frontend URL it prints (also in `.artifacts/stack.json`),
+and probe with snapshots and `browser_evaluate` until the behaviour is clear.
+Then crystallise the confirmed behaviour into a committed journey here.
+
+Explore with the MCP, pin the regression with the kit. The MCP drives a browser
+but does not boot the backend and leaves nothing durable, so it complements
+these specs rather than replacing them. It is also the fastest way to find out
+that a behaviour is not e2e-testable at all (see the Enter-activation gotcha
+below) before you sink time into a flaky spec.
+
 ## Gotchas and constraints
 
 - **First-load intro tour:** the tour overlay can intercept clicks on the app
@@ -91,3 +134,13 @@ console error.
 - **Dev mode, not a prod build:** the stack boots the Next.js dev server for
   fast startup. Known dev-vs-prod gaps (e.g. extra console noise) are expected
   and are not test failures unless `failOnConsoleError` is true (the default).
+
+- **Enter does not reliably activate a focused button headless:** a synthetic
+  Enter on a focused `<button>` does NOT consistently fire the button's native
+  click in headless Chromium (sometimes it does, sometimes not, run to run).
+  Synthetic clicks and typing are reliable; this one pairing is not. So a bug
+  that hinges on the keydown + native-click pair, e.g. a window-level keydown
+  handler double-firing alongside a button's own activation, cannot be pinned by
+  a stable journey assertion (no single expectation passes on the fixed code and
+  fails on the buggy code). Verify that class of keyboard-activation bug
+  manually. Mouse-driven interactions and form input remain solid.

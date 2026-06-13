@@ -171,7 +171,10 @@ const Scene = () => {
       // Transparent canvas — the CSS background on Layout.tsx (the
       // design handoff's gradient stack) shows through. Without this,
       // the WebGL clear color (default opaque black) would hide the CSS.
-      gl={{ alpha: true }}
+      // preserveDrawingBuffer only under e2e: headless Chromium clears the
+      // WebGL buffer after compositing, so a Playwright readPixels grab comes
+      // back blank without it. Off in production (it carries a small perf cost).
+      gl={{ alpha: true, preserveDrawingBuffer: process.env.NEXT_PUBLIC_E2E === "1" }}
       onPointerMissed={() => {
         dispatch(setIsBodyActive(false));
       }}
