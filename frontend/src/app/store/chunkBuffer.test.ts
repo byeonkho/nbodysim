@@ -92,9 +92,9 @@ describe("selectBufferByteBudget", () => {
 
 describe("computeBufferCapacity", () => {
   it("derives capacity from byte budget and body count", () => {
-    // 12 MB / (9 bodies × 48 bytes) = 27,962 floor
+    // 12 MiB / (9 bodies × 48 bytes) = 29,127 floor
     expect(computeBufferCapacity(9, BUFFER_BYTE_BUDGETS.lowMem)).toBe(29_127);
-    // 48 MB / (9 bodies × 48 bytes) = 116,508 floor
+    // 48 MiB / (9 bodies × 48 bytes) = 116,508 floor
     expect(computeBufferCapacity(9, BUFFER_BYTE_BUDGETS.default)).toBe(116_508);
   });
 
@@ -102,6 +102,13 @@ describe("computeBufferCapacity", () => {
     expect(computeBufferCapacity(3, BUFFER_BYTE_BUDGETS.default)).toBeGreaterThan(
       computeBufferCapacity(12, BUFFER_BYTE_BUDGETS.default),
     );
+  });
+
+  it("never returns less than one slot, even for degenerate inputs", () => {
+    // 12 MiB / (1,000,000 bodies × 48 bytes) would floor to 0; the floor of
+    // one slot keeps appendChunk's oversized-chunk clamp able to make
+    // forward progress (at least the newest sample is always playable).
+    expect(computeBufferCapacity(1_000_000, BUFFER_BYTE_BUDGETS.lowMem)).toBe(1);
   });
 });
 

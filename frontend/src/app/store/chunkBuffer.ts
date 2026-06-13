@@ -77,7 +77,14 @@ export function computeBufferCapacity(
   bodyCount: number,
   byteBudget: number,
 ): number {
-  return Math.floor(byteBudget / (bodyCount * BYTES_PER_TIMESTEP_PER_BODY));
+  // Floor of one slot: a degenerate budget/body-count combination must never
+  // produce a zero-capacity buffer. With appendChunk's oversized-chunk clamp,
+  // capacity >= 1 guarantees forward progress (the newest sample is always
+  // playable). Unreachable with the backend's 50-body cap; pure insurance.
+  return Math.max(
+    1,
+    Math.floor(byteBudget / (bodyCount * BYTES_PER_TIMESTEP_PER_BODY)),
+  );
 }
 
 // Pre-flight for preset clips: a clip decodes entirely into the buffer up
