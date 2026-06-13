@@ -27,6 +27,11 @@ and the scene is animated).
 
       E2E_REBUILD=1 npm run e2e
 
+  `E2E_REBUILD` only applies to a fresh boot. A warm stack started with
+  `npm run e2e:stack` keeps the jar it booted with, so after a backend change
+  restart the warm stack (with `E2E_REBUILD=1`) rather than expecting an
+  `--attach` run to pick up the new backend.
+
 Artifacts (gitignored) land in `e2e/.artifacts/`: `screenshots/`, `backend.log`,
 `frontend.log`, `report/` (Playwright HTML report), `stack.json`.
 
