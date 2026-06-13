@@ -259,6 +259,45 @@ class BinaryResponseSerializerTest {
     }
 
     @Test
+    void serializingTheSameChunkTwiceIsByteIdentical() {
+        // The serializer reuses scratch arrays across the six shuffled planes
+        // within a call; a missed row-0 reset (or any scratch bleed) would make
+        // output depend on prior state. Two independent serializations of the
+        // same multi-step, multi-body input must be byte-for-byte identical.
+        TimeScale utc = TimeScalesFactory.getUTC();
+        AbsoluteDate t0 = new AbsoluteDate(2024, 6, 5, 0, 0, 0.0, utc);
+        AbsoluteDate t1 = new AbsoluteDate(2024, 6, 6, 0, 0, 0.0, utc);
+        AbsoluteDate t2 = new AbsoluteDate(2024, 6, 7, 0, 0, 0.0, utc);
+
+        Map<AbsoluteDate, List<CelestialBodySnapshot>> snapshots = new LinkedHashMap<>();
+        snapshots.put(t0, List.of(
+                new CelestialBodySnapshot("Earth", new Vector3D(1, 2, 3), new Vector3D(4, 5, 6)),
+                new CelestialBodySnapshot("Moon", new Vector3D(7, 8, 9), new Vector3D(10, 11, 12))));
+        snapshots.put(t1, List.of(
+                new CelestialBodySnapshot("Earth", new Vector3D(13, 14, 15), new Vector3D(16, 17, 18)),
+                new CelestialBodySnapshot("Moon", new Vector3D(19, 20, 21), new Vector3D(22, 23, 24))));
+        snapshots.put(t2, List.of(
+                new CelestialBodySnapshot("Earth", new Vector3D(25, 26, 27), new Vector3D(28, 29, 30)),
+                new CelestialBodySnapshot("Moon", new Vector3D(31, 32, 33), new Vector3D(34, 35, 36))));
+
+        Map<AbsoluteDate, Double> deltaE = new LinkedHashMap<>();
+        deltaE.put(t0, 1.0e-12);
+        deltaE.put(t1, 2.0e-12);
+        deltaE.put(t2, 3.0e-12);
+        ChunkResult chunk = new ChunkResult(snapshots, deltaE, null);
+
+        Map<String, Double> mu = new LinkedHashMap<>();
+        mu.put("Earth", 3.986004418e14);
+        mu.put("Moon", 4.9028000661e12);
+
+        BinaryResponseSerializer ser = new BinaryResponseSerializer();
+        byte[] first = ser.serialize(chunk, mu);
+        byte[] second = ser.serialize(chunk, mu);
+        assertArrayEquals(first, second,
+                "serialization must be deterministic (no scratch bleed across calls)");
+    }
+
+    @Test
     void fixedStepIntegratorWritesNaNTelemetry() {
         // ChunkResult.telemetry() == null → header DP853 fields encoded
         // as NaN. Parser branchlessly maps NaN → null for the

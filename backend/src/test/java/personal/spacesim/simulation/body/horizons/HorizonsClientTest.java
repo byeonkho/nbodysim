@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.orekit.data.DataContext;
 import org.orekit.data.DirectoryCrawler;
 import org.orekit.time.AbsoluteDate;
+import org.orekit.time.TimeScalesFactory;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -278,6 +279,24 @@ class HorizonsClientTest {
 
         client.fetchState("2000433", AbsoluteDate.J2000_EPOCH);
         server.verify();
+    }
+
+    @Test
+    void formatEpochHandlesLeapSecondWithoutThrowing() {
+        // Orekit renders a UTC leap second as ":60", which java.time rejects.
+        // formatEpoch only needs minute precision, so a leap-second instant must
+        // format cleanly to the minute rather than throwing (which surfaced as a
+        // 500 because HorizonsFetchException is not an IllegalArgumentException).
+        AbsoluteDate leap = new AbsoluteDate(2016, 12, 31, 23, 59, 60.0,
+                TimeScalesFactory.getUTC());
+        assertEquals("2016-12-31 23:59", client.formatEpoch(leap));
+    }
+
+    @Test
+    void formatEpochFormatsNormalDateToMinute() {
+        AbsoluteDate normal = new AbsoluteDate(2024, 6, 5, 12, 30, 0.0,
+                TimeScalesFactory.getUTC());
+        assertEquals("2024-06-05 12:30", client.formatEpoch(normal));
     }
 
     /** Build a fresh RestClient.Builder bound to a new MockRestServiceServer. */

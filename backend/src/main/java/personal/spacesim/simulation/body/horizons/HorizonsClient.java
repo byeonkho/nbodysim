@@ -1,6 +1,9 @@
 package personal.spacesim.simulation.body.horizons;
 
 import org.orekit.time.AbsoluteDate;
+import org.orekit.time.DateComponents;
+import org.orekit.time.DateTimeComponents;
+import org.orekit.time.TimeComponents;
 import org.orekit.time.TimeScalesFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -12,8 +15,7 @@ import org.springframework.web.client.RestClientException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.concurrent.Semaphore;
 
 /**
@@ -35,8 +37,6 @@ import java.util.concurrent.Semaphore;
 public class HorizonsClient {
 
     private static final String API_BASE = "https://ssd.jpl.nasa.gov/api/horizons.api";
-    private static final DateTimeFormatter HORIZONS_DT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     /**
      * Identifies this client to JPL. They publish no numeric rate limit;
@@ -225,12 +225,19 @@ public class HorizonsClient {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
-    private String formatEpoch(AbsoluteDate date) {
-        // Horizons accepts dates in "yyyy-MM-dd HH:mm" UTC.
-        // AbsoluteDate.toString(UTC) returns "yyyy-MM-ddTHH:mm:ss.sss".
-        String iso = date.toString(TimeScalesFactory.getUTC());
-        LocalDateTime ldt = LocalDateTime.parse(iso);
-        return ldt.format(HORIZONS_DT);
+    String formatEpoch(AbsoluteDate date) {
+        // Horizons accepts "yyyy-MM-dd HH:mm" UTC and only needs minute
+        // precision. Build the string straight from Orekit's calendar components
+        // instead of round-tripping through LocalDateTime.parse, which rejects
+        // the ":60" Orekit renders on a UTC leap second (java.time has no leap
+        // second). The seconds field is never read, so a fetch at a leap-second
+        // instant formats cleanly instead of throwing a DateTimeParseException
+        // (which, not being an IllegalArgumentException, surfaced as a 500).
+        DateTimeComponents components = date.getComponents(TimeScalesFactory.getUTC());
+        DateComponents d = components.getDate();
+        TimeComponents tm = components.getTime();
+        return String.format(Locale.ROOT, "%04d-%02d-%02d %02d:%02d",
+                d.getYear(), d.getMonth(), d.getDay(), tm.getHour(), tm.getMinute());
     }
 
     public static class HorizonsFetchException extends RuntimeException {

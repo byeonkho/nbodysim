@@ -122,6 +122,9 @@ class PresetClipAssetGeneratorTest {
     }
 
     private void writeBundle(Preset preset) throws Exception {
+        // Uses the nominal SAMPLES_PER_CHUNK for every chunk; chunk 1 carries one
+        // extra initial-frame sample, so this slightly underestimates (absorbed
+        // by the 0.8 headroom below). See the samplesPerChunk note in writeBundle.
         long decodedBytes =
                 (long) preset.chunkCount() * SAMPLES_PER_CHUNK * preset.bodies().size() * 6 * 8;
         assertTrue(decodedBytes <= LOW_MEM_BUDGET_BYTES * 8 / 10,
@@ -151,10 +154,14 @@ class PresetClipAssetGeneratorTest {
         params.put("timeStepUnit", TIME_UNIT);
         params.put("fidelityBucket", BUCKET.wireName());
         params.put("chunkCount", preset.chunkCount());
-        // Pinned by the frontend staleness guard against CLIP_SAMPLES_PER_CHUNK:
-        // the client budget guard estimates decoded size from that constant, so
-        // a backend chunk-size or thinning change must fail CI, not silently
-        // mis-size the buffer.
+        // Nominal steady-state per-chunk sample count, pinned by the frontend
+        // staleness guard against CLIP_SAMPLES_PER_CHUNK: the client budget guard
+        // estimates decoded size from this constant, so a backend chunk-size or
+        // thinning change must fail CI, not silently mis-size the buffer. It is
+        // the steady-state count: the fixed-step path also emits the initial
+        // frame, so chunk 1 actually carries SAMPLES_PER_CHUNK + 1 samples. The
+        // budget estimate above therefore underestimates by one sample's worth
+        // (bodyCount * 6 * 8 bytes), comfortably inside the 0.8 headroom factor.
         params.put("samplesPerChunk", SAMPLES_PER_CHUNK);
         ArrayNode bodies = params.putArray("bodies");
         preset.bodies().stream().sorted().forEach(bodies::add);
