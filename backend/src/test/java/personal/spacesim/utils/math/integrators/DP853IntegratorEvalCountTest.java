@@ -38,6 +38,32 @@ class DP853IntegratorEvalCountTest {
     }
 
     @Test
+    void seededSecondStepCostsFarFewerEvaluationsThanColdStart() {
+        // Cold start re-derives a rough step-size guess and ramps up inside
+        // the call; the seeded second call must resume near the previously
+        // accepted step on the same smooth orbit. "Well under half" keeps
+        // the assertion robust to controller internals.
+        DP853Integrator integrator = new DP853Integrator();
+        NBodyDerivatives derivs = new NBodyDerivatives(new double[]{G * 1.989e30, G * 5.972e24});
+
+        double[] state = {
+                0, 0, 0, 0, 0, 0,
+                1.5e11, 0, 0, 0, 29800, 0,
+        };
+        double[] next = new double[state.length];
+
+        integrator.stepInto(next, state, 86_400.0, derivs);
+        long firstCallEvals = integrator.getEvaluationCount();
+
+        integrator.stepInto(state, next, 86_400.0, derivs);
+        long secondCallEvals = integrator.getEvaluationCount() - firstCallEvals;
+
+        assertTrue(secondCallEvals * 2 < firstCallEvals,
+                "seeded call should cost well under half the cold start: first="
+                        + firstCallEvals + " second=" + secondCallEvals);
+    }
+
+    @Test
     void fixedStepIntegratorsReportZero() {
         // Default Integrator interface returns 0 — fixed-step
         // integrators don't track this.
