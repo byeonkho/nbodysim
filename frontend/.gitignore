@@ -35,3 +35,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 /.env
+
+# Playwright e2e artifacts (screenshots, logs, network captures, stack handle)
+e2e/.artifacts/
+test-results/

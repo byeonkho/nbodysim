@@ -9,7 +9,10 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "gen:api": "openapi-typescript ../backend/openapi.json -o src/app/generated/api.ts"
+    "gen:api": "openapi-typescript ../backend/openapi.json -o src/app/generated/api.ts",
+    "e2e": "playwright test",
+    "e2e:stack": "tsx e2e/lib/serve-stack.ts",
+    "e2e:install": "playwright install chromium webkit"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -38,6 +41,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
+    "@playwright/test": "^1.49.0",
     "@tailwindcss/postcss": "^4.2.4",
     "@types/node": "^22.13.1",
     "@types/react": "^19",
@@ -47,6 +51,7 @@
     "eslint-config-prettier": "^10.1.8",
     "openapi-typescript": "^7.13.0",
     "tailwindcss": "^4.2.4",
+    "tsx": "^4.19.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"
   },

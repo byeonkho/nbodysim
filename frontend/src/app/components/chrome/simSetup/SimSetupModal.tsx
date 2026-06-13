@@ -287,6 +287,7 @@ export function SimSetupModal({ open, onOpenChange }: SimSetupModalProps) {
             </div>
             <button
               type="button"
+              data-testid="run-sim"
               onClick={handleSubmit}
               disabled={enabled === 0 || busy}
               className="flex items-center gap-2.5 text-[14px] font-semibold disabled:cursor-not-allowed"
