@@ -72,9 +72,11 @@ class SimulationTelemetryTest {
                 "avg step must be positive, got " + t.avgStepSeconds());
         assertTrue(t.acceptRate() > 0 && t.acceptRate() <= 1.0,
                 "accept rate must be in (0, 1], got " + t.acceptRate());
-        // Benign two-body scenario — accept rate should be high.
-        assertTrue(t.acceptRate() > 0.7,
-                "accept rate for sun-earth circular orbit should be >0.7, got " + t.acceptRate());
+        // Benign two-body scenario: under step-size seeding the accept
+        // rate sits near 100%, which also pins M7's fix (the old /12
+        // estimate read ~78% on this same orbit).
+        assertTrue(t.acceptRate() > 0.95,
+                "accept rate for sun-earth circular orbit should be >0.95, got " + t.acceptRate());
     }
 
     @Test
