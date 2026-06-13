@@ -74,7 +74,7 @@ export function SimParamsPane({
         tooltip={INTEGRATOR_COPY}
         help={INTEGRATOR_HELP}
       >
-        <Select value={integrator} onChange={onIntegrator} accent>
+        <Select value={integrator} onChange={onIntegrator} accent testId="integrator-select">
           {INTEGRATORS.map(([value, label]) => (
             <option key={value} value={value} className="bg-bg">
               {label}
@@ -169,11 +169,13 @@ function Select({
   value,
   onChange,
   accent,
+  testId,
   children,
 }: {
   value: string;
   onChange: (v: string) => void;
   accent?: boolean;
+  testId?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -181,6 +183,7 @@ function Select({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        data-testid={testId}
         className="w-full cursor-pointer appearance-none bg-transparent pr-5 text-[14px] outline-none"
         style={{
           color: accent ? "var(--color-accent)" : "var(--color-hi)",
