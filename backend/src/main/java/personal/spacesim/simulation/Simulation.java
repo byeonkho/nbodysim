@@ -200,6 +200,18 @@ public class Simulation {
         this.derivatives = NBodyDerivatives.forBodies(celestialBodies, massiveCount);
         this.isAdaptiveIntegrator = integrator instanceof DP853Integrator;
 
+        // A single snapshot has no time gap, so the adaptive emit loop (which
+        // advances by targetGapSeconds each emission) can never terminate.
+        // Reject N <= 1 on the adaptive path fast rather than hang run() in an
+        // infinite loop. Fixed-step integrators are unaffected (their emit loop
+        // never runs, so targetGapSeconds = 0.0 below is fine).
+        if (isAdaptiveIntegrator && targetSnapshotsPerChunk <= 1) {
+            throw new IllegalArgumentException(
+                    "DP853 (adaptive) requires targetSnapshotsPerChunk >= 2, got "
+                            + targetSnapshotsPerChunk
+                            + ": a single snapshot has no time gap, so the emission loop cannot terminate.");
+        }
+
         // Pre-compute the time-gap (sim seconds between adjacent emissions)
         // from N and the per-chunk duration. (N-1) gaps span N samples.
         // Only meaningful for the adaptive path; 0.0 otherwise.

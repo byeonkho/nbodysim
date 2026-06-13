@@ -1,7 +1,9 @@
 package personal.spacesim.constants;
 
 import org.junit.jupiter.api.Test;
+import personal.spacesim.utils.math.integrators.IntegratorFactory;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -110,6 +112,47 @@ class FidelityBucketTest {
         // tolerance pattern.
         assertEquals(FidelityBucket.MED_HIGH, FidelityBucket.defaultFor("EULER"));
         assertEquals(FidelityBucket.LOW, FidelityBucket.defaultFor("DP853"));
+    }
+
+    @Test
+    void defaultForRungekuttaAliasIsMedLow() {
+        // "rungekutta" is an RK4 alias the IntegratorFactory accepts; it must
+        // resolve to the same bucket as "rk4".
+        assertEquals(FidelityBucket.MED_LOW, FidelityBucket.defaultFor("rungekutta"));
+    }
+
+    @Test
+    void defaultForDormandprinceAliasIsLow() {
+        // "dormandprince" is a DP853 alias the IntegratorFactory accepts; it
+        // must resolve to the same bucket as "dp853".
+        assertEquals(FidelityBucket.LOW, FidelityBucket.defaultFor("dormandprince"));
+    }
+
+    @Test
+    void defaultForAliasesAreCaseInsensitive() {
+        assertEquals(FidelityBucket.MED_LOW, FidelityBucket.defaultFor("RungeKutta"));
+        assertEquals(FidelityBucket.LOW, FidelityBucket.defaultFor("DormandPrince"));
+    }
+
+    @Test
+    void everyFactoryAliasResolvesToABucket() {
+        // Parity guard: every integrator string IntegratorFactory.createIntegrator
+        // accepts must also resolve to a fidelity bucket in defaultFor. When the
+        // two alias lists drift apart, an /initialize request with a valid alias
+        // and fidelityBucket=null builds an integrator and then 400s in defaultFor.
+        // Pin the lists together so a future factory alias that isn't mirrored
+        // here fails this test.
+        IntegratorFactory factory = new IntegratorFactory();
+        String[] factoryAliases = {"euler", "rk4", "rungekutta", "dp853", "dormandprince"};
+        for (String alias : factoryAliases) {
+            // Confirm the test premise: this really is an alias the factory accepts.
+            assertDoesNotThrow(() -> factory.createIntegrator(alias),
+                    "Test premise broken: factory should accept '" + alias + "'");
+            // The parity assertion: defaultFor must accept it too.
+            assertDoesNotThrow(() -> FidelityBucket.defaultFor(alias),
+                    "defaultFor must accept every integrator alias the factory does, "
+                            + "but rejected '" + alias + "'");
+        }
     }
 
     @Test

@@ -99,10 +99,14 @@ public enum FidelityBucket {
         if (integrator == null) {
             throw new IllegalArgumentException("integrator cannot be null");
         }
+        // Alias set must mirror IntegratorFactory.createIntegrator: an alias it
+        // accepts but this rejects would 400 a valid /initialize request (with
+        // fidelityBucket=null) that built a perfectly good integrator. The
+        // parity is pinned by FidelityBucketTest.everyFactoryAliasResolvesToABucket.
         return switch (integrator.toLowerCase()) {
-            case "euler" -> MED_HIGH;
-            case "rk4"   -> MED_LOW;
-            case "dp853" -> LOW;
+            case "euler"                  -> MED_HIGH;
+            case "rk4", "rungekutta"      -> MED_LOW;
+            case "dp853", "dormandprince" -> LOW;
             default -> throw new IllegalArgumentException(
                     "Unknown integrator: '" + integrator + "'");
         };
