@@ -2,7 +2,10 @@
 // via the zstd worker, and dispatches the parsed payload into Redux.
 
 import { createAsyncThunk } from "@reduxjs/toolkit";
-import { appendChunkToBuffer } from "@/app/store/slices/SimulationSlice";
+import {
+  appendChunkToBuffer,
+  expireSession,
+} from "@/app/store/slices/SimulationSlice";
 import {
   recordFetchLatency,
   setErrorMessage,
@@ -11,6 +14,7 @@ import {
 import { REST_URL } from "@/app/utils/backendUrls";
 import type { AppDispatch, RootState } from "@/app/store/Store";
 import type { DecodeResponse } from "./zstdWorker";
+import { computeBackoffMs, MAX_CHUNK_RETRY_ATTEMPTS } from "./chunkBackoff";
 
 interface ChunkPayload {
   messageType: string;
@@ -90,6 +94,12 @@ export const requestRunSimulation = createAsyncThunk<
   async ({ sessionID }, { dispatch, getState, signal }) => {
     dispatch(setRequestInProgress(true));
     const tStart = performance.now();
+    // The retry coordinator re-enters through dispatchChunkRequest, which is
+    // typed to the app store's dispatch. The thunk's own dispatch is that same
+    // store dispatch (only the thunk-extra-arg generic differs), so narrow it
+    // once here for the retry helpers rather than typing the whole thunk to a
+    // concrete AppDispatch (which would reject the minimal store used in tests).
+    const appDispatch = dispatch as AppDispatch;
 
     try {
       // The index of the chunk we want next = how many we've appended. On a
@@ -103,14 +113,67 @@ export const requestRunSimulation = createAsyncThunk<
         signal,
       });
 
+      // Terminal: the session is gone (410, idle-evicted or released on
+      // resubmit) or the cursors are out of step (409). Retrying recovers
+      // neither; clear the session so the prefetch loop stops and prompt a
+      // fresh run.
+      if (response.status === 410 || response.status === 409) {
+        // Stale guard: a retry for an OLD session can land here after the user
+        // started a new one (the backend releases the prior session). Only
+        // expire if this response is still for the current session.
+        const current =
+          getState().simulation.simulationParameters?.simulationMetaData
+            ?.sessionID;
+        if (current !== sessionID) {
+          dispatch(setRequestInProgress(false));
+          return;
+        }
+        resetChunkRetry();
+        dispatch(setRequestInProgress(false));
+        dispatch(expireSession());
+        dispatch(
+          setErrorMessage(
+            response.status === 410
+              ? "This simulation timed out. Press Run to start it again."
+              : "The simulation got out of sync. Press Run to start it again.",
+          ),
+        );
+        return;
+      }
+
+      // Rate limited: back off (honoring Retry-After when present).
       if (response.status === 429) {
         const retryAfter = response.headers.get("Retry-After");
         const seconds = retryAfter ? parseInt(retryAfter, 10) : null;
-        const wait = seconds && !Number.isNaN(seconds) ? ` Try again in ${seconds}s.` : "";
-        throw new Error(`Rate limit reached.${wait}`);
+        const delayMs =
+          seconds && !Number.isNaN(seconds) ? seconds * 1000 : undefined;
+        scheduleRetryOrGiveUp(
+          appDispatch,
+          sessionID,
+          "The simulator is busy. Trying again in a moment.",
+          delayMs,
+        );
+        return;
       }
+
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // 5xx: transient, back off. Other 4xx (e.g. 400): terminal error.
+        if (response.status >= 500) {
+          scheduleRetryOrGiveUp(
+            appDispatch,
+            sessionID,
+            "Reconnecting to the simulator.",
+          );
+          return;
+        }
+        resetChunkRetry();
+        dispatch(setRequestInProgress(false));
+        dispatch(
+          setErrorMessage(
+            "Could not load more of the simulation. Press Run to try again.",
+          ),
+        );
+        return;
       }
 
       const buffer = await response.arrayBuffer();
@@ -134,6 +197,9 @@ export const requestRunSimulation = createAsyncThunk<
         dispatch(setRequestInProgress(false));
         return;
       }
+
+      // A good chunk ends any failure streak.
+      resetChunkRetry();
 
       const elapsedMs = performance.now() - tStart;
       dispatch(recordFetchLatency(elapsedMs));
@@ -161,19 +227,24 @@ export const requestRunSimulation = createAsyncThunk<
       if (signal.aborted) {
         return;
       }
-      dispatch(setRequestInProgress(false));
       // An AbortError without our signal aborted has no superseder owning
       // the flag (e.g. the browser tearing down fetches on navigation):
-      // reset the flag above, but stay silent all the same.
+      // reset the flag, stay silent, no retry.
       if (
         err instanceof Error &&
         (err.name === "AbortError" || err.name === "CanceledError")
       ) {
+        dispatch(setRequestInProgress(false));
         return;
       }
-      const message = err instanceof Error ? err.message : "Unknown error";
-      dispatch(setErrorMessage(`Failed to load simulation chunk: ${message}`));
-      throw err;
+      // Network error or decode failure: transient. Back off (leaving
+      // isRequestInProgress true so the prefetch middleware does not also
+      // re-fire) instead of surfacing a terminal error.
+      scheduleRetryOrGiveUp(
+        appDispatch,
+        sessionID,
+        "Lost the connection to the simulator. Trying again.",
+      );
     }
   },
 );
@@ -197,4 +268,62 @@ export function dispatchChunkRequest(
   }
   currentChunkDispatch = dispatch(requestRunSimulation(args));
   return currentChunkDispatch;
+}
+
+// ── Backoff retry coordinator ──────────────────────────────────────────────
+// A single pending retry timer + attempt counter for the chunk fetch, at module
+// scope (like currentChunkDispatch): imperative timing state, not render state.
+// The timer drives retries independent of playback-index dispatches, so it
+// recovers a stall at the buffer end; keeping isRequestInProgress true during
+// the wait suppresses the prefetch middleware's per-frame re-fire (no hammer).
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let retryAttempt = 0;
+
+function scheduleChunkRetry(
+  dispatch: AppDispatch,
+  sessionID: string,
+  delayMs?: number,
+) {
+  if (retryTimer !== null) return; // a retry is already armed
+  const delay = delayMs ?? computeBackoffMs(retryAttempt);
+  retryAttempt += 1;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    dispatchChunkRequest(dispatch, { sessionID });
+  }, delay);
+}
+
+// Cancel any pending retry and zero the counter. Called on a successful fetch
+// and at launch so a fresh run starts clean.
+export function resetChunkRetry() {
+  if (retryTimer !== null) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+  retryAttempt = 0;
+}
+
+// Test accessor for the current attempt count.
+export function chunkRetryAttempts(): number {
+  return retryAttempt;
+}
+
+// Arm the next backoff retry, or give up once the attempt budget is spent.
+// The transient path leaves isRequestInProgress true; give-up resets it.
+function scheduleRetryOrGiveUp(
+  dispatch: AppDispatch,
+  sessionID: string,
+  retryingMessage: string,
+  delayMs?: number,
+) {
+  if (retryAttempt >= MAX_CHUNK_RETRY_ATTEMPTS) {
+    resetChunkRetry();
+    dispatch(setRequestInProgress(false));
+    dispatch(
+      setErrorMessage("Could not reach the simulator. Press Run to try again."),
+    );
+    return;
+  }
+  dispatch(setErrorMessage(retryingMessage));
+  scheduleChunkRetry(dispatch, sessionID, delayMs);
 }
