@@ -162,6 +162,7 @@ export interface operations {
                 fromEpoch: number;
                 toEpoch: number;
                 stepSeconds?: number;
+                subtractSun?: boolean;
             };
             header?: never;
             path?: never;

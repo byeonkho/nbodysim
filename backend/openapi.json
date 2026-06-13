@@ -104,6 +104,14 @@
             "type" : "number",
             "format" : "double"
           }
+        }, {
+          "name" : "subtractSun",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "boolean",
+            "default" : true
+          }
         } ],
         "responses" : {
           "200" : {

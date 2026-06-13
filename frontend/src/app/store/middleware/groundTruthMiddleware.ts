@@ -108,11 +108,15 @@ function maybeFetch(store: Store, immediate: boolean): void {
     coveredToMs >= req.toMs;
   if (covered) return;
 
+  const subtractSun = lastRequest.celestialBodyNames.some(
+    (n) => n.toLowerCase() === "sun",
+  );
   fetchInFlight = true;
   const dispatched = store.dispatch(
     fetchGroundTruth({
       frame: FRAME_CODE[lastRequest.frame] ?? lastRequest.frame,
       body: activeUpper,
+      subtractSun,
       ...req,
     }) as never,
   ) as unknown as Promise<unknown>;

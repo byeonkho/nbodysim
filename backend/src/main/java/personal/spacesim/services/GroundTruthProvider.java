@@ -17,18 +17,21 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Produces sparse, Sun-relative true-position tracks for requested bodies,
- * sampled from Orekit's bundled DE-440 ephemeris. Used by the reality-drift
- * overlay: the client compares these true positions against the integrator's
- * predicted positions.
+ * Produces sparse, optionally Sun-relative true-position tracks for requested
+ * bodies, sampled from Orekit's bundled DE-440 ephemeris. Used by the
+ * reality-drift overlay: the client compares these true positions against the
+ * integrator's predicted positions.
  *
  * <p>Only planets + Pluto are supported (bodies the local ephemeris covers
  * and that orbit the Sun directly). Moons and Horizons-sourced minor bodies
  * are omitted via a static name allowlist in {@code SUPPORTED_BODIES}.
  *
- * <p>Sun-relative convention matches {@code Simulation.snapshotFromState}:
- * each body's state minus the Sun's state, both expressed in the requested
- * frame. This is computed from the ephemeris (not the integrator), so at the
+ * <p>When {@code subtractSun} is true (the default), the Sun-relative
+ * convention matches {@code Simulation.snapshotFromState}: each body's state
+ * minus the Sun's state, both expressed in the requested frame. The client
+ * passes false for a Sun-less session, in which case the raw ephemeris state
+ * is returned so the truth shares the predicted frame's origin. Either way the
+ * track is computed from the ephemeris (not the integrator), so at the
  * simulation start the truth coincides with the seeded predicted state and
  * then diverges as the integrator accumulates error.
  *
@@ -62,23 +65,29 @@ public class GroundTruthProvider {
             Frame frame,
             AbsoluteDate from,
             AbsoluteDate to,
-            double stepSeconds
+            double stepSeconds,
+            boolean subtractSun
     ) {
         List<BodyGroundTruthTrack> tracks = new ArrayList<>();
         for (String name : bodyNames) {
             String upper = name.toUpperCase();
             if (SUPPORTED_BODIES.contains(upper)) {
-                tracks.add(sampleBody(upper, frame, from, to, stepSeconds));
+                tracks.add(sampleBody(upper, frame, from, to, stepSeconds, subtractSun));
             }
         }
         return new GroundTruthResponse(tracks);
     }
 
     private BodyGroundTruthTrack sampleBody(
-            String name, Frame frame, AbsoluteDate from, AbsoluteDate to, double stepSeconds
+            String name, Frame frame, AbsoluteDate from, AbsoluteDate to,
+            double stepSeconds, boolean subtractSun
     ) {
         CelestialBody body = CelestialBodyFactory.getBody(name);
-        CelestialBody sun = CelestialBodyFactory.getSun();
+        // The predicted snapshots subtract the Sun only when the Sun is in the
+        // session (Simulation.snapshotFromState, sunIndex >= 0). The client
+        // passes subtractSun to match, so a Sun-less session compares like
+        // against like instead of showing a ~1 AU phantom drift from t=0.
+        CelestialBody sun = subtractSun ? CelestialBodyFactory.getSun() : null;
 
         // Guard against a non-positive cadence (would loop forever / divide by
         // zero); fall back to daily.
@@ -94,9 +103,16 @@ public class GroundTruthProvider {
         for (int i = 0; i <= steps; i++) {
             AbsoluteDate date = from.shiftedBy(i * cadence);
             PVCoordinates bodyPv = body.getPVCoordinates(date, frame);
-            PVCoordinates sunPv = sun.getPVCoordinates(date, frame);
-            Vector3D pos = bodyPv.getPosition().subtract(sunPv.getPosition());
-            Vector3D vel = bodyPv.getVelocity().subtract(sunPv.getVelocity());
+            Vector3D pos;
+            Vector3D vel;
+            if (subtractSun) {
+                PVCoordinates sunPv = sun.getPVCoordinates(date, frame);
+                pos = bodyPv.getPosition().subtract(sunPv.getPosition());
+                vel = bodyPv.getVelocity().subtract(sunPv.getVelocity());
+            } else {
+                pos = bodyPv.getPosition();
+                vel = bodyPv.getVelocity();
+            }
             // Same conversion the binary serializer uses, so anchor timestamps
             // share the wire's millis-UTC scale.
             long epochMillis = date.toDate(TimeScalesFactory.getUTC()).getTime();

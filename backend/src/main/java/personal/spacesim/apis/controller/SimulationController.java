@@ -190,10 +190,14 @@ public class SimulationController {
             @RequestParam String frame,
             @RequestParam long fromEpoch,
             @RequestParam long toEpoch,
-            // Optional cadence in seconds between samples. Absent → daily. The
+            // Optional cadence in seconds between samples. Absent -> daily. The
             // client sizes this to the visible window so the anchor count stays
             // bounded regardless of the simulation's time-per-step.
-            @RequestParam(required = false) Double stepSeconds
+            @RequestParam(required = false) Double stepSeconds,
+            // Whether the truth should be Sun-relative. Defaults true (clips and
+            // heliocentric sessions include the Sun); the client sends false for
+            // a Sun-less session so the truth matches the raw predicted frame.
+            @RequestParam(required = false, defaultValue = "true") boolean subtractSun
     ) {
         // Reject malformed windows (reversed or implausibly large) with 400
         // rather than letting an out-of-range step count overflow downstream.
@@ -217,7 +221,7 @@ public class SimulationController {
                 : GroundTruthProvider.DAILY_CADENCE_SECONDS;
 
         GroundTruthResponse response = groundTruthProvider.sampleTracks(
-                List.of(body), resolvedFrame, from, to, cadence);
+                List.of(body), resolvedFrame, from, to, cadence, subtractSun);
         return ResponseEntity.ok(response);
     }
 

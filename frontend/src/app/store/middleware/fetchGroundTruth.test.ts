@@ -18,6 +18,7 @@ const args = {
   fromMs: 1000,
   toMs: 5000,
   stepSeconds: 86_400,
+  subtractSun: true,
 };
 
 describe("fetchGroundTruth stale-launch guard", () => {

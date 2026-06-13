@@ -76,6 +76,19 @@ class GroundTruthControllerTest {
     }
 
     @Test
+    void acceptsSubtractSunParam() throws Exception {
+        long[] w = tenDayWindow();
+        mockMvc.perform(get("/api/simulation/ground-truth")
+                        .param("body", "EARTH")
+                        .param("frame", "ICRF")
+                        .param("fromEpoch", String.valueOf(w[0]))
+                        .param("toEpoch", String.valueOf(w[1]))
+                        .param("subtractSun", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tracks.length()").value(1));
+    }
+
+    @Test
     void unsupportedBodyReturnsEmptyTracks() throws Exception {
         long[] w = tenDayWindow();
         // Io is a moon (no Sun-orbiting DE-440 coverage): filtered to an empty
