@@ -341,13 +341,9 @@ public class Simulation {
 
         Dp853Telemetry telemetry = null;
         if (isAdaptiveIntegrator && acceptedSubstepCount > 0) {
-            // Accept rate via the /12 approximation. DP853 is 12-stage
-            // with FSAL; true cost is 12 evals for the first step then
-            // 11 thereafter, so the constant is slightly off at chunk
-            // boundaries but well under 1% error at chunk scale (~5000
-            // accepted steps). Acceptable for a UI readout.
             long evalsThisChunk = integrator.getEvaluationCount() - evalCountAtStart;
-            double estimatedAttempts = evalsThisChunk / 12.0;
+            double estimatedAttempts =
+                    estimateDp853Attempts(evalsThisChunk, TIMESTEPS_TO_RUN);
             double acceptRate = estimatedAttempts > 0
                     ? Math.min(1.0, acceptedSubstepCount / estimatedAttempts)
                     : 1.0;
@@ -356,6 +352,22 @@ public class Simulation {
         }
 
         return new ChunkResult(results, deltaE, telemetry);
+    }
+
+    /**
+     * Estimates DP853's attempted-step count for a chunk from its
+     * derivative-evaluation total. Hipparchus 3.0's DormandPrince853
+     * evaluates 15 stages per attempt (the 12-stage tableau plus 3
+     * dense-output stages folded into the main loop), accepted or
+     * rejected, plus one initIntegration evaluation per integrate() call;
+     * the initializeStep probe is skipped because stepInto seeds the
+     * previous accepted step size (the first-ever call pays one extra
+     * evaluation, negligible across a chunk). One external step is one
+     * integrate() call. The constant must be re-derived on a Hipparchus
+     * upgrade.
+     */
+    static double estimateDp853Attempts(long evalsThisChunk, int externalSteps) {
+        return (evalsThisChunk - (double) externalSteps) / 15.0;
     }
 
     /**
