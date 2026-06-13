@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import simulationReducer, {
   appendChunkToBuffer,
   loadSimulation,
+  selectHasActiveSimulation,
   setActiveBody,
   setCurrentTimeStepIndex,
   setIsPaused,
@@ -10,6 +11,7 @@ import simulationReducer, {
   type SimulationParameters,
 } from "./SimulationSlice";
 import SimConstants from "@/app/constants/SimConstants";
+import type { RootState } from "@/app/store/Store";
 
 // Critical contract: submitting a new sim must atomically reset session
 // state so a late-arriving chunk from the prior session can't splatter
@@ -179,5 +181,37 @@ describe("SimulationSlice: chunksAppended counter (chunk-protocol index)", () =>
 
     state = simulationReducer(state, loadSimulation(newParams("S2")));
     expect(state.chunksAppended).toBe(0);
+  });
+});
+
+describe("selectHasActiveSimulation", () => {
+  // Selectors take the full RootState but read only state.simulation; a
+  // partial object cast is enough to exercise them.
+  const asRoot = (state: Slice) =>
+    ({ simulation: state }) as unknown as RootState;
+
+  it("is false on initial state (nothing loaded)", () => {
+    expect(selectHasActiveSimulation(asRoot(init()))).toBe(false);
+  });
+
+  it("is true when a live session exists, even before the first chunk", () => {
+    const state = simulationReducer(init(), loadSimulation(newParams("LIVE")));
+    expect(selectHasActiveSimulation(asRoot(state))).toBe(true);
+  });
+
+  it("is true for a sessionless static clip once a chunk has loaded", () => {
+    // Clip path: loadSimulation with simulationMetaData: null (no session).
+    let state = simulationReducer(
+      init(),
+      loadSimulation({
+        celestialBodyPropertiesList: [{ name: "Mars" }],
+        simulationMetaData: null,
+      }),
+    );
+    // No session and no chunk yet, so nothing is on screen.
+    expect(selectHasActiveSimulation(asRoot(state))).toBe(false);
+    // First chunk arrives: now something is playing despite the null session.
+    state = simulationReducer(state, appendChunkToBuffer(dummyChunkPayload()));
+    expect(selectHasActiveSimulation(asRoot(state))).toBe(true);
   });
 });

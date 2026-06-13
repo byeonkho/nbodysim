@@ -600,6 +600,14 @@ export const selectDisplayFrame = (state: RootState): DisplayFrame =>
 export const selectHasReceivedFirstChunk = (state: RootState): boolean =>
   state.simulation.hasReceivedFirstChunk;
 
+// True once anything is on screen: a live session exists, or a clip/live run
+// has loaded its first chunk. A static clip carries no session
+// (simulationMetaData: null), so the session check alone would miss it. Used
+// to gate first-load autorun so it never paints over an already-loaded sim.
+export const selectHasActiveSimulation = (state: RootState): boolean =>
+  !!state.simulation.simulationParameters?.simulationMetaData?.sessionID ||
+  state.simulation.hasReceivedFirstChunk;
+
 export const {
   loadSimulation,
   appendChunkToBuffer,
