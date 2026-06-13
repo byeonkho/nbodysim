@@ -92,10 +92,14 @@ export const requestRunSimulation = createAsyncThunk<
     const tStart = performance.now();
 
     try {
+      // The index of the chunk we want next = how many we've appended. On a
+      // retried fetch (the prior one failed before appending) this is unchanged,
+      // so the server re-serves that chunk instead of advancing the cursor.
+      const expectedChunkIndex = getState().simulation.chunksAppended;
       const response = await fetch(`${REST_URL}/chunk`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionID }),
+        body: JSON.stringify({ sessionID, expectedChunkIndex }),
         signal,
       });
 

@@ -26,6 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Component
 public class SimulationSessionService {
@@ -54,6 +55,16 @@ public class SimulationSessionService {
     // Per-session next-chunk precompute. The future may be in-flight or done.
     // Missing entry = no precompute kicked off yet (first request, or after eviction).
     private final ConcurrentHashMap<String, CompletableFuture<byte[]>> nextChunkCache;
+
+    // Per-session chunk-protocol state. servedChunkIndex is the index of the last
+    // chunk produced for the session (-1 = none yet). lastChunkBytes holds that
+    // chunk's payload so a client retry for the same index re-serves it instead of
+    // advancing the cursor (idempotent retry, fixes the dropped-chunk-on-blip bug).
+    // sessionLocks serializes the decide-and-produce critical section per session,
+    // so Simulation.run() is never executed concurrently for one session.
+    private final ConcurrentHashMap<String, Integer> servedChunkIndex = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, byte[]> lastChunkBytes = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ReentrantLock> sessionLocks = new ConcurrentHashMap<>();
 
     // Bounded executor for precompute work. Threads are daemon so they don't
     // prevent JVM shutdown if a request is in flight at exit.
@@ -135,37 +146,86 @@ public class SimulationSessionService {
         if (pending != null) {
             pending.cancel(true);
         }
+        clearChunkProtocolState(sessionID);
     }
 
     /**
-     * Returns the next zstd-compressed chunk byte[] for the session, taking
-     * it from the precompute cache when available. Always kicks off the next
-     * precompute before returning, so subsequent calls hit the cache.
+     * Returns the zstd-compressed bytes for the session's chunk at
+     * {@code expectedChunkIndex}. Serial per session: the decide-and-produce body
+     * runs under a per-session lock, so at most one Simulation.run() executes for a
+     * session at a time (no interleaved state corruption). The index gate makes the
+     * call idempotent: a request for the last-served index re-serves the cached
+     * bytes without advancing; the next sequential index produces and advances;
+     * anything else is a conflict. Always kicks off the next precompute after
+     * producing, so subsequent calls hit cache.
      */
-    public byte[] getNextChunkBytes(String sessionID) {
+    public byte[] getNextChunkBytes(String sessionID, int expectedChunkIndex) {
+        Simulation simulation = simulationMap.get(sessionID);
+        if (simulation == null) {
+            // Evicted, released, or never existed. Throw BEFORE touching
+            // lastAccessedAt: resurrecting a dead session's idle clock on every
+            // retry would defeat eviction.
+            throw new SessionNotFoundException("No live session for ID: " + sessionID);
+        }
         lastAccessedAt.put(sessionID, System.currentTimeMillis());
 
-        CompletableFuture<byte[]> cached = nextChunkCache.remove(sessionID);
-        byte[] payload;
-        if (cached != null) {
-            try {
-                // Either ready (instant) or still in-flight from prior precompute (await).
-                payload = cached.get();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new RuntimeException("Interrupted while awaiting precomputed chunk", e);
-            } catch (ExecutionException e) {
-                throw new RuntimeException("Precompute failed", e.getCause());
-            }
-        } else {
-            // Cold path: no precompute kicked off yet (first request post-init,
-            // or post-eviction). Compute synchronously on the request thread.
-            payload = computeChunkBytes(sessionID);
-        }
+        ReentrantLock lock = sessionLocks.computeIfAbsent(sessionID, id -> new ReentrantLock());
+        lock.lock();
+        try {
+            int served = servedChunkIndex.getOrDefault(sessionID, -1);
 
-        // Kick off the next precompute so the next request hits cache.
-        kickOffNextPrecompute(sessionID);
-        return payload;
+            // Idempotent retry: the client is re-requesting the chunk it was last
+            // served but never received (its fetch died after we computed). Re-serve
+            // the cached bytes without advancing the cursor.
+            if (expectedChunkIndex == served) {
+                byte[] cached = lastChunkBytes.get(sessionID);
+                if (cached != null) {
+                    return cached;
+                }
+                // served set but bytes absent should never happen; recomputing would
+                // double-advance, so surface it rather than corrupt the timeline.
+                throw new ChunkIndexConflictException(expectedChunkIndex, served);
+            }
+
+            // Anything other than the next sequential chunk: cursors diverged by
+            // more than the one re-servable step. Never silently advance.
+            if (expectedChunkIndex != served + 1) {
+                throw new ChunkIndexConflictException(expectedChunkIndex, served);
+            }
+
+            // Produce the next chunk: consume the precompute future if present
+            // (common case), else compute on this thread (first request or
+            // post-eviction). The lock is held across get(); the precompute task
+            // does not take the lock, so there is no deadlock, and concurrent
+            // same-session requests serialize as intended.
+            CompletableFuture<byte[]> cached = nextChunkCache.remove(sessionID);
+            byte[] payload;
+            if (cached != null) {
+                try {
+                    payload = cached.get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Interrupted while awaiting precomputed chunk", e);
+                } catch (ExecutionException e) {
+                    throw new RuntimeException("Precompute failed", e.getCause());
+                }
+            } else {
+                payload = computeChunkBytes(sessionID);
+            }
+
+            servedChunkIndex.put(sessionID, expectedChunkIndex);
+            lastChunkBytes.put(sessionID, payload);
+            kickOffNextPrecompute(sessionID);
+            return payload;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private void clearChunkProtocolState(String sessionID) {
+        servedChunkIndex.remove(sessionID);
+        lastChunkBytes.remove(sessionID);
+        sessionLocks.remove(sessionID);
     }
 
     /**
@@ -225,6 +285,7 @@ public class SimulationSessionService {
                     pending.cancel(true);
                 }
                 it.remove();
+                clearChunkProtocolState(sessionID);
                 logger.info("Evicted idle simulation {}", sessionID);
             }
         }

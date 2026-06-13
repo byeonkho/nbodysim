@@ -41,9 +41,16 @@ export async function runSimulation(
 ): Promise<boolean> {
   if (req.celestialBodyNames.length === 0) return false;
 
+  // Capture the session this run replaces BEFORE initialize wipes it, so the
+  // backend can release it immediately instead of orphaning it for the full
+  // idle timeout. Undefined (first run) is omitted from the body, a no-op.
+  const previousSessionID =
+    store.getState().simulation.simulationParameters?.simulationMetaData
+      ?.sessionID;
+
   const ok = await initializeCelestialBodies(
     dispatch,
-    { ...req, frame: FRAME_CODE[req.frame] ?? req.frame },
+    { ...req, frame: FRAME_CODE[req.frame] ?? req.frame, previousSessionID },
     { onRetry: opts?.onRetry },
   );
   if (!ok) return false;

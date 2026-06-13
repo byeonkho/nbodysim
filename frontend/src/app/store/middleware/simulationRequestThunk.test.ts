@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { configureStore } from "@reduxjs/toolkit";
 import simulationReducer, {
+  appendChunkToBuffer,
   loadSimulation,
   type SimulationParameters,
 } from "@/app/store/slices/SimulationSlice";
@@ -137,6 +138,52 @@ describe("requestRunSimulation: stale-session guard", () => {
     expect(buffer?.totalTimesteps).toBe(TIMESTEPS);
     expect(store.getState().request.isRequestInProgress).toBe(false);
     expect(store.getState().request.errorMessage).toBeNull();
+  });
+});
+
+describe("requestRunSimulation: chunk index", () => {
+  beforeEach(() => {
+    FakeWorker.last?.pending.splice(0);
+    vi.stubGlobal("Worker", FakeWorker);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends the current chunksAppended as expectedChunkIndex", async () => {
+    const store = buildStore();
+    store.dispatch(loadSimulation(sessionParams("abc")));
+    // Three successful appends -> chunksAppended = 3, the index the next
+    // request must ask for.
+    store.dispatch(appendChunkToBuffer(cannedPayload()));
+    store.dispatch(appendChunkToBuffer(cannedPayload()));
+    store.dispatch(appendChunkToBuffer(cannedPayload()));
+    expect(store.getState().simulation.chunksAppended).toBe(3);
+
+    let sentBody: Record<string, unknown> = {};
+    const fetchMock = vi.fn(async (_url: string, init: { body: string }) => {
+      sentBody = JSON.parse(init.body);
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        arrayBuffer: async () => new ArrayBuffer(8),
+      };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const run = store.dispatch(requestRunSimulation({ sessionID: "abc" }));
+    // By the time the decode is pending, the fetch has been issued.
+    await vi.waitFor(() => {
+      expect(FakeWorker.last?.pending.length).toBe(1);
+    });
+
+    expect(sentBody).toMatchObject({ sessionID: "abc", expectedChunkIndex: 3 });
+
+    // Complete the in-flight decode so the dispatch settles cleanly.
+    FakeWorker.last?.reply();
+    await run;
   });
 });
 

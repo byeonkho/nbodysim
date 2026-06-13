@@ -165,3 +165,19 @@ describe("SimulationSlice: appendChunkToBuffer", () => {
     expect(second.totalTimesteps).toBe(20);
   });
 });
+
+describe("SimulationSlice: chunksAppended counter (chunk-protocol index)", () => {
+  it("resets to 0 on loadSimulation and increments per appended chunk", () => {
+    let state = simulationReducer(undefined, { type: "@@init" });
+    expect(state.chunksAppended).toBe(0);
+
+    state = simulationReducer(state, loadSimulation(newParams("S1")));
+    state = simulationReducer(state, appendChunkToBuffer(dummyChunkPayload(10)));
+    expect(state.chunksAppended).toBe(1);
+    state = simulationReducer(state, appendChunkToBuffer(dummyChunkPayload(10)));
+    expect(state.chunksAppended).toBe(2);
+
+    state = simulationReducer(state, loadSimulation(newParams("S2")));
+    expect(state.chunksAppended).toBe(0);
+  });
+});

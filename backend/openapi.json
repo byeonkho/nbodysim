@@ -153,6 +153,9 @@
           },
           "fidelityBucket" : {
             "type" : "string"
+          },
+          "previousSessionID" : {
+            "type" : "string"
           }
         }
       },
@@ -206,6 +209,10 @@
         "properties" : {
           "sessionID" : {
             "type" : "string"
+          },
+          "expectedChunkIndex" : {
+            "type" : "integer",
+            "format" : "int32"
           }
         }
       },
