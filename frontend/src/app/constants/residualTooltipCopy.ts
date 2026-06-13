@@ -4,8 +4,8 @@
 // strings render only on the body card (those rows hide when the
 // active integrator is fixed-step).
 //
-// Tone follows .claude/rules/presentation-layer-copy.md: plain English
-// for a mixed-audience portfolio, no jargon names (DP853, RK4, Euler,
+// Tone follows the project's plain-English presentation-copy convention
+// for a mixed-audience portfolio: no jargon names (DP853, RK4, Euler,
 // dt, ΔE, etc.) in the body, no em-dashes.
 
 export const RESIDUAL_CONCEPT_COPY = `In real gravity, a planet's total energy stays exactly the same forever. Our simulation does the math one tiny step at a time, and small rounding errors stack up. This number is how far off we've drifted. Closer to zero is better. If it grows, the orbits on screen are slowly bending away from what real physics would do. Try different integrators (in Sim Setup) and watch how much this number changes; that's the trade-off between speed and accuracy made visible.`;
