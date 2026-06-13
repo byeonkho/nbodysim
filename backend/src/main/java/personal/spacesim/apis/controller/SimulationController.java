@@ -156,11 +156,13 @@ public class SimulationController {
     }
 
     /**
-     * Returns the next computed chunk for the given session as a zstd-compressed
-     * binary payload. Each call advances the session's internal time cursor —
-     * not idempotent. Serialization + compression live inside the service, which
-     * also speculatively precomputes the chunk after the next-after-this request
-     * so subsequent calls hit cache.
+     * Returns the chunk at the request's {@code expectedChunkIndex} for the
+     * session as a zstd-compressed binary payload. Idempotent on retry: a
+     * request for the last-served index re-serves the cached bytes without
+     * advancing the cursor, the next sequential index produces and advances,
+     * and anything else is a 409 conflict. A gone session is a 410. Production
+     * is serialized per session in the service, which also speculatively
+     * precomputes the following chunk so subsequent calls hit cache.
      */
     @PostMapping(value = "/chunk", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     public ResponseEntity<byte[]> getNextChunk(@RequestBody SimulationChunkRequest request) {
