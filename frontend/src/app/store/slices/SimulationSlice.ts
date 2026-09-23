@@ -1,4 +1,5 @@
 import {
+  createAction,
   createSelector,
   createSlice,
   Middleware,
@@ -475,6 +476,11 @@ type IndexAction = { type: string; payload: number };
 const PREFETCH_MIN_THRESHOLD = 1000;
 const PREFETCH_SAFETY_FACTOR = 1.5;
 
+// A failed replacement must wake prefetch even when playback cannot advance.
+export const resumeRetainedStream = createAction(
+  "simulation/resumeRetainedStream",
+);
+
 // Speed-aware prefetch trigger. Threshold scales with playback rate so that
 // at high speedMultipliers, the next fetch is in flight well before the
 // buffer empties. EMA of recent fetch latencies feeds the formula so the
@@ -482,13 +488,16 @@ const PREFETCH_SAFETY_FACTOR = 1.5;
 export const simulationUpdateDataMiddleware: Middleware =
   (store) => (next) => (action) => {
     const a = action as IndexAction;
-    if (a.type === "simulation/setCurrentTimeStepIndex") {
+    const resuming = resumeRetainedStream.match(action);
+    if (a.type === "simulation/setCurrentTimeStepIndex" || resuming) {
       const state = store.getState() as RootState;
       const buffer = state.simulation.chunkBuffer;
-      if (!buffer) return next(action);
+      if (!buffer && !resuming) return next(action);
 
-      const currentTimeStepIndex = a.payload;
-      const remaining = buffer.totalTimesteps - currentTimeStepIndex;
+      const currentTimeStepIndex = resuming
+        ? state.simulation.timeState.currentTimeStepIndex
+        : a.payload;
+      const remaining = (buffer?.totalTimesteps ?? 0) - currentTimeStepIndex;
       const speedMultiplier = Math.abs(
         state.simulation.timeState.speedMultiplier,
       );

@@ -111,3 +111,58 @@ journey(
   },
   { viewports: ["desktop"] },
 );
+
+journey(
+  "a failed replacement resumes the retained first chunk",
+  async (j) => {
+    await j.goto("/");
+    const tour = j.page.getByRole("dialog", { name: /intro tour/i });
+    await tour.waitFor({ state: "visible" });
+    const solo = tour.getByRole("button", { name: /explore solo/i });
+    if (await solo.isVisible()) await solo.click();
+    else await tour.getByRole("button", { name: "Skip" }).click();
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const chunkRequests: { sessionID: string; expectedChunkIndex: number }[] =
+      [];
+    await j.page.route("**/api/simulation/chunk", async (route) => {
+      chunkRequests.push(route.request().postDataJSON());
+      if (chunkRequests.length === 1) {
+        await held;
+        await route.abort();
+      } else await route.continue();
+    });
+    try {
+      await j.page.getByTestId("open-sim-setup").click();
+      await j.page
+        .getByLabel("Integrator", { exact: true })
+        .selectOption("euler");
+      await j.page.getByTestId("run-sim").click();
+      await expect.poll(() => chunkRequests.length).toBe(1);
+      await expect(
+        j.page.getByRole("dialog", { name: "Configure simulation" }),
+      ).toBeHidden();
+
+      // Reject before reaching the backend so the old session remains live,
+      // matching input validation or a gateway rejecting the replacement.
+      await j.page.route("**/api/simulation/initialize", (route) =>
+        route.fulfill({ status: 400 }),
+      );
+      await j.page.getByTestId("open-sim-setup").click();
+      await j.page.getByTestId("run-sim").click();
+      await expect.poll(() => chunkRequests.length).toBeGreaterThanOrEqual(2);
+      expect(chunkRequests[1]).toEqual(chunkRequests[0]);
+      await j.waitForRequest("POST", /\/chunk$/, 200);
+      await j.expectLog(/Chunk served in/);
+      await j.page.keyboard.press("Escape");
+      await j.expectCanvasPainted();
+      await j.screenshot("retained-stream-recovered");
+    } finally {
+      release();
+    }
+  },
+  { viewports: ["desktop"], failOnConsoleError: false },
+);
