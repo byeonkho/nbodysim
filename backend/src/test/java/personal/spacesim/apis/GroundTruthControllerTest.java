@@ -23,6 +23,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -61,6 +62,37 @@ class GroundTruthControllerTest {
         long toMs = start.shiftedBy(10 * 86_400.0)
                 .toDate(TimeScalesFactory.getUTC()).getTime();
         return new long[]{fromMs, toMs};
+    }
+
+    @Test
+    void samplesExactIrregularSnapshotTimesIncludingAcrossLeapSecond() throws Exception {
+        AbsoluteDate leap = new AbsoluteDate("2016-12-31T23:59:60.500", TimeScalesFactory.getUTC());
+        long key = Math.round(leap.durationFrom(AbsoluteDate.J2000_EPOCH) * 1000);
+        String epochs = "[" + (key - 1000) + "," + key + "," + (key + 1000) + "]";
+        mockMvc.perform(post("/api/simulation/ground-truth")
+                .contentType("application/json")
+                .content("{\"body\":\"EARTH\",\"frame\":\"heliocentric\",\"subtractSun\":true,\"referenceEpochs\":" + epochs + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tracks[0].anchors[0].referenceEpoch").value(key - 1000))
+                .andExpect(jsonPath("$.tracks[0].anchors[1].referenceEpoch").value(key))
+                .andExpect(jsonPath("$.tracks[0].anchors[2].referenceEpoch").value(key + 1000));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"[]", "[2,1]", "[1,1]", "[null]", "[-9223372036854775808,9223372036854775807]"})
+    void rejectsInvalidExactSamplingRequests(String epochs) throws Exception {
+        mockMvc.perform(post("/api/simulation/ground-truth").contentType("application/json")
+                .content("{\"body\":\"EARTH\",\"frame\":\"heliocentric\",\"referenceEpochs\":" + epochs + "}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void capsExactSamplingWork() throws Exception {
+        String epochs = java.util.stream.LongStream.range(0, 2001).mapToObj(Long::toString)
+                .collect(java.util.stream.Collectors.joining(",", "[", "]"));
+        mockMvc.perform(post("/api/simulation/ground-truth").contentType("application/json")
+                .content("{\"body\":\"EARTH\",\"frame\":\"heliocentric\",\"referenceEpochs\":" + epochs + "}"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

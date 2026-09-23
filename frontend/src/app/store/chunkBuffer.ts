@@ -14,6 +14,7 @@ export const BYTES_PER_TIMESTEP_PER_BODY = 6 * 8; // 6 doubles
 export interface ChunkBuffer {
   positions: Float64Array;
   timestamps: Float64Array;
+  referenceEpochs?: Float64Array;
   // Parallel to timestamps. Per-snapshot (E - E₀) / |E₀| from the
   // backend integrator. Stored as float32 to match the wire format —
   // it's a UI readout, the extra precision wouldn't be used.
@@ -63,7 +64,8 @@ export function selectBufferByteBudget(env?: ByteBudgetEnv): number {
   };
   const dm =
     e.navigator !== undefined && "deviceMemory" in e.navigator
-      ? ((e.navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? Infinity)
+      ? ((e.navigator as Navigator & { deviceMemory?: number }).deviceMemory ??
+        Infinity)
       : Infinity;
   const isLowMem = dm <= 4;
   const isNarrow =
@@ -149,7 +151,10 @@ export function appendChunk(
   chunkLen: number,
   dp853AvgStepSeconds: number | null = null,
   dp853AcceptRate: number | null = null,
+  chunkReferenceEpochs?: Float64Array,
 ): number {
+  if (chunkReferenceEpochs && !buffer.referenceEpochs)
+    buffer.referenceEpochs = new Float64Array(buffer.capacity);
   const stride = buffer.bodyCount * 6;
 
   // Oversized chunk: a single chunk bigger than the whole buffer (lowMem
@@ -172,6 +177,11 @@ export function appendChunk(
     );
     buffer.timestamps.set(chunkTimestamps.subarray(skip, chunkLen), 0);
     buffer.deltaERelative.set(chunkDeltaE.subarray(skip, chunkLen), 0);
+    if (chunkReferenceEpochs)
+      buffer.referenceEpochs!.set(
+        chunkReferenceEpochs.subarray(skip, chunkLen),
+        0,
+      );
 
     buffer.totalTimesteps = keep;
     buffer.bufferStartTimestep += dropped;
@@ -198,6 +208,7 @@ export function appendChunk(
       (dropCount + surviveCount) * stride,
     );
     buffer.timestamps.copyWithin(0, dropCount, dropCount + surviveCount);
+    buffer.referenceEpochs?.copyWithin(0, dropCount, dropCount + surviveCount);
     buffer.deltaERelative.copyWithin(0, dropCount, dropCount + surviveCount);
 
     buffer.totalTimesteps = surviveCount;
@@ -209,6 +220,8 @@ export function appendChunk(
   buffer.positions.set(chunkPositions, buffer.totalTimesteps * stride);
   buffer.timestamps.set(chunkTimestamps, buffer.totalTimesteps);
   buffer.deltaERelative.set(chunkDeltaE, buffer.totalTimesteps);
+  if (chunkReferenceEpochs)
+    buffer.referenceEpochs!.set(chunkReferenceEpochs, buffer.totalTimesteps);
   buffer.totalTimesteps += chunkLen;
 
   // Latest-write-wins: chunk telemetry tracks the freshly-appended chunk.
@@ -287,7 +300,8 @@ export function readBodyPositionInto(
   const base0 = i0 * stride + bodyIdx * 6;
   const base1 = base0 + stride;
 
-  const dtMs = buffer.timestamps[i0 + 1] - buffer.timestamps[i0];
+  const times = buffer.referenceEpochs ?? buffer.timestamps;
+  const dtMs = times[i0 + 1] - times[i0];
   const dt = dtMs / 1000;
 
   const s2 = s * s;
@@ -370,7 +384,8 @@ export function readBodyStateInto(
   const base0 = i0 * stride + bodyIdx * 6;
   const base1 = base0 + stride;
 
-  const dtMs = buffer.timestamps[i0 + 1] - buffer.timestamps[i0];
+  const times = buffer.referenceEpochs ?? buffer.timestamps;
+  const dtMs = times[i0 + 1] - times[i0];
   const dt = dtMs / 1000;
 
   const s2 = s * s;

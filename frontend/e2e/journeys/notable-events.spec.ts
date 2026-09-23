@@ -33,7 +33,7 @@ journey(
 
     // Autorun loads the static clip; wait for it, then let the off-main-thread
     // decode + the event scan run before querying for markers.
-    await j.waitForRequest("GET", /clip-default-v3\.bin/, 200);
+    await j.waitForRequest("GET", /clip-default-v4-science2\.bin/, 200);
     await j.page.waitForTimeout(3000);
 
     const markers = j.page.locator(MARKER_SEL);

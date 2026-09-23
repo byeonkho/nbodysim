@@ -52,6 +52,26 @@ class BinaryResponseSerializerTest {
     }
 
     @Test
+    void preservesSnapshotInstantsAcrossAndInsideLeapSeconds() {
+        AbsoluteDate start = new AbsoluteDate("2016-12-31T23:59:59.500", TimeScalesFactory.getUTC());
+        Map<AbsoluteDate, List<CelestialBodySnapshot>> snapshots = new LinkedHashMap<>();
+        for (int i = 0; i < 4; i++) snapshots.put(start.shiftedBy(i), List.of(
+                new CelestialBodySnapshot("Earth", Vector3D.ZERO, Vector3D.ZERO)));
+        ByteBuffer buf = ByteBuffer.wrap(new BinaryResponseSerializer().serialize(
+                new ChunkResult(snapshots, Map.of(), null), Map.of())).order(ByteOrder.LITTLE_ENDIAN);
+        buf.get(); buf.getShort();
+        int nameLength = buf.getShort();
+        buf.position(buf.position() + nameLength + 8 + 8 + 4);
+        assertEquals(4, buf.getInt());
+        for (int i = 0; i < 4; i++) {
+            AbsoluteDate expected = start.shiftedBy(i);
+            assertEquals(expected.toDate(TimeScalesFactory.getUTC()).getTime(), buf.getLong());
+            long key = buf.getLong();
+            assertEquals(0, AbsoluteDate.J2000_EPOCH.shiftedBy(key / 1000.0).durationFrom(expected), 0.0005);
+        }
+    }
+
+    @Test
     void emptyDataProducesHeaderOnly() {
         // Empty/null inputs serialise to a 19-byte header:
         //   version(1) + bodyCount(2) + dp853AvgStep(8) + dp853AcceptRate(4)
@@ -91,7 +111,7 @@ class BinaryResponseSerializerTest {
         // Construct a known input matching the frontend's parseBinaryChunk.test.ts
         // hand-crafted case (Earth + Moon at 2024-06-05T00:00:00Z). Read the
         // bytes back via ByteBuffer and verify each field — proves the
-        // serializer's output matches the version-3 format spec (byte-shuffled planes,
+        // serializer's output matches the version-4 format spec (byte-shuffled planes,
         // velocity temporal-delta).
         TimeScale utc = TimeScalesFactory.getUTC();
         AbsoluteDate date = new AbsoluteDate(2024, 6, 5, 0, 0, 0.0, utc);
@@ -153,9 +173,9 @@ class BinaryResponseSerializerTest {
 
         assertEquals(1, buf.getInt(), "timestepCount");
 
-        // Body section (version 3): start + gap, then planar fields.
+        // Body section (version 4): paired times, then planar fields.
         assertEquals(expectedMillis, buf.getLong(), "startMillis");
-        assertEquals(0.0, buf.getDouble(), "gapMillis is 0 for a single timestep");
+        assertEquals(Math.round(date.durationFrom(AbsoluteDate.J2000_EPOCH) * 1000.0), buf.getLong(), "continuous epoch");
 
         // deltaERelative planar (float32; UI readout shown to 1-2 sig figs).
         assertEquals(1.5e-12f, buf.getFloat(), 1e-18f, "per-snapshot ΔE/E₀");
@@ -188,7 +208,7 @@ class BinaryResponseSerializerTest {
     void temporalDeltasReconstructAbsolutePositions() {
         // Two timesteps so the delta path is exercised: row 0 is the reference,
         // row 1 carries per-step deltas that must sum back to the absolute
-        // position. Pins the version-3 delta semantics (position + velocity) on the Java side.
+        // position. Pins the version-4 delta semantics (position + velocity) on the Java side.
         TimeScale utc = TimeScalesFactory.getUTC();
         AbsoluteDate t0 = new AbsoluteDate(2024, 6, 5, 0, 0, 0.0, utc);
         AbsoluteDate t1 = new AbsoluteDate(2024, 6, 6, 0, 0, 0.0, utc);
@@ -220,10 +240,12 @@ class BinaryResponseSerializerTest {
         assertEquals(2, buf.getInt(), "timestepCount");
 
         long startMillis = buf.getLong();
-        double gapMillis = buf.getDouble();
+        long referenceEpoch0 = buf.getLong();
+        long secondMillis = buf.getLong();
+        long referenceEpoch1 = buf.getLong();
         assertEquals(t0.toDate(utc).getTime(), startMillis, "startMillis");
-        assertEquals((double) (t1.toDate(utc).getTime() - startMillis), gapMillis, 1e-6,
-                "gapMillis = one day for two daily timesteps");
+        assertEquals(t1.toDate(utc).getTime(), secondMillis);
+        assertEquals(86_400_000L, referenceEpoch1 - referenceEpoch0);
 
         buf.getFloat(); buf.getFloat();             // deltaE planar (2 timesteps)
 

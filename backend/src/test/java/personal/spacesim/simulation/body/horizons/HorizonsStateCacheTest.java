@@ -14,10 +14,38 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class HorizonsStateCacheTest {
 
-    private static final String BOOT3_DISK_ENTRY_JSON =
-            "{\"spkId\":\"2000433\",\"epochSeconds\":0,"
+    private static final String DISK_ENTRY_JSON =
+            "{\"spkId\":\"2000433\",\"epochMillis\":0,"
                     + "\"px\":1.5E11,\"py\":2.5E10,\"pz\":3.5E9,"
                     + "\"vx\":40000.0,\"vy\":5000.0,\"vz\":600.0}";
+
+    @Test
+    void subsecondInstantsDoNotCollideAndFetchUsesCanonicalMillis(@TempDir Path dir) {
+        HorizonsStateCache cache = new HorizonsStateCache(dir);
+        AtomicInteger calls = new AtomicInteger();
+        for (double seconds : new double[]{0.1231, 0.5672, -0.1231}) {
+            cache.getOrFetch("2000433", AbsoluteDate.J2000_EPOCH.shiftedBy(seconds), date -> {
+                calls.incrementAndGet();
+                assertEquals(Math.round(seconds * 1000) / 1000.0,
+                        date.durationFrom(AbsoluteDate.J2000_EPOCH), 1e-10);
+                return new HorizonsResponseParser.State(Vector3D.ZERO, Vector3D.ZERO);
+            });
+        }
+        assertEquals(3, calls.get());
+    }
+
+    @Test
+    void ignoresLegacyCacheWithoutDeletingIt(@TempDir Path dir) throws Exception {
+        Path legacy = dir.resolve("2000433_0.json");
+        Files.writeString(legacy, DISK_ENTRY_JSON.replace("epochMillis", "epochSeconds"));
+        AtomicInteger calls = new AtomicInteger();
+        new HorizonsStateCache(dir).getOrFetch("2000433", AbsoluteDate.J2000_EPOCH, date -> {
+            calls.incrementAndGet();
+            return new HorizonsResponseParser.State(Vector3D.ZERO, Vector3D.ZERO);
+        });
+        assertEquals(1, calls.get());
+        assertTrue(Files.exists(legacy));
+    }
 
     @Test
     void cachesPerSpkIdAndEpoch(@TempDir Path cacheDir) {
@@ -108,30 +136,31 @@ class HorizonsStateCacheTest {
                 new Vector3D(1.5e11, 2.5e10, 3.5e9),
                 new Vector3D(4.0e4, 5.0e3, 6.0e2)));
 
-        try (Stream<Path> files = Files.list(cacheDir)) {
+        try (Stream<Path> files = Files.list(cacheDir.resolve("tdb-v2"))) {
             long jsonCount = files.filter(p -> p.toString().endsWith(".json")).count();
             assertEquals(1, jsonCount,
                 "Expected exactly 1 cache file in " + cacheDir);
         }
         // Filename should embed the key for human inspection + seed-bakeability.
-        Path expected = cacheDir.resolve("2000433_0.json");
+        Path expected = cacheDir.resolve("tdb-v2/2000433_0.json");
         assertTrue(Files.exists(expected),
             "Expected cache file at " + expected + "; listing: "
-                + Files.list(cacheDir).toList());
+                + Files.list(cacheDir.resolve("tdb-v2")).toList());
         assertEquals(
-                BOOT3_DISK_ENTRY_JSON,
+                DISK_ENTRY_JSON,
                 Files.readString(expected),
-                "Jackson 3 must preserve the Boot 3 cache schema byte-for-byte");
+                "Persist the versioned millisecond schema");
     }
 
     @Test
     void loadsExistingEntriesFromDiskOnConstruction(@TempDir Path cacheDir)
             throws Exception {
+        Files.createDirectories(cacheDir.resolve("tdb-v2"));
         // Pre-seed: a previous process wrote a cache file for this key.
         // The new process must serve from disk without invoking the fetcher
         // — eliminating the refetch storm on Fly redeploys.
-        Files.writeString(cacheDir.resolve("2000433_0.json"),
-            "{\"spkId\":\"2000433\",\"epochSeconds\":0,"
+        Files.writeString(cacheDir.resolve("tdb-v2/2000433_0.json"),
+            "{\"spkId\":\"2000433\",\"epochMillis\":0,"
                 + "\"px\":1.0e11,\"py\":2.0e11,\"pz\":3.0e11,"
                 + "\"vx\":1.0e4,\"vy\":2.0e4,\"vz\":3.0e4}");
 
@@ -153,13 +182,14 @@ class HorizonsStateCacheTest {
 
     @Test
     void corruptFileIsSkippedOnLoad(@TempDir Path cacheDir) throws Exception {
+        Files.createDirectories(cacheDir.resolve("tdb-v2"));
         // A single corrupt file (truncated write, JSON-incompatible content,
         // schema drift from an older format) must not prevent boot. Skip
         // the entry; the next access for that key just re-fetches.
-        Files.writeString(cacheDir.resolve("2000433_0.json"), "{not valid json");
+        Files.writeString(cacheDir.resolve("tdb-v2/2000433_0.json"), "{not valid json");
         // Valid file alongside to confirm the loader keeps going.
-        Files.writeString(cacheDir.resolve("2000001_0.json"),
-            "{\"spkId\":\"2000001\",\"epochSeconds\":0,"
+        Files.writeString(cacheDir.resolve("tdb-v2/2000001_0.json"),
+            "{\"spkId\":\"2000001\",\"epochMillis\":0,"
                 + "\"px\":1.0,\"py\":2.0,\"pz\":3.0,"
                 + "\"vx\":4.0,\"vy\":5.0,\"vz\":6.0}");
 

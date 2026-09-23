@@ -177,6 +177,7 @@ interface AppendChunkPayload {
   timestepCount: number;
   positions: Float64Array;
   timestamps: Float64Array;
+  referenceEpochs?: Float64Array;
   mu: Record<string, number>;
   // Per-snapshot (E - E₀) / |E₀|. Length === timestepCount.
   deltaERelative: Float32Array;
@@ -271,6 +272,7 @@ export const simulationSlice = createSlice({
         payload.timestepCount,
         payload.dp853AvgStepSeconds,
         payload.dp853AcceptRate,
+        payload.referenceEpochs,
       );
 
       // If eviction occurred, slide the playback head left by the same amount

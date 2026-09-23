@@ -2,6 +2,11 @@ package personal.spacesim.simulation.body.horizons;
 
 import org.hipparchus.geometry.euclidean.threed.Vector3D;
 
+import org.orekit.time.AbsoluteDate;
+import org.orekit.time.TimeScalesFactory;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -43,6 +48,26 @@ public final class HorizonsResponseParser {
      * logs.
      */
     private static final int ERROR_PREVIEW_MAX_CHARS = 800;
+
+    private static final Pattern EPOCH_PATTERN = Pattern.compile(
+        "= A\\.D\\. (\\d{4}-[A-Za-z]{3}-\\d{2}) (\\d{2}):(\\d{2}):(\\d{2}(?:\\.\\d+)?) TDB");
+
+    public static State parseFirstRecord(String responseText, AbsoluteDate expectedEpoch) {
+        // Parse vectors first to preserve useful upstream error messages.
+        State state = parseFirstRecord(responseText);
+        String firstLine = responseText.substring(responseText.indexOf("$$SOE") + 5).stripLeading()
+                .split("\\R", 2)[0];
+        Matcher m = EPOCH_PATTERN.matcher(firstLine);
+        if (!m.find()) throw new IllegalArgumentException("Missing TDB epoch in first Horizons record");
+        LocalDate day = LocalDate.parse(m.group(1), DateTimeFormatter.ofPattern("yyyy-MMM-dd", Locale.ENGLISH));
+        AbsoluteDate actual = new AbsoluteDate(day.getYear(), day.getMonthValue(), day.getDayOfMonth(),
+                Integer.parseInt(m.group(2)), Integer.parseInt(m.group(3)), Double.parseDouble(m.group(4)),
+                TimeScalesFactory.getTDB());
+        if (Math.abs(actual.durationFrom(expectedEpoch)) > 0.001) {
+            throw new IllegalArgumentException("Horizons record epoch does not match requested instant");
+        }
+        return state;
+    }
 
     public static State parseFirstRecord(String responseText) {
         int soe = responseText.indexOf("$$SOE");

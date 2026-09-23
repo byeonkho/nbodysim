@@ -156,9 +156,9 @@ class HorizonsClientTest {
             futures.add(exec.submit(() -> {
                 ready.countDown();
                 go.await();
-                // Distinct epochs so each call misses the (per-key) cache.
+                // Calls go directly to the client, bypassing the cache.
                 client.fetchState("2000433",
-                    AbsoluteDate.J2000_EPOCH.shiftedBy(idx * 86400.0));
+                    AbsoluteDate.J2000_EPOCH);
                 return null;
             }));
         }
@@ -282,21 +282,25 @@ class HorizonsClientTest {
     }
 
     @Test
-    void formatEpochHandlesLeapSecondWithoutThrowing() {
-        // Orekit renders a UTC leap second as ":60", which java.time rejects.
-        // formatEpoch only needs minute precision, so a leap-second instant must
-        // format cleanly to the minute rather than throwing (which surfaced as a
-        // 500 because HorizonsFetchException is not an IllegalArgumentException).
-        AbsoluteDate leap = new AbsoluteDate(2016, 12, 31, 23, 59, 60.0,
+    void formatsTheActualInstantInTdbWithFractionalSeconds() {
+        AbsoluteDate epoch = new AbsoluteDate(2024, 6, 5, 12, 30, 45.123,
                 TimeScalesFactory.getUTC());
-        assertEquals("2016-12-31 23:59", client.formatEpoch(leap));
+        AbsoluteDate formatted = new AbsoluteDate(client.formatEpoch(epoch).replace(' ', 'T'),
+                TimeScalesFactory.getTDB());
+        assertEquals(0, formatted.durationFrom(epoch), 1e-8);
+        AbsoluteDate leap = new AbsoluteDate("2016-12-31T23:59:60.5", TimeScalesFactory.getUTC());
+        assertEquals(0, new AbsoluteDate(client.formatEpoch(leap).replace(' ', 'T'),
+                TimeScalesFactory.getTDB()).durationFrom(leap), 1e-8);
     }
 
     @Test
-    void formatEpochFormatsNormalDateToMinute() {
-        AbsoluteDate normal = new AbsoluteDate(2024, 6, 5, 12, 30, 0.0,
-                TimeScalesFactory.getUTC());
-        assertEquals("2024-06-05 12:30", client.formatEpoch(normal));
+    void rejectsResponseForAnotherInstant() {
+        server.expect(requestUrlContains("TIME_TYPE=%27TDB%27"))
+              .andExpect(requestUrlContains("TIME_DIGITS=%27FRACSEC%27"))
+              .andExpect(requestUrlContains("VEC_CORR=%27NONE%27"))
+              .andRespond(withSuccess(capturedResponse, MediaType.TEXT_PLAIN));
+        assertThrows(IllegalArgumentException.class,
+            () -> client.fetchState("2000433", AbsoluteDate.J2000_EPOCH.shiftedBy(30)));
     }
 
     /** Build a fresh RestClient.Builder bound to a new MockRestServiceServer. */

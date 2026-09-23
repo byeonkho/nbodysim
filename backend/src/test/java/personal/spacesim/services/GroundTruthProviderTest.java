@@ -53,6 +53,20 @@ class GroundTruthProviderTest {
     }
 
     @Test
+    void exactSamplesMatchDirectEphemerisAtEveryRequestedInstant() {
+        Frame frame = FramesFactory.getICRF();
+        List<Long> epochs = java.util.stream.Stream.of("2016-12-31T23:59:59.123", "2016-12-31T23:59:60.457", "2017-01-01T00:00:00.789")
+                .map(iso -> Math.round(new AbsoluteDate(iso, TimeScalesFactory.getUTC()).durationFrom(AbsoluteDate.J2000_EPOCH) * 1000))
+                .toList();
+        for (GroundTruthAnchor anchor : provider.sampleAt("MERCURY", frame, epochs, true).tracks().get(0).anchors()) {
+            AbsoluteDate date = AbsoluteDate.J2000_EPOCH.shiftedBy(anchor.referenceEpoch() / 1000.0);
+            Vector3D expected = CelestialBodyFactory.getMercury().getPVCoordinates(date, frame).getPosition()
+                    .subtract(CelestialBodyFactory.getSun().getPVCoordinates(date, frame).getPosition());
+            assertEquals(0, expected.distance(new Vector3D(anchor.position())), 0.0001);
+        }
+    }
+
+    @Test
     void samplesSupportedBodySunRelativeAtDailyCadence() {
         Frame frame = FramesFactory.getICRF();
         AbsoluteDate from = new AbsoluteDate("2024-01-01T00:00:00.000", TimeScalesFactory.getUTC());

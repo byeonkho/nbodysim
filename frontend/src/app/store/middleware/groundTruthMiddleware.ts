@@ -20,15 +20,15 @@ import { FRAME_CODE } from "@/app/constants/SimParams";
 
 // Keyframes of lookahead beyond the playback head when sizing the fetch window,
 // so coverage stays ahead of playback between chunk arrivals.
-const LOOKAHEAD_KEYFRAMES = 4000;
-// Target anchor count per fetch (active body). The cadence is sized so the
-// visible window yields ~this many anchors: bounded payload, fine enough for
-// smooth interpolation in the watchable regime.
-const TARGET_ANCHORS = 400;
+const LOOKAHEAD_KEYFRAMES = 1000;
+// Bound the exact snapshot window per active-body fetch. Larger histories
+// are clipped instead of sparsely sampled; numeric readouts never interpolate.
+const TARGET_ANCHORS = 2000;
 
 // One fetch in flight at a time. Cleared when the thunk settles, so a failed or
 // superseded fetch is retried on the next trigger. Module-level is safe: single store.
 let fetchInFlight = false;
+let fetchGeneration = 0;
 
 // Minimum interval between playback-driven fetch attempts. The fetch thunk
 // swallows failures by design (the overlay is a side channel), so coverage
@@ -37,10 +37,14 @@ let fetchInFlight = false;
 // throttled (they are already bounded by their own cadence).
 const PLAYBACK_FETCH_MIN_INTERVAL_MS = 3000;
 let lastPlaybackFetchAttemptMs = 0;
+let trailingRefresh: ReturnType<typeof setTimeout> | undefined;
 
 // Test-only seam: module-level guards otherwise leak between vitest cases.
 export function resetGroundTruthMiddlewareState(): void {
+  if (trailingRefresh !== undefined) clearTimeout(trailingRefresh);
+  trailingRefresh = undefined;
   fetchInFlight = false;
+  fetchGeneration++;
   lastPlaybackFetchAttemptMs = 0;
 }
 
@@ -54,7 +58,12 @@ function rebuildTrueTrack(store: Store): void {
   const activeBody = state.simulation.activeBodyState.activeBodyName;
   const predicted = state.simulation.chunkBuffer;
 
-  if (!overlayEnabled || !activeBody || !predicted || predicted.totalTimesteps === 0) {
+  if (
+    !overlayEnabled ||
+    !activeBody ||
+    !predicted ||
+    predicted.totalTimesteps === 0
+  ) {
     if (state.groundTruth.trueTrack) store.dispatch(clearTrueTrack());
     return;
   }
@@ -100,13 +109,15 @@ function maybeFetch(store: Store, immediate: boolean): void {
 
   const activeUpper = activeBody.toUpperCase();
   const cov = coveredByBody[activeUpper];
-  const covered = cov != null && cov.fromMs <= req.fromMs && cov.toMs >= req.toMs;
+  const covered =
+    cov != null && cov.fromMs <= req.fromMs && cov.toMs >= req.toMs;
   if (covered) return;
 
   const subtractSun = lastRequest.celestialBodyNames.some(
     (n) => n.toLowerCase() === "sun",
   );
   fetchInFlight = true;
+  const generation = ++fetchGeneration;
   const dispatched = store.dispatch(
     fetchGroundTruth({
       frame: FRAME_CODE[lastRequest.frame] ?? lastRequest.frame,
@@ -117,9 +128,51 @@ function maybeFetch(store: Store, immediate: boolean): void {
     }) as never,
   ) as unknown as Promise<unknown>;
   dispatched.finally(() => {
+    if (generation !== fetchGeneration) return;
     fetchInFlight = false;
     rebuildTrueTrack(store); // pick up the freshly-fetched anchors
+    scheduleTrailingRefresh(store);
   });
+}
+
+function needsPlaybackCoverage(store: Store): boolean {
+  const state = store.getState();
+  const active = state.simulation.activeBodyState.activeBodyName;
+  const buffer = state.simulation.chunkBuffer;
+  if (
+    !state.groundTruth.overlayEnabled ||
+    !active ||
+    !buffer ||
+    buffer.totalTimesteps < 2
+  )
+    return false;
+  const cov = state.groundTruth.coveredByBody[active.toUpperCase()];
+  const idx = Math.max(
+    0,
+    Math.min(
+      buffer.totalTimesteps - 1,
+      Math.floor(state.simulation.timeState.currentTimeStepIndex),
+    ),
+  );
+  const hi = Math.min(buffer.totalTimesteps - 1, idx + LOOKAHEAD_KEYFRAMES / 4);
+  const times = buffer.referenceEpochs ?? buffer.timestamps;
+  return !cov || times[idx] < cov.fromMs || times[hi] > cov.toMs;
+}
+
+// A trailing check also runs while paused. It reads the latest desired window,
+// so quick seeks during a request or throttle period are never discarded.
+function scheduleTrailingRefresh(store: Store): void {
+  if (trailingRefresh !== undefined || !needsPlaybackCoverage(store)) return;
+  const delay = Math.max(
+    0,
+    PLAYBACK_FETCH_MIN_INTERVAL_MS - (Date.now() - lastPlaybackFetchAttemptMs),
+  );
+  trailingRefresh = setTimeout(() => {
+    trailingRefresh = undefined;
+    if (fetchInFlight || !needsPlaybackCoverage(store)) return;
+    lastPlaybackFetchAttemptMs = Date.now();
+    maybeFetch(store, false);
+  }, delay);
 }
 
 export const groundTruthMiddleware: Middleware =
@@ -132,8 +185,7 @@ export const groundTruthMiddleware: Middleware =
     // session's last playback fetch. No eager fetch — the first fetch fires
     // once a body is focused with the overlay on (below).
     if (setLastSimRequest.match(action)) {
-      fetchInFlight = false;
-      lastPlaybackFetchAttemptMs = 0;
+      resetGroundTruthMiddlewareState();
       typedStore.dispatch(resetGroundTruth());
       return result;
     }
@@ -167,41 +219,20 @@ export const groundTruthMiddleware: Middleware =
     // playback outruns the lookahead between chunk arrivals. The pre-check
     // is a few O(1) reads; maybeFetch re-verifies coverage and the
     // in-flight guard.
-    if (setCurrentTimeStepIndex.match(action)) {
-      const state = typedStore.getState();
-      const { overlayEnabled, coveredByBody } = state.groundTruth;
-      const activeBody = state.simulation.activeBodyState.activeBodyName;
-      const predicted = state.simulation.chunkBuffer;
-      const cov = activeBody
-        ? coveredByBody[activeBody.toUpperCase()]
-        : undefined;
+    if (
+      setCurrentTimeStepIndex.match(action) &&
+      needsPlaybackCoverage(typedStore)
+    ) {
+      const now = Date.now();
       if (
-        overlayEnabled &&
-        activeBody &&
-        predicted &&
-        predicted.totalTimesteps > 1 &&
-        cov != null
+        !fetchInFlight &&
+        now - lastPlaybackFetchAttemptMs >= PLAYBACK_FETCH_MIN_INTERVAL_MS
       ) {
-        const n = predicted.totalTimesteps;
-        const idxFloor = Math.max(
-          0,
-          Math.min(
-            n - 1,
-            Math.floor(state.simulation.timeState.currentTimeStepIndex),
-          ),
-        );
-        const hi = Math.min(n - 1, idxFloor + LOOKAHEAD_KEYFRAMES);
-        const wantToMs = Number(predicted.timestamps[hi]);
-        const now = Date.now();
-        if (
-          wantToMs > cov.toMs &&
-          now - lastPlaybackFetchAttemptMs >= PLAYBACK_FETCH_MIN_INTERVAL_MS
-        ) {
-          lastPlaybackFetchAttemptMs = now;
-          maybeFetch(typedStore, /* immediate */ false);
-        }
+        lastPlaybackFetchAttemptMs = now;
+        maybeFetch(typedStore, false);
+      } else {
+        scheduleTrailingRefresh(typedStore);
       }
-      return result;
     }
 
     return result;

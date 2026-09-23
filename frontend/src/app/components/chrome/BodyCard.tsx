@@ -11,7 +11,10 @@ import {
   selectIsBodyActive,
   type Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
-import { readBodyStateInto, readBodyPositionInto, readDeltaERelativeAt } from "@/app/store/chunkBuffer";
+import {
+  readBodyStateInto,
+  readDeltaERelativeAt,
+} from "@/app/store/chunkBuffer";
 import type { RootState } from "@/app/store/Store";
 import {
   calculateDistance,
@@ -30,6 +33,10 @@ import {
   RESIDUAL_CONCEPT_COPY,
 } from "@/app/constants/residualTooltipCopy";
 import { selectOverlayEnabled } from "@/app/store/slices/GroundTruthSlice";
+import {
+  readExactReferenceInto,
+  readReferencePositionInto,
+} from "@/app/store/referencePosition";
 import { driftMetrics } from "@/app/utils/driftMetrics";
 import { DRIFT_READOUT_COPY } from "@/app/constants/driftTooltipCopy";
 import {
@@ -169,6 +176,7 @@ export function BodyCard() {
     const orbitingPos = new THREE.Vector3();
     const orbitingVel = new THREE.Vector3();
     const trueScratch = new THREE.Vector3();
+    const referenceScratch = new THREE.Vector3();
 
     const findIdx = (
       buffer: { bodyNameToIndex: ReadonlyMap<string, number> },
@@ -304,21 +312,28 @@ export function BodyCard() {
         acceptRateRef.current.textContent = `${(buffer.dp853AcceptRate * 100).toFixed(1)}%`;
       }
 
-      // Reality drift — predicted vs true position of the active body.
-      // gt.overlayEnabled is read imperatively here (like the rest of tick);
-      // the JSX section gates on the driftOverlayEnabled selector separately.
+      // Compare the last saved snapshot to a source sample at exactly that
+      // timestamp. Visual smoothing between snapshots is not a measurement.
       const gt = state.groundTruth;
+      const snapshotIdx = Math.floor(idx);
       if (
         gt.overlayEnabled &&
-        gt.trueTrack &&
-        gt.trueTrackBody === upperName &&
-        idx < gt.trueTrack.totalTimesteps
+        snapshotIdx >= 0 &&
+        snapshotIdx < buffer.totalTimesteps &&
+        readExactReferenceInto(
+          trueScratch,
+          gt.anchorsByBody[upperName],
+          (buffer.referenceEpochs ?? buffer.timestamps)[snapshotIdx],
+        ) &&
+        readReferencePositionInto(
+          referenceScratch,
+          buffer,
+          snapshotIdx,
+          upperName,
+          state.simulation.simulationParameters.celestialBodyPropertiesList,
+        )
       ) {
-        readBodyPositionInto(trueScratch, gt.trueTrack, idx, 0); // single-body buffer
-        const { km, angleDeg } = driftMetrics(
-          { x: bodyPos.x, y: bodyPos.y, z: bodyPos.z },
-          { x: trueScratch.x, y: trueScratch.y, z: trueScratch.z },
-        );
+        const { km, angleDeg } = driftMetrics(referenceScratch, trueScratch);
         if (driftKmRef.current) {
           driftKmRef.current.textContent =
             km >= 1e6
@@ -381,7 +396,9 @@ export function BodyCard() {
         type="button"
         onClick={() => dispatch(toggleInfoPanel())}
         aria-expanded={!infoCollapsed}
-        aria-label={infoCollapsed ? "Expand body details" : "Collapse body details"}
+        aria-label={
+          infoCollapsed ? "Expand body details" : "Collapse body details"
+        }
         className={`flex w-full items-center gap-2.5 text-left ${
           infoCollapsed ? "" : "mb-2.5"
         }`}
@@ -467,12 +484,24 @@ export function BodyCard() {
             <>
               <SectionLabel>
                 <span className="inline-flex items-center gap-1">
-                  Reality drift
-                  <InfoTooltip label="What is reality drift?">
+                  Snapshot difference
+                  <InfoTooltip label="What is snapshot difference?">
                     {DRIFT_READOUT_COPY}
                   </InfoTooltip>
                 </span>
               </SectionLabel>
+              <p className="text-[10px] text-text-muted">
+                {[
+                  "MARS",
+                  "JUPITER",
+                  "SATURN",
+                  "URANUS",
+                  "NEPTUNE",
+                  "PLUTO",
+                ].includes(upperName ?? "")
+                  ? "Planetary system · last saved snapshot"
+                  : "Last saved snapshot"}
+              </p>
               <KvRow k="Off by" valueRef={driftKmRef} accent />
               <KvRow k="Angle off" valueRef={driftAngleRef} />
             </>
@@ -485,10 +514,7 @@ export function BodyCard() {
 
 function BodyCardEmpty() {
   return (
-    <div
-      className="glass px-[18px] pt-4 pb-3.5"
-      style={{ borderRadius: 14 }}
-    >
+    <div className="glass px-[18px] pt-4 pb-3.5" style={{ borderRadius: 14 }}>
       <div className="text-dim text-[11px]">Select a body to inspect.</div>
     </div>
   );

@@ -25,6 +25,7 @@ export interface GroundTruthState {
   // chip's busy pulse); the middleware keeps its own in-flight guard for
   // dispatch gating.
   fetchInFlight: boolean;
+  pendingRequests: Record<string, boolean>;
   // True only while a USER-INITIATED fetch is in flight (toggling Drift,
   // switching the focused body). Drives the loading notice, which must stay
   // silent for the automatic background top-up refetches that slide coverage
@@ -40,6 +41,7 @@ const initialState: GroundTruthState = {
   trueTrack: null,
   trueTrackBody: null,
   fetchInFlight: false,
+  pendingRequests: {},
   userFetchInFlight: false,
 };
 
@@ -95,6 +97,7 @@ export const groundTruthSlice = createSlice({
       // A response for the old sim may never settle visibly; don't let a new
       // sim inherit a stuck busy indicator or loading notice.
       state.fetchInFlight = false;
+      state.pendingRequests = {};
       state.userFetchInFlight = false;
     },
   },
@@ -110,23 +113,24 @@ export const groundTruthSlice = createSlice({
       (action as { meta?: { arg?: { immediate?: boolean } } }).meta?.arg
         ?.immediate === true;
 
+    const requestKey = (action: unknown): string =>
+      (action as { meta?: { requestId?: string } }).meta?.requestId ??
+      (isImmediate(action) ? "legacy-user" : "legacy-background");
+    const settle = (state: GroundTruthState, action: unknown) => {
+      delete state.pendingRequests[requestKey(action)];
+      state.fetchInFlight = Object.keys(state.pendingRequests).length > 0;
+      state.userFetchInFlight = Object.values(state.pendingRequests).some(
+        Boolean,
+      );
+    };
     builder
       .addCase("groundTruth/fetch/pending", (state, action) => {
+        state.pendingRequests[requestKey(action)] = isImmediate(action);
         state.fetchInFlight = true;
         if (isImmediate(action)) state.userFetchInFlight = true;
       })
-      // Clear userFetchInFlight only when an IMMEDIATE fetch settles. A
-      // background fetch can settle while a user fetch is still pending (user
-      // fetches bypass the in-flight guard); clearing on any settle would hide
-      // the notice early in that overlap.
-      .addCase("groundTruth/fetch/fulfilled", (state, action) => {
-        state.fetchInFlight = false;
-        if (isImmediate(action)) state.userFetchInFlight = false;
-      })
-      .addCase("groundTruth/fetch/rejected", (state, action) => {
-        state.fetchInFlight = false;
-        if (isImmediate(action)) state.userFetchInFlight = false;
-      });
+      .addCase("groundTruth/fetch/fulfilled", settle)
+      .addCase("groundTruth/fetch/rejected", settle);
   },
 });
 

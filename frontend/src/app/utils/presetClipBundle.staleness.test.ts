@@ -44,6 +44,7 @@ describe.each(CLIP_PRESETS)("preset clip staleness guard: $id", (preset) => {
       INTEGRATOR_DEFAULT_BUCKETS[PRESET_INTEGRATOR] ?? "medLow";
     const drift = `${preset.id} clip is stale. Regenerate: ${REGEN}`;
 
+    expect(p.dataRevision, drift).toBe(2);
     expect(p.formatVersion, drift).toBe(WIRE_FORMAT_VERSION);
     expect(p.presetId, drift).toBe(preset.id);
     expect(p.epoch, drift).toBe(PRESET_EPOCH);

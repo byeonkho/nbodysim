@@ -11,6 +11,7 @@ import {
   selectCelestialBodyPropertiesList,
   Vector3Simple,
 } from "@/app/store/slices/SimulationSlice";
+import { readReferencePositionInto } from "@/app/store/referencePosition";
 import { readBodyPositionInto } from "@/app/store/chunkBuffer";
 import {
   setBodyWorldPositionWithPreset,
@@ -56,20 +57,34 @@ const DriftOverlay: React.FC = () => {
   // --- three.js objects, allocated once ---
   const trailLine = useMemo(() => {
     const geom = new THREE.BufferGeometry();
-    geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX_TRAIL_POINTS * 3), 3));
-    geom.setAttribute("color", new THREE.BufferAttribute(new Float32Array(MAX_TRAIL_POINTS * 3), 3));
+    geom.setAttribute(
+      "position",
+      new THREE.BufferAttribute(new Float32Array(MAX_TRAIL_POINTS * 3), 3),
+    );
+    geom.setAttribute(
+      "color",
+      new THREE.BufferAttribute(new Float32Array(MAX_TRAIL_POINTS * 3), 3),
+    );
     geom.setDrawRange(0, 0);
-    const line = new THREE.Line(geom, new THREE.LineBasicMaterial({ vertexColors: true }));
+    const line = new THREE.Line(
+      geom,
+      new THREE.LineBasicMaterial({ vertexColors: true }),
+    );
     line.frustumCulled = false;
     return line;
   }, []);
 
   const connectorLine = useMemo(() => {
     const geom = new THREE.BufferGeometry();
-    geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(2 * 3), 3));
+    geom.setAttribute(
+      "position",
+      new THREE.BufferAttribute(new Float32Array(2 * 3), 3),
+    );
     const line = new THREE.Line(
       geom,
-      new THREE.LineBasicMaterial({ color: new THREE.Color(...CONNECTOR_COLOR) }),
+      new THREE.LineBasicMaterial({
+        color: new THREE.Color(...CONNECTOR_COLOR),
+      }),
     );
     line.frustumCulled = false;
     return line;
@@ -108,14 +123,6 @@ const DriftOverlay: React.FC = () => {
   const pivot = useRef<Vector3Simple>({ x: 0, y: 0, z: 0 });
   const predWorld = useRef(new THREE.Vector3());
 
-  // Cached predicted-buffer index for the ACTIVE body. Invalidated when the
-  // buffer identity changes (resubmit) OR the active body changes (focus
-  // switch) — this index tracks whichever body is focused, which changes
-  // mid-session without changing the buffer.
-  const predIdxRef = useRef<number>(-1);
-  const resolvedBufferRef = useRef<object | null>(null);
-  const resolvedBodyRef = useRef<string | null>(null);
-
   /* eslint-disable react-hooks/immutability */
   useFrame(() => {
     const state = store.getState();
@@ -150,30 +157,22 @@ const DriftOverlay: React.FC = () => {
       return;
     }
 
-    // Resolve / re-resolve the predicted index for the active body. Re-resolve
-    // on buffer identity change (resubmit) AND on active-body change — the
-    // connector reads the focused body's predicted position, and focus changes
-    // mid-session without changing the buffer (which would otherwise keep the
-    // previous body's index and point the line at the old body).
-    const activeUpper = active.toUpperCase();
+    const times = predicted.referenceEpochs ?? predicted.timestamps;
+    const cov = gt.coveredByBody[active.toUpperCase()];
+    // Both interpolation endpoints must be covered. A rewind hides stale
+    // geometry until the matching window arrives.
     if (
-      resolvedBufferRef.current !== predicted ||
-      resolvedBodyRef.current !== activeUpper
+      !cov ||
+      times[Math.floor(idx)] < cov.fromMs ||
+      times[Math.ceil(idx)] > cov.toMs ||
+      !readReferencePositionInto(
+        predPos.current,
+        predicted,
+        idx,
+        active,
+        state.simulation.simulationParameters.celestialBodyPropertiesList,
+      )
     ) {
-      predIdxRef.current = -1;
-      resolvedBufferRef.current = predicted;
-      resolvedBodyRef.current = activeUpper;
-    }
-    if (predIdxRef.current === -1) {
-      for (const [bn, i] of predicted.bodyNameToIndex.entries()) {
-        if (bn.toUpperCase() === activeUpper) {
-          predIdxRef.current = i;
-          break;
-        }
-      }
-    }
-    const predIdx = predIdxRef.current;
-    if (predIdx < 0) {
       trailLine.geometry.setDrawRange(0, 0);
       markerMesh.visible = false;
       connectorLine.visible = false;
@@ -181,15 +180,17 @@ const DriftOverlay: React.FC = () => {
     }
 
     // --- true trail (read true-track body 0 over the tail window) ---
-    const positions = trailLine.geometry.attributes.position.array as Float32Array;
+    const positions = trailLine.geometry.attributes.position
+      .array as Float32Array;
     const colors = trailLine.geometry.attributes.color.array as Float32Array;
     const length = Math.min(MAX_TRAIL_POINTS, getDevSettings().trailLength);
     const idxFloor = Math.floor(idx);
-    const start = Math.max(0, idxFloor - length);
+    const start = Math.max(0, idxFloor - length + 1);
     const end = Math.min(idxFloor, trueTrack.totalTimesteps - 1);
     const total = end - start;
     let count = 0;
     for (let i = start; i <= end; i++) {
+      if (times[i] < cov.fromMs || times[i] > cov.toMs) continue;
       readBodyPositionInto(truePos.current, trueTrack, i, 0);
       // Predicted and reference markers share the same frame, scale, and body-
       // transform chain, so the reference trail uses the predicted pivot.
@@ -198,7 +199,12 @@ const DriftOverlay: React.FC = () => {
       trueSimple.current.y = truePos.current.y - pivot.current.y;
       trueSimple.current.z = truePos.current.z - pivot.current.z;
       const w = count * 3;
-      writeBodyWorldPositionToArrayWithPreset(positions, w, trueSimple.current, preset);
+      writeBodyWorldPositionToArrayWithPreset(
+        positions,
+        w,
+        trueSimple.current,
+        preset,
+      );
       const fade = total > 0 ? (i - start) / total : 1;
       colors[w] = TRUE_COLOR[0] * fade;
       colors[w + 1] = TRUE_COLOR[1] * fade;
@@ -215,19 +221,28 @@ const DriftOverlay: React.FC = () => {
     trueSimple.current.x = truePos.current.x - pivot.current.x;
     trueSimple.current.y = truePos.current.y - pivot.current.y;
     trueSimple.current.z = truePos.current.z - pivot.current.z;
-    setBodyWorldPositionWithPreset(markerMesh.position, trueSimple.current, preset);
+    setBodyWorldPositionWithPreset(
+      markerMesh.position,
+      trueSimple.current,
+      preset,
+    );
     const markerR = worldRadius(activeRadiusM, preset);
     markerMesh.scale.setScalar(markerR > 0 ? markerR : 0.3);
     markerMesh.visible = true;
 
     // --- current predicted position → connector start (world space) ---
-    readBodyPositionInto(predPos.current, predicted, idx, predIdx);
+    // Combined system position was read above.
     predSimple.current.x = predPos.current.x - pivot.current.x;
     predSimple.current.y = predPos.current.y - pivot.current.y;
     predSimple.current.z = predPos.current.z - pivot.current.z;
-    setBodyWorldPositionWithPreset(predWorld.current, predSimple.current, preset);
+    setBodyWorldPositionWithPreset(
+      predWorld.current,
+      predSimple.current,
+      preset,
+    );
 
-    const conn = connectorLine.geometry.attributes.position.array as Float32Array;
+    const conn = connectorLine.geometry.attributes.position
+      .array as Float32Array;
     conn[0] = predWorld.current.x;
     conn[1] = predWorld.current.y;
     conn[2] = predWorld.current.z;

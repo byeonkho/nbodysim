@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import personal.spacesim.constants.FidelityBucket;
 import personal.spacesim.dtos.GroundTruthResponse;
+import personal.spacesim.dtos.GroundTruthSampleRequest;
 import personal.spacesim.dtos.SimulationChunkRequest;
 import personal.spacesim.dtos.SimulationRequestDTO;
 import personal.spacesim.dtos.SimulationResponseDTO;
@@ -213,6 +214,27 @@ public class SimulationController {
      * no session, and the data is public ephemeris, so the endpoint needs
      * only a body name and a frame code. Read-only and idempotent.
      */
+    @PostMapping("/ground-truth")
+    public ResponseEntity<GroundTruthResponse> sampleGroundTruth(@RequestBody GroundTruthSampleRequest request) {
+        List<Long> epochs = request.referenceEpochs();
+        if (request.body() == null || request.frame() == null || epochs == null || epochs.isEmpty()
+                || epochs.size() > 2000 || epochs.stream().anyMatch(java.util.Objects::isNull)) {
+            return ResponseEntity.badRequest().build();
+        }
+        for (int i = 1; i < epochs.size(); i++) {
+            if (epochs.get(i) <= epochs.get(i - 1)) return ResponseEntity.badRequest().build();
+        }
+        long span = epochs.get(epochs.size() - 1) - epochs.get(0);
+        if (span < 0 || span > MAX_GROUND_TRUTH_WINDOW_MS) return ResponseEntity.badRequest().build();
+        try {
+            Frame resolvedFrame = customFrameFactory.createFrame(request.frame());
+            return ResponseEntity.ok(groundTruthProvider.sampleAt(request.body(), resolvedFrame,
+                    epochs, request.subtractSun()));
+        } catch (IllegalArgumentException | org.orekit.errors.OrekitException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
     @GetMapping("/ground-truth")
     public ResponseEntity<GroundTruthResponse> getGroundTruth(
             @RequestParam String body,

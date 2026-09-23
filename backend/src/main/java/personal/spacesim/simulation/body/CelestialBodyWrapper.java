@@ -10,6 +10,7 @@ import org.orekit.bodies.CelestialBodyFactory;
 import org.orekit.frames.Frame;
 import org.orekit.time.AbsoluteDate;
 import personal.spacesim.constants.PhysicsConstants;
+import java.util.List;
 
 
 // we can't just use CelestialBody because to retrieve the PV coordinates we need a specific datetime; by wrapping it
@@ -32,6 +33,9 @@ public class CelestialBodyWrapper {
     private final double radius;
     private final String name;
     private String orbitingBody;
+    // Bodies whose combined center of mass corresponds to the ephemeris record.
+    // A split parent still includes the mass of omitted/test-particle moons.
+    private List<String> referenceBodyNames;
 
     @JsonIgnore
     private Vector3D position;
@@ -47,6 +51,7 @@ public class CelestialBodyWrapper {
         CelestialBody body = CelestialBodyFactory.getBody(name);
 
         this.name = name;
+        this.referenceBodyNames = List.of(name);
         this.mu = body.getGM();
         this.mass = this.mu / PhysicsConstants.GRAVITATIONAL_CONSTANT;
         Double radiusValue = PhysicsConstants.RADIUS_MAP.get(name.toUpperCase());
@@ -82,6 +87,7 @@ public class CelestialBodyWrapper {
             Vector3D velocity
     ) {
         this.name = name;
+        this.referenceBodyNames = List.of(name);
         this.mu = mu;
         this.mass = mu / PhysicsConstants.GRAVITATIONAL_CONSTANT;
         this.radius = radius;

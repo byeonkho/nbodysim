@@ -17,7 +17,7 @@ journey(
     // off-main-thread decode paint the first frames before screenshotting.
     // Without this wait the screenshot fires at canvas-mount, before any body
     // is drawn, and silently captures an empty scene.
-    await j.waitForRequest("GET", /clip-default-v3\.bin/, 200);
+    await j.waitForRequest("GET", /clip-default-v4-science2\.bin/, 200);
     await j.page.waitForTimeout(2500);
     await j.screenshot("default-loaded");
 

@@ -37,6 +37,7 @@ function chunkPayload(n: number, startMs: number) {
     timestepCount: n,
     positions: new Float64Array(n * 6),
     timestamps,
+    referenceEpochs: timestamps,
     mu: { Mars: 4.2828e13 },
     deltaERelative: new Float32Array(n),
     dp853AvgStepSeconds: null as number | null,
@@ -86,6 +87,8 @@ describe("groundTruthMiddleware: playback-driven coverage", () => {
   });
 
   afterEach(() => {
+    resetGroundTruthMiddlewareState();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -93,7 +96,10 @@ describe("groundTruthMiddleware: playback-driven coverage", () => {
   // Builds the standard scene: buffer present, overlay on, Mars focused at
   // playback index `idx`. The setActiveBody dispatch fires the initial
   // immediate fetch, which we settle before returning.
-  async function setupCoveredAt(store: ReturnType<typeof makeStore>, idx: number) {
+  async function setupCoveredAt(
+    store: ReturnType<typeof makeStore>,
+    idx: number,
+  ) {
     store.dispatch(setLastSimRequest(lastReq));
     store.dispatch(appendChunkToBuffer(chunkPayload(N, T0)));
     store.dispatch(setCurrentTimeStepIndex(idx));
@@ -102,6 +108,52 @@ describe("groundTruthMiddleware: playback-driven coverage", () => {
     await flush();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   }
+
+  it("refreshes the final paused seek after an in-flight request and throttle", async () => {
+    const store = makeStore();
+    await setupCoveredAt(store, 0);
+    expect(store.getState().simulation.timeState.isPaused).toBe(true);
+    vi.useFakeTimers();
+    store.dispatch(setCurrentTimeStepIndex(4500));
+    store.dispatch(setCurrentTimeStepIndex(0));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    nowMs += 3001;
+    await vi.advanceTimersByTimeAsync(3001);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(store.getState().groundTruth.coveredByBody.MARS.fromMs).toBe(T0);
+  });
+
+  it("cancels a pending paused refresh on a new launch", async () => {
+    const store = makeStore();
+    await setupCoveredAt(store, 0);
+    vi.useFakeTimers();
+    store.dispatch(setCurrentTimeStepIndex(4500));
+    store.dispatch(setCurrentTimeStepIndex(0));
+    await vi.advanceTimersByTimeAsync(1);
+    store.dispatch(setLastSimRequest(lastReq));
+    nowMs += 3001;
+    await vi.advanceTimersByTimeAsync(3001);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("refetches after rewinding outside the reference window", async () => {
+    const store = makeStore();
+    await setupCoveredAt(store, 7000);
+    store.dispatch(setCurrentTimeStepIndex(0));
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(store.getState().groundTruth.coveredByBody.MARS.fromMs).toBe(T0);
+  });
+
+  it("retries a failed initial fetch on playback even without coverage", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
+    const store = makeStore();
+    await setupCoveredAt(store, 0);
+    store.dispatch(setCurrentTimeStepIndex(1));
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 
   it("refetches when playback outruns coverage (the clip-freeze fix)", async () => {
     const store = makeStore();
@@ -114,7 +166,7 @@ describe("groundTruthMiddleware: playback-driven coverage", () => {
     // New coverage extends ahead of the new head (tracked under the active body).
     const { coveredByBody } = store.getState().groundTruth;
     expect(coveredByBody["MARS"].toMs).toBe(
-      T0 + Math.min(N - 1, 4_500 + 4_000) * HOUR_MS,
+      T0 + Math.min(N - 1, 4_500 + 1_000) * HOUR_MS,
     );
   });
 
@@ -128,13 +180,13 @@ describe("groundTruthMiddleware: playback-driven coverage", () => {
 
     // Still exhausted (coverage now ends at 8500; ask past it), but inside
     // the throttle window: no new attempt.
-    store.dispatch(setCurrentTimeStepIndex(5_000));
+    store.dispatch(setCurrentTimeStepIndex(5_500));
     await flush();
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     // Past the throttle window: fires.
     nowMs += 3_001;
-    store.dispatch(setCurrentTimeStepIndex(5_000));
+    store.dispatch(setCurrentTimeStepIndex(5_500));
     await flush();
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
@@ -143,10 +195,10 @@ describe("groundTruthMiddleware: playback-driven coverage", () => {
     const store = makeStore();
     // Focus with the head deep enough that the initial fetch already covers
     // through the final keyframe (idx + 4000 clamps at N-1).
-    await setupCoveredAt(store, 5_000);
+    await setupCoveredAt(store, 8_000);
 
     nowMs += 10_000;
-    store.dispatch(setCurrentTimeStepIndex(6_000));
+    store.dispatch(setCurrentTimeStepIndex(8_500));
     await flush();
     store.dispatch(setCurrentTimeStepIndex(8_999));
     await flush();
@@ -170,20 +222,22 @@ describe("groundTruthMiddleware: playback-driven coverage", () => {
   it("requests subtractSun=false when the session has no Sun", async () => {
     const store = makeStore();
     await setupCoveredAt(store, 0); // lastReq bodies are ["Mars"], no Sun
-    const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain("subtractSun=false");
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(init.body as string).subtractSun).toBe(false);
   });
 
   it("requests subtractSun=true when the session includes the Sun", async () => {
     const store = makeStore();
-    store.dispatch(setLastSimRequest({ ...lastReq, celestialBodyNames: ["Sun", "Mars"] }));
+    store.dispatch(
+      setLastSimRequest({ ...lastReq, celestialBodyNames: ["Sun", "Mars"] }),
+    );
     store.dispatch(appendChunkToBuffer(chunkPayload(N, T0)));
     store.dispatch(setCurrentTimeStepIndex(0));
     store.dispatch(setOverlayEnabled(true));
     store.dispatch(setActiveBody("Mars"));
     await flush();
-    const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain("subtractSun=true");
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(init.body as string).subtractSun).toBe(true);
   });
 
   // The loading notice reads userFetchInFlight, so it must be true only while a
@@ -227,7 +281,9 @@ describe("groundTruthMiddleware: playback-driven coverage", () => {
     store.dispatch(setOverlayEnabled(true));
     store.dispatch(setActiveBody("Mars")); // user-initiated -> failure is surfaced
     await flush();
-    expect(store.getState().request.errorMessage).toMatch(/real-world positions/i);
+    expect(store.getState().request.errorMessage).toMatch(
+      /real-world positions/i,
+    );
   });
 
   it("stays silent when a background refetch fails", async () => {

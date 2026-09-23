@@ -36,7 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>Side effect worth knowing: generating the moon / minor-body presets
  * populates the local Horizons disk cache with every (body, default-epoch)
  * state the catalog needs — exactly the files the classpath prebake ships
- * (see horizons-prebaked/ in main resources).
+ * (see horizons-prebaked-v2/ in main resources).
  *
  * <p>Regenerate after changing a preset (or the wire format):
  * <pre>./mvnw test -Dtest=PresetClipAssetGeneratorTest -Dpresetclip.write=true</pre>
@@ -146,6 +146,7 @@ class PresetClipAssetGeneratorTest {
 
         ObjectNode manifest = mapper.createObjectNode();
         ObjectNode params = manifest.putObject("params");
+        params.put("dataRevision", 2);
         params.put("formatVersion", BinaryResponseSerializer.FORMAT_VERSION);
         params.put("presetId", preset.id());
         params.put("epoch", EPOCH);
@@ -179,7 +180,7 @@ class PresetClipAssetGeneratorTest {
         }
         byte[] bundle = out.toByteArray();
 
-        Path asset = PUBLIC_DIR.resolve("clip-" + preset.id() + "-v3.bin");
+        Path asset = PUBLIC_DIR.resolve("clip-" + preset.id() + "-v4-science2.bin");
         Files.createDirectories(asset.getParent());
         Files.write(asset, bundle);
 

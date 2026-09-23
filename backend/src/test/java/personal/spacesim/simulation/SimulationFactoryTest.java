@@ -76,6 +76,72 @@ class SimulationFactoryTest {
     }
 
     @Test
+    void plutoCharonDefaultSeedMatchesIndependentUtcFixtures() throws Exception {
+        AbsoluteDate epoch = new AbsoluteDate("2024-06-05T00:00:00.000", org.orekit.time.TimeScalesFactory.getUTC());
+        java.util.function.Function<String, HorizonsResponseParser.State> fixture = name -> {
+            try {
+                return HorizonsResponseParser.parseFirstRecord(java.nio.file.Files.readString(
+                        new org.springframework.core.io.ClassPathResource("horizons/" + name + ".txt").getFile().toPath()));
+            } catch (IOException e) { throw new UncheckedIOException(e); }
+        };
+        HorizonsStateCache cache = new HorizonsStateCache(horizonsCacheDir);
+        HorizonsResponseParser.State charon = cache.getOrFetch("901", epoch, d -> {
+            throw new AssertionError("default epoch must use the corrected seed");
+        });
+        assertEquals(0, charon.position().distance(fixture.apply("charon-ut").position()), 1.0);
+        Simulation sim = newFactory().createSimulation("pluto", List.of("PLUTO", "CHARON"),
+                "ICRF", "RK4", epoch, "hours", 1, 100);
+        CelestialBodyWrapper pluto = sim.getCelestialBodies().get(0);
+        Vector3D center = fixture.apply("pluto-center-ut").position();
+        Vector3D barycenter = fixture.apply("pluto-barycenter-ut").position();
+        assertTrue(center.distance(barycenter) > 2_000_000);
+        // Rounded catalog GM and omitted small moons limit the physical-center
+        // approximation. It should remove the original ~2131 km displacement.
+        Vector3D residual = pluto.getPosition().subtract(org.orekit.bodies.CelestialBodyFactory.getSun()
+                .getPVCoordinates(epoch, org.orekit.frames.FramesFactory.getICRF()).getPosition());
+        assertTrue(residual.distance(center) < 5_000,
+                "residual parent offset from independent Pluto center: " + residual.distance(center) + " m");
+        assertEquals(List.of("PLUTO", "CHARON"), pluto.getReferenceBodyNames());
+    }
+
+    @Test
+    void splittingMassiveMoonsPreservesSystemGmBarycenterAndMomentum() {
+        for (List<String> system : List.of(
+                List.of("JUPITER", "IO", "EUROPA", "GANYMEDE", "CALLISTO"),
+                List.of("SATURN", "TITAN"), List.of("NEPTUNE", "TRITON"),
+                List.of("PLUTO", "CHARON"), List.of("JUPITER", "IO"))) {
+            SimulationFactory factory = newFactory();
+            CelestialBodyWrapper original = factory.createSimulation("whole", List.of(system.get(0)),
+                    "Heliocentric", "RK4", AbsoluteDate.J2000_EPOCH, "hours", 1, 100).getCelestialBodies().get(0);
+            List<CelestialBodyWrapper> split = factory.createSimulation("split", system,
+                    "Heliocentric", "RK4", AbsoluteDate.J2000_EPOCH, "hours", 1, 100).getCelestialBodies();
+            double totalMu = split.stream().mapToDouble(CelestialBodyWrapper::getMu).sum();
+            assertEquals(original.getMu(), totalMu, original.getMu() * 1e-15);
+            Vector3D position = Vector3D.ZERO;
+            Vector3D velocity = Vector3D.ZERO;
+            for (CelestialBodyWrapper body : split) {
+                position = position.add(body.getMu() / totalMu, body.getPosition());
+                velocity = velocity.add(body.getMu() / totalMu, body.getVelocity());
+            }
+            assertEquals(0, position.distance(original.getPosition()), 0.003);
+            assertEquals(0, velocity.distance(original.getVelocity()), 1e-10);
+        }
+    }
+
+    @Test
+    void testParticleMoonsDoNotSubtractMassAndEarthIsAlreadySeparate() {
+        for (List<String> system : List.of(List.of("MARS", "PHOBOS", "DEIMOS"), List.of("EARTH", "MOON"))) {
+            SimulationFactory factory = newFactory();
+            CelestialBodyWrapper original = factory.createSimulation("whole", List.of(system.get(0)),
+                    "Heliocentric", "RK4", AbsoluteDate.J2000_EPOCH, "hours", 1, 100).getCelestialBodies().get(0);
+            CelestialBodyWrapper split = factory.createSimulation("split", system,
+                    "Heliocentric", "RK4", AbsoluteDate.J2000_EPOCH, "hours", 1, 100).getCelestialBodies().get(0);
+            assertEquals(original.getMu(), split.getMu());
+            assertEquals(original.getPosition(), split.getPosition());
+        }
+    }
+
+    @Test
     void onlyMajorPlanets_massiveCountEqualsTotal() {
         SimulationFactory factory = newFactory();
         Simulation sim = factory.createSimulation(

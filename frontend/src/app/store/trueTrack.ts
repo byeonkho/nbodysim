@@ -5,6 +5,7 @@ import type { ChunkBuffer } from "@/app/store/chunkBuffer";
 // util decoupled from the generated file and easy to unit-test).
 export interface GroundTruthAnchorLike {
   epochMillis: number;
+  referenceEpoch?: number | null;
   position: number[]; // [x, y, z] metres; Sun-relative iff subtractSun was set when fetched
   velocity: number[]; // [vx, vy, vz] m/s; Sun-relative iff subtractSun was set when fetched
 }
@@ -13,24 +14,12 @@ export interface TrueTrackRequest {
   fromMs: number;
   toMs: number;
   stepSeconds: number;
+  epochsMillis: number[];
+  referenceEpochs?: number[];
 }
 
-/**
- * Computes the ground-truth fetch window + cadence for the active body, scoped
- * to the VISIBLE read window: the trail keyframes behind the playback head plus
- * a lookahead ahead of it. Sizing the window to what's on screen (rather than
- * the whole, potentially decades-deep, buffer) keeps the anchor count bounded
- * AND keeps the cadence fine enough that the marker/trail interpolate smoothly,
- * at any simulation time-step.
- *
- * The cadence is the larger of (a) the average keyframe spacing — no point
- * sampling truth finer than the keyframes we interpolate onto — and (b) the
- * span divided by `targetAnchors`, so a wide window stays under the anchor
- * budget. Returns null when the buffer is too small to fetch for.
- *
- * Window bounds are read straight from the predicted buffer's timestamps, so
- * they share the wire's millis-UTC scale (anchors will align to keyframes).
- */
+/** Bound the window, not the sampling cadence. Every saved snapshot gets an
+ * exact ephemeris sample, including rounded adaptive-step timestamps. */
 export function computeTrueTrackRequest(
   buffer: ChunkBuffer,
   currentIdx: number,
@@ -41,19 +30,30 @@ export function computeTrueTrackRequest(
   const n = buffer.totalTimesteps;
   if (n < 2) return null;
   const idxFloor = Math.max(0, Math.min(n - 1, Math.floor(currentIdx)));
-  const lo = Math.max(0, idxFloor - trailLength);
-  const hi = Math.min(n - 1, idxFloor + lookaheadKeyframes);
+  const budget = Math.max(2, Math.min(2000, Math.floor(targetAnchors)));
+  const hi = Math.min(
+    n - 1,
+    idxFloor + Math.min(lookaheadKeyframes, budget - 1),
+  );
+  const lo = Math.max(0, idxFloor - trailLength, hi - budget + 1);
   if (hi <= lo) return null;
 
-  const fromMs = buffer.timestamps[lo];
-  const toMs = buffer.timestamps[hi];
+  const times = buffer.referenceEpochs ?? buffer.timestamps;
+  const fromMs = times[lo];
+  const toMs = times[hi];
   const spanMs = toMs - fromMs;
   if (spanMs <= 0) return null;
 
   const keyframeSpanMs = spanMs / (hi - lo); // average keyframe spacing
-  const targetStepMs = spanMs / targetAnchors;
-  const stepMs = Math.max(keyframeSpanMs, targetStepMs);
-  return { fromMs, toMs, stepSeconds: stepMs / 1000 };
+  return {
+    fromMs,
+    toMs,
+    stepSeconds: keyframeSpanMs / 1000,
+    epochsMillis: Array.from(buffer.timestamps.subarray(lo, hi + 1)),
+    referenceEpochs: buffer.referenceEpochs
+      ? Array.from(buffer.referenceEpochs.subarray(lo, hi + 1))
+      : undefined,
+  };
 }
 
 // Reusable single-body track arrays per session, keyed on the predicted
@@ -66,7 +66,11 @@ export function computeTrueTrackRequest(
 // framePivot WeakMap cache.
 const trackArraysBySession = new WeakMap<
   Float64Array,
-  { positions: Float64Array; timestamps: Float64Array; deltaERelative: Float32Array }
+  {
+    positions: Float64Array;
+    timestamps: Float64Array;
+    deltaERelative: Float32Array;
+  }
 >();
 
 function trackArraysFor(predicted: ChunkBuffer) {
@@ -84,7 +88,11 @@ function trackArraysFor(predicted: ChunkBuffer) {
 }
 
 function wrapTrack(
-  arrays: { positions: Float64Array; timestamps: Float64Array; deltaERelative: Float32Array },
+  arrays: {
+    positions: Float64Array;
+    timestamps: Float64Array;
+    deltaERelative: Float32Array;
+  },
   bodyName: string,
   totalTimesteps: number,
 ): ChunkBuffer {
@@ -135,31 +143,40 @@ export function buildTrueTrack(
   const n = predicted.totalTimesteps;
   const positions = arrays.positions;
   const last = anchors.length - 1;
+  const anchorTime = (a: GroundTruthAnchorLike) =>
+    a.referenceEpoch ?? a.epochMillis;
   let cursor = 0; // monotonic anchor cursor; predicted timestamps are ascending
 
   for (let i = 0; i < n; i++) {
-    const t = predicted.timestamps[i];
+    const t = (predicted.referenceEpochs ?? predicted.timestamps)[i];
     const base = i * 6; // single body, stride 6
 
     // Clamp outside the anchor window (no extrapolation).
-    if (t <= anchors[0].epochMillis || anchors.length === 1) {
+    if (t <= anchorTime(anchors[0]) || anchors.length === 1) {
       writeAnchor(positions, base, anchors[0]);
-    } else if (t >= anchors[last].epochMillis) {
+    } else if (t >= anchorTime(anchors[last])) {
       writeAnchor(positions, base, anchors[last]);
     } else {
       // Advance the cursor so anchors[cursor], anchors[cursor+1] bracket t.
-      while (cursor < last - 1 && anchors[cursor + 1].epochMillis <= t) cursor++;
+      while (cursor < last - 1 && anchorTime(anchors[cursor + 1]) <= t)
+        cursor++;
       hermiteInto(positions, base, anchors[cursor], anchors[cursor + 1], t);
     }
 
     arrays.timestamps[i] = predicted.timestamps[i];
   }
 
-  return wrapTrack(arrays, bodyName, n);
+  const track = wrapTrack(arrays, bodyName, n);
+  track.referenceEpochs = predicted.referenceEpochs;
+  return track;
 }
 
 // Writes [px,py,pz, vx,vy,vz] of an anchor directly (used at clamp boundaries).
-function writeAnchor(out: Float64Array, base: number, a: GroundTruthAnchorLike): void {
+function writeAnchor(
+  out: Float64Array,
+  base: number,
+  a: GroundTruthAnchorLike,
+): void {
   out[base] = a.position[0];
   out[base + 1] = a.position[1];
   out[base + 2] = a.position[2];
@@ -179,8 +196,9 @@ function hermiteInto(
   a1: GroundTruthAnchorLike,
   t: number,
 ): void {
-  const spanMs = a1.epochMillis - a0.epochMillis;
-  const s = (t - a0.epochMillis) / spanMs;
+  const t0 = a0.referenceEpoch ?? a0.epochMillis;
+  const spanMs = (a1.referenceEpoch ?? a1.epochMillis) - t0;
+  const s = (t - t0) / spanMs;
   const dt = spanMs / 1000; // seconds
   const invDt = 1 / dt;
 
