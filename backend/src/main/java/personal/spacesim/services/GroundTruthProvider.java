@@ -78,6 +78,28 @@ public class GroundTruthProvider {
         return new GroundTruthResponse(tracks);
     }
 
+    /** Exact continuous-time instants from the wire, without assuming a uniform UTC
+     * grid across leap seconds or rounded adaptive-step sample timestamps. */
+    public GroundTruthResponse sampleAt(String name, Frame frame, List<Long> referenceEpochs, boolean subtractSun) {
+        String upper = name.toUpperCase(java.util.Locale.ROOT);
+        if (!SUPPORTED_BODIES.contains(upper)) return new GroundTruthResponse(List.of());
+        CelestialBody body = CelestialBodyFactory.getBody(upper);
+        CelestialBody sun = subtractSun ? CelestialBodyFactory.getSun() : null;
+        List<GroundTruthAnchor> anchors = new ArrayList<>(referenceEpochs.size());
+        for (long epoch : referenceEpochs) {
+            AbsoluteDate date = AbsoluteDate.J2000_EPOCH.shiftedBy(epoch / 1000.0);
+            PVCoordinates pv = body.getPVCoordinates(date, frame);
+            if (sun != null) {
+                PVCoordinates sunPv = sun.getPVCoordinates(date, frame);
+                pv = new PVCoordinates(pv.getPosition().subtract(sunPv.getPosition()),
+                        pv.getVelocity().subtract(sunPv.getVelocity()));
+            }
+            anchors.add(new GroundTruthAnchor(date.toDate(TimeScalesFactory.getUTC()).getTime(), epoch,
+                    pv.getPosition().toArray(), pv.getVelocity().toArray()));
+        }
+        return new GroundTruthResponse(List.of(new BodyGroundTruthTrack(upper, anchors)));
+    }
+
     private BodyGroundTruthTrack sampleBody(
             String name, Frame frame, AbsoluteDate from, AbsoluteDate to,
             double stepSeconds, boolean subtractSun

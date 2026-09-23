@@ -1,8 +1,6 @@
-// Copy for the reality-drift overlay UI. Plain English for a mixed-audience
-// portfolio: no integrator names, no math symbols, no em-dashes.
-
+// Plain-language explanation shared by the reference toggle and readout.
 export const DRIFT_CHIP_TOOLTIP =
-  "Shows where this body really is (from real space-agency data) next to where the simulation predicts it is. The gap is how far our math has drifted from reality. It opens fastest with the basic integrator (set in Sim Setup).";
+  "Compare the simulated path with space-agency ephemeris data. The gap includes simplified physics and accumulated numerical error. The scene is smoothed between saved snapshots.";
 
 export const DRIFT_READOUT_COPY =
-  "Our simulation predicts each body's path by doing the math one small step at a time, starting from where the body really was. Tiny errors build up, so the prediction slowly drifts away from where the body actually is. This is how far apart the two are right now. Watch it grow with the basic integrator, and stay tiny with the most careful one.";
+  "This compares the last saved simulation snapshot with a reference sample at the same time. The gap includes both simplified physics and numerical error; it is not a pure accuracy score for the integrator. For Mars and the outer planets, the comparison uses the combined planetary system, including its selected massive moons. The scene is smoothed between snapshots, while these numbers update at saved snapshots.";

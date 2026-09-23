@@ -1,12 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { createChunkBuffer, readBodyPositionInto } from "@/app/store/chunkBuffer";
-import { buildTrueTrack, computeTrueTrackRequest, type GroundTruthAnchorLike } from "@/app/store/trueTrack";
+import {
+  createChunkBuffer,
+  readBodyPositionInto,
+} from "@/app/store/chunkBuffer";
+import {
+  buildTrueTrack,
+  computeTrueTrackRequest,
+  type GroundTruthAnchorLike,
+} from "@/app/store/trueTrack";
 import { Vector3 } from "three";
 
 // Build a predicted single-body buffer with explicit timestamps so we can
 // align the true track to known keyframe times. (Body identity is irrelevant
 // to buildTrueTrack except for naming.)
-function predictedWithTimestamps(tsMillis: number[]): ReturnType<typeof createChunkBuffer> {
+function predictedWithTimestamps(
+  tsMillis: number[],
+): ReturnType<typeof createChunkBuffer> {
   const buf = createChunkBuffer(["EARTH"], tsMillis.length);
   for (let i = 0; i < tsMillis.length; i++) {
     buf.timestamps[i] = tsMillis[i];
@@ -116,12 +125,22 @@ describe("computeTrueTrackRequest", () => {
     expect(req!.stepSeconds).toBeCloseTo(1, 9); // 1000ms / 1000
   });
 
-  it("uses span/target as the cadence when that's coarser than keyframe spacing", () => {
+  it("bounds the window without coarsening snapshot cadence", () => {
     // 11 keyframes 1000ms apart (span 10000ms). target 5 → span/target = 2000ms,
     // coarser than the 1000ms keyframe spacing, so cadence = 2000ms = 2s.
-    const buf = predictedWithTimestamps([0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]);
+    const buf = predictedWithTimestamps([
+      0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000,
+    ]);
     const req = computeTrueTrackRequest(buf, 0, 0, 10, /*target*/ 5);
-    expect(req!.stepSeconds).toBeCloseTo(2, 9);
+    expect(req!.stepSeconds).toBeCloseTo(1, 9);
+    expect(req!.toMs).toBe(4000);
+  });
+
+  it("sends every irregular snapshot timestamp unchanged within a bounded window", () => {
+    const buf = predictedWithTimestamps([1000, 2333, 3667, 5000, 6333, 7667]);
+    const req = computeTrueTrackRequest(buf, 2.5, 100, 2, 4)!;
+    expect(req.epochsMillis).toEqual([2333, 3667, 5000, 6333]);
+    expect(req.epochsMillis).toContain(buf.timestamps[Math.floor(2.5)]);
   });
 
   it("returns null for a buffer with fewer than 2 timesteps", () => {

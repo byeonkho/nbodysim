@@ -141,6 +141,9 @@ public class HorizonsClient {
             + "&OBJ_DATA=" + encodeQueryValue("'NO'")
             + "&MAKE_EPHEM=" + encodeQueryValue("'YES'")
             + "&EPHEM_TYPE=" + encodeQueryValue("'VECTORS'")
+            + "&TIME_TYPE=" + encodeQueryValue("'TDB'")
+            + "&TIME_DIGITS=" + encodeQueryValue("'FRACSEC'")
+            + "&VEC_CORR=" + encodeQueryValue("'NONE'")
             + "&CENTER=" + encodeQueryValue("'@10'")
             + "&START_TIME=" + encodeQueryValue("'" + startTime + "'")
             + "&STOP_TIME=" + encodeQueryValue("'" + stopTime + "'")
@@ -175,7 +178,7 @@ public class HorizonsClient {
             throw new HorizonsFetchException(
                 "Empty Horizons response for " + bodyLabel);
         }
-        return HorizonsResponseParser.parseFirstRecord(body);
+        return HorizonsResponseParser.parseFirstRecord(body, epoch);
     }
 
     /**
@@ -226,18 +229,13 @@ public class HorizonsClient {
     }
 
     String formatEpoch(AbsoluteDate date) {
-        // Horizons accepts "yyyy-MM-dd HH:mm" UTC and only needs minute
-        // precision. Build the string straight from Orekit's calendar components
-        // instead of round-tripping through LocalDateTime.parse, which rejects
-        // the ":60" Orekit renders on a UTC leap second (java.time has no leap
-        // second). The seconds field is never read, so a fetch at a leap-second
-        // instant formats cleanly instead of throwing a DateTimeParseException
-        // (which, not being an IllegalArgumentException, surfaced as a 500).
-        DateTimeComponents components = date.getComponents(TimeScalesFactory.getUTC());
+        // Convert the instant before formatting. Vector tables default to TDB;
+        // sending the UTC calendar under that default shifts the state by ~69 s.
+        DateTimeComponents components = date.getComponents(TimeScalesFactory.getTDB());
         DateComponents d = components.getDate();
         TimeComponents tm = components.getTime();
-        return String.format(Locale.ROOT, "%04d-%02d-%02d %02d:%02d",
-                d.getYear(), d.getMonth(), d.getDay(), tm.getHour(), tm.getMinute());
+        return String.format(Locale.ROOT, "%04d-%02d-%02d %02d:%02d:%012.9f",
+                d.getYear(), d.getMonth(), d.getDay(), tm.getHour(), tm.getMinute(), tm.getSecond());
     }
 
     public static class HorizonsFetchException extends RuntimeException {

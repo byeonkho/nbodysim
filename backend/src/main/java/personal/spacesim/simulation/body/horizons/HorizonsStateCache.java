@@ -27,9 +27,8 @@ import java.util.stream.Stream;
  * SPK ID + epoch. State vectors at any (body, epoch) are deterministic
  * from JPL's orbit fits — once fetched, no need to re-query.
  *
- * <p>Cache key uses epoch durations from J2000 truncated to whole seconds.
- * Horizons resolution is per-minute at best for small-body queries; sub-second
- * key collisions are physically impossible at our chunk scale.
+ * <p>Cache keys and fetch instants use the same nearest millisecond from J2000.
+ * The tdb-v2 namespace excludes older entries fetched with ambiguous time scales.
  *
  * <p>Entries are also written through to {@code cacheDir} as one JSON file
  * per key. On construction the directory is scanned and existing entries
@@ -45,7 +44,7 @@ import java.util.stream.Stream;
 @Component
 public class HorizonsStateCache {
 
-    private record Key(String spkId, long epochSecondsFromJ2000) {}
+    private record Key(String spkId, long epochMillisFromJ2000) {}
 
     /**
      * Self-describing on-disk record. The filename embeds the key for inspection
@@ -54,12 +53,12 @@ public class HorizonsStateCache {
      */
     record DiskEntry(
         String spkId,
-        long epochSeconds,
+        long epochMillis,
         double px, double py, double pz,
         double vx, double vy, double vz
     ) {
-        static DiskEntry of(String spkId, long epochSeconds, HorizonsResponseParser.State s) {
-            return new DiskEntry(spkId, epochSeconds,
+        static DiskEntry of(String spkId, long epochMillis, HorizonsResponseParser.State s) {
+            return new DiskEntry(spkId, epochMillis,
                 s.position().getX(), s.position().getY(), s.position().getZ(),
                 s.velocity().getX(), s.velocity().getY(), s.velocity().getZ());
         }
@@ -77,10 +76,10 @@ public class HorizonsStateCache {
     private final Path cacheDir;
 
     public HorizonsStateCache(@Value("${spacesim.horizons.cacheDir:./horizons-cache}") Path cacheDir) {
-        this.cacheDir = cacheDir;
+        this.cacheDir = cacheDir.resolve("tdb-v2");
         seedFromClasspath();
         try {
-            Files.createDirectories(cacheDir);
+            Files.createDirectories(this.cacheDir);
         } catch (IOException e) {
             // Can't create the cache dir — operate in pure in-memory mode.
             // Surfaces as a WARN so prod misconfiguration is visible without
@@ -94,7 +93,7 @@ public class HorizonsStateCache {
 
     /**
      * Seed the in-memory store from prebaked entries shipped in the jar
-     * (horizons-prebaked/ on the classpath): the canonical-preset bodies at
+     * (horizons-prebaked-v2/ on the classpath): the canonical-preset bodies at
      * the default epoch. Keeps default-epoch sims JPL-independent on a cold
      * cache (fresh container, wiped disk) with no volume required. Disk
      * entries loaded afterwards overwrite seeds harmlessly (deterministic
@@ -103,11 +102,11 @@ public class HorizonsStateCache {
     private void seedFromClasspath() {
         try {
             Resource[] seeds = new PathMatchingResourcePatternResolver()
-                    .getResources("classpath*:horizons-prebaked/*.json");
+                    .getResources("classpath*:horizons-prebaked-v2/*.json");
             for (Resource seed : seeds) {
                 try (InputStream in = seed.getInputStream()) {
                     DiskEntry entry = JSON.readValue(in, DiskEntry.class);
-                    store.put(new Key(entry.spkId(), entry.epochSeconds()), entry.toState());
+                    store.put(new Key(entry.spkId(), entry.epochMillis()), entry.toState());
                 } catch (IOException | JacksonException e) {
                     log.warn("Skipping corrupt prebaked Horizons entry {}: {}",
                             seed, e.toString());
@@ -138,7 +137,7 @@ public class HorizonsStateCache {
     private void loadOneEntry(Path file) {
         try {
             DiskEntry entry = JSON.readValue(file.toFile(), DiskEntry.class);
-            Key key = new Key(entry.spkId(), entry.epochSeconds());
+            Key key = new Key(entry.spkId(), entry.epochMillis());
             store.put(key, entry.toState());
         } catch (JacksonException e) {
             // Corrupt JSON, truncated write from a prior crash, schema drift —
@@ -151,7 +150,7 @@ public class HorizonsStateCache {
     /**
      * Return cached state for (spkId, epoch), or compute it via the supplied
      * fetcher and cache the result (in memory + on disk). The fetcher receives
-     * the requested epoch.
+     * the canonical millisecond epoch.
      *
      * @throws NullPointerException if the fetcher returns null
      */
@@ -160,23 +159,24 @@ public class HorizonsStateCache {
             AbsoluteDate epoch,
             Function<AbsoluteDate, HorizonsResponseParser.State> fetcher
     ) {
-        long secs = (long) epoch.durationFrom(AbsoluteDate.J2000_EPOCH);
-        Key k = new Key(spkId, secs);
+        long millis = Math.round(epoch.durationFrom(AbsoluteDate.J2000_EPOCH) * 1000.0);
+        AbsoluteDate canonicalEpoch = AbsoluteDate.J2000_EPOCH.shiftedBy(millis / 1000.0);
+        Key k = new Key(spkId, millis);
         return store.computeIfAbsent(k, _key -> {
             HorizonsResponseParser.State state = Objects.requireNonNull(
-                fetcher.apply(epoch),
+                fetcher.apply(canonicalEpoch),
                 "fetcher returned null state for " + spkId + " at " + epoch);
-            writeToDisk(spkId, secs, state);
+            writeToDisk(spkId, millis, state);
             return state;
         });
     }
 
-    private void writeToDisk(String spkId, long epochSeconds, HorizonsResponseParser.State state) {
+    private void writeToDisk(String spkId, long epochMillis, HorizonsResponseParser.State state) {
         if (cacheDir == null) return;
-        Path target = cacheDir.resolve(spkId + "_" + epochSeconds + ".json");
-        Path tmp = cacheDir.resolve(spkId + "_" + epochSeconds + ".json.tmp");
+        Path target = cacheDir.resolve(spkId + "_" + epochMillis + ".json");
+        Path tmp = cacheDir.resolve(spkId + "_" + epochMillis + ".json.tmp");
         try {
-            JSON.writeValue(tmp.toFile(), DiskEntry.of(spkId, epochSeconds, state));
+            JSON.writeValue(tmp.toFile(), DiskEntry.of(spkId, epochMillis, state));
             // Atomic rename: prevents partial-write reads on a concurrent
             // load. Fall back to a non-atomic move if the filesystem refuses
             // ATOMIC_MOVE (e.g. across mount points).
@@ -190,8 +190,8 @@ public class HorizonsStateCache {
             // Disk write failure is not fatal — the in-memory cache still
             // serves the rest of this process; only future cold-start
             // efficiency is lost.
-            log.warn("Failed to persist Horizons cache entry for {} @ {}s: {}",
-                spkId, epochSeconds, e.toString());
+            log.warn("Failed to persist Horizons cache entry for {} @ {}ms: {}",
+                spkId, epochMillis, e.toString());
             try { Files.deleteIfExists(tmp); } catch (IOException ignored) { /* best-effort cleanup */ }
         }
     }

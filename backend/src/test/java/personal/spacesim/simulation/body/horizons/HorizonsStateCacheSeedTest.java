@@ -33,7 +33,7 @@ class HorizonsStateCacheSeedTest {
 
         // Any one seed resolves without the fetcher being called.
         Resource[] seeds = new PathMatchingResourcePatternResolver()
-                .getResources("classpath*:horizons-prebaked/*.json");
+                .getResources("classpath*:horizons-prebaked-v2/*.json");
         assertTrue(seeds.length >= 29, "expected >= 29 seed files on the classpath");
         String name = seeds[0].getFilename();
         String[] parts = name.substring(0, name.length() - ".json".length()).split("_");
@@ -42,7 +42,7 @@ class HorizonsStateCacheSeedTest {
 
         HorizonsResponseParser.State state = cache.getOrFetch(
                 spkId,
-                AbsoluteDate.J2000_EPOCH.shiftedBy(epochSeconds),
+                AbsoluteDate.J2000_EPOCH.shiftedBy(epochSeconds / 1000.0),
                 d -> {
                     throw new AssertionError("fetcher must not run for a seeded key");
                 });

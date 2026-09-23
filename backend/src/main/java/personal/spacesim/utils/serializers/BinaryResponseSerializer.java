@@ -18,19 +18,18 @@ import java.util.Map;
  * Serializes a {@link ChunkResult} into a compact little-endian binary
  * layout. Replaces the JSON path for SIM_DATA frames.
  *
- * <h2>Format version 3 — byte-shuffled planes, velocity temporal-delta</h2>
+ * <h2>Format version 4 — byte-shuffled planes, velocity temporal-delta</h2>
  *
  * Layout (all little-endian):
  * <pre>
- *   uint8   formatVersion (= 3)
+ *   uint8   formatVersion (= 4)
  *   uint16  bodyCount (B)
  *   per body: uint16 nameLength, UTF-8 name bytes, float64 mu
  *   float64 dp853AvgStepSeconds      (NaN if not DP853)
  *   float32 dp853AcceptRate          (NaN if not DP853)
  *   uint32  timestepCount (T)
  *   — the rest is present only when T &gt; 0 —
- *   int64   startMillis              (timestamp of timestep 0, millis UTC)
- *   float64 gapMillis                (uniform spacing; ts[i] = round(startMillis + i*gapMillis))
+ *   per timestep: int64 utcMillis, int64 millisFromJ2000 (continuous SI time)
  *   float32 deltaERelative[T]        (planar, UNSHUFFLED; one per timestep)
  *   per body: float64 refX, refY, refZ   (absolute position at timestep 0, UNSHUFFLED)
  *   SHUFFLED float32 dPx[T*B]        (per-step position deltas, planar; row 0 = 0)
@@ -67,17 +66,11 @@ import java.util.Map;
  *   <li><b>Structure-of-arrays (planar) layout.</b> Grouping like-magnitude
  *       values into contiguous runs lets zstd find the redundancy the
  *       interleaved layout hid.</li>
- *   <li><b>Uniform-cadence timestamps.</b> Emission spacing is uniform in TAI
- *       (continuous SI seconds), so a single (startMillis, gapMillis) replaces a
- *       per-timestep int64. The client reconstructs each timestamp by rounding;
- *       accurate to ~1 ms on the normal path, invisible everywhere it's used
- *       (date readout, Hermite interval). Caveat: the wire encodes Unix millis,
- *       which is not uniform across a UTC leap second. A chunk whose window
- *       crosses one of the historical leap seconds (pre-2017 epochs) smears the
- *       missing second across the chunk, so interior reconstructed timestamps
- *       and the date readout can drift up to ~1 s for that chunk. Bounded and
- *       self-resetting per chunk; the per-sample ground-truth anchors are sent
- *       exactly, not reconstructed from this gap.</li>
+ *   <li><b>Explicit snapshot times.</b> Each sample carries UTC display millis
+ *       and continuous SI milliseconds from J2000. The latter distinguishes
+ *       instants inside leap seconds and is used for reference sampling and
+ *       Hermite intervals. Quantization is at most half a millisecond. This
+ *       costs 16 bytes per snapshot before zstd, independent of body count.</li>
  *   <li><b>Byte-plane shuffle.</b> Each float32 plane's 4 bytes are split into
  *       4 contiguous runs, so zstd compresses the stable high-order bytes (which
  *       are often identical across adjacent steps) without interleaving
@@ -104,7 +97,7 @@ import java.util.Map;
 public class BinaryResponseSerializer {
 
     /** Wire format version. Bump on any layout change; the parser branches on it. */
-    public static final int FORMAT_VERSION = 3;
+    public static final int FORMAT_VERSION = 4;
 
     public byte[] serialize(ChunkResult chunk, Map<String, Double> muByName) {
         Map<AbsoluteDate, List<CelestialBodySnapshot>> data =
@@ -116,7 +109,7 @@ public class BinaryResponseSerializer {
 
         if (data == null || data.isEmpty()) {
             // version(1) + bodyCount(2) + dp853AvgStep(8) + dp853AcceptRate(4)
-            // + timestepCount(4) = 19. No start/gap/body sections when T == 0.
+            // + timestepCount(4) = 19. No timestamp/body sections when T == 0.
             ByteBuffer empty = ByteBuffer.allocate(19).order(ByteOrder.LITTLE_ENDIAN);
             empty.put((byte) FORMAT_VERSION);
             empty.putShort((short) 0);
@@ -141,12 +134,14 @@ public class BinaryResponseSerializer {
         float[] vy = new float[timestepCount * bodyCount];
         float[] vz = new float[timestepCount * bodyCount];
         long[] millis = new long[timestepCount];
+        long[] referenceEpochs = new long[timestepCount];
         float[] dE = new float[timestepCount];
 
         int t = 0;
         for (Map.Entry<AbsoluteDate, List<CelestialBodySnapshot>> entry : data.entrySet()) {
             AbsoluteDate date = entry.getKey();
             millis[t] = date.toDate(TimeScalesFactory.getUTC()).getTime();
+            referenceEpochs[t] = Math.round(date.durationFrom(AbsoluteDate.J2000_EPOCH) * 1000.0);
             Double d = deltaE != null ? deltaE.get(date) : null;
             dE[t] = d != null ? d.floatValue() : 0.0f;
             if (!Float.isFinite(dE[t])) {
@@ -176,17 +171,6 @@ public class BinaryResponseSerializer {
             t++;
         }
 
-        long startMillis = millis[0];
-        // Best-fit uniform spacing (float64 ms). Averaging first→last cancels
-        // the per-date ms rounding; interior timestamps reconstruct within ~1 ms
-        // in TAI. Across a UTC leap second (rare, pre-2017 epochs) the Unix-millis
-        // grid is non-uniform, so this best fit smears the leap second and
-        // interior timestamps can drift up to ~1 s for that chunk; self-resets
-        // the next chunk.
-        double gapMillis = timestepCount > 1
-                ? (double) (millis[timestepCount - 1] - startMillis) / (timestepCount - 1)
-                : 0.0;
-
         // --- size + allocate the single output buffer ---
         byte[][] nameBytes = new byte[bodyCount][];
         int headerSize = 1 + 2 + 8 + 4 + 4;          // version, bodyCount, dp853 avg+rate, count
@@ -195,7 +179,7 @@ public class BinaryResponseSerializer {
             headerSize += 2 + nameBytes[b].length + 8;   // nameLen + name + mu
         }
         int bodySection =
-                8 + 8                                  // startMillis + gapMillis
+                timestepCount * 16                     // UTC display millis + continuous J2000 millis
                 + timestepCount * 4                    // deltaE planar
                 + bodyCount * 3 * 8                     // per-body f64 reference
                 + timestepCount * bodyCount * 3 * 4     // f32 position deltas (planar)
@@ -224,8 +208,10 @@ public class BinaryResponseSerializer {
         buf.putInt(timestepCount);
 
         // --- body section (planar) ---
-        buf.putLong(startMillis);
-        buf.putDouble(gapMillis);
+        for (int i = 0; i < timestepCount; i++) {
+            buf.putLong(millis[i]);
+            buf.putLong(referenceEpochs[i]);
+        }
 
         for (int i = 0; i < timestepCount; i++) {
             buf.putFloat(dE[i]);

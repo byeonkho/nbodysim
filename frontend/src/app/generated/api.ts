@@ -20,6 +20,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/simulation/ground-truth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getGroundTruth"];
+        put?: never;
+        post: operations["sampleGroundTruth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/simulation/chunk": {
         parameters: {
             query?: never;
@@ -30,22 +46,6 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["getNextChunk"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/simulation/ground-truth": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["getGroundTruth"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -74,6 +74,7 @@ export interface components {
             radius?: number;
             name?: string;
             orbitingBody?: string;
+            referenceBodyNames?: string[];
         };
         SimulationResponseDTO: {
             celestialBodyPropertiesList?: components["schemas"]["CelestialBodyWrapper"][];
@@ -82,10 +83,11 @@ export interface components {
         SimulationResponseMetadata: {
             sessionID?: string;
         };
-        SimulationChunkRequest: {
-            sessionID?: string;
-            /** Format: int32 */
-            expectedChunkIndex?: number;
+        GroundTruthSampleRequest: {
+            body?: string;
+            frame?: string;
+            referenceEpochs?: number[];
+            subtractSun?: boolean;
         };
         BodyGroundTruthTrack: {
             name?: string;
@@ -94,11 +96,18 @@ export interface components {
         GroundTruthAnchor: {
             /** Format: int64 */
             epochMillis?: number;
+            /** Format: int64 */
+            referenceEpoch?: number;
             position?: number[];
             velocity?: number[];
         };
         GroundTruthResponse: {
             tracks?: components["schemas"]["BodyGroundTruthTrack"][];
+        };
+        SimulationChunkRequest: {
+            sessionID?: string;
+            /** Format: int32 */
+            expectedChunkIndex?: number;
         };
     };
     responses: never;
@@ -133,30 +142,6 @@ export interface operations {
             };
         };
     };
-    getNextChunk: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SimulationChunkRequest"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/octet-stream": string;
-                };
-            };
-        };
-    };
     getGroundTruth: {
         parameters: {
             query: {
@@ -180,6 +165,54 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["GroundTruthResponse"];
+                };
+            };
+        };
+    };
+    sampleGroundTruth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroundTruthSampleRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["GroundTruthResponse"];
+                };
+            };
+        };
+    };
+    getNextChunk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimulationChunkRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
                 };
             };
         };

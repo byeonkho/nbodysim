@@ -1,26 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { parseBinaryChunk, parseBinaryChunkToTypedArrays } from "./parseBinaryChunk";
+import {
+  parseBinaryChunk,
+  parseBinaryChunkToTypedArrays,
+} from "./parseBinaryChunk";
 
 // Helper: build a chunk-format byte array matching the spec in
 // parseBinaryChunk.ts (and BinaryResponseSerializer.java). This duplicates the
 // backend serializer in JS so the round-trip test below proves our parser
-// agrees with the documented format (version 3: delta-encoded, structure-of-
+// agrees with the documented format (version 4: delta-encoded, structure-of-
 // arrays, byte-plane shuffled position and velocity planes, velocity temporal-
 // delta encoded). Backend has its own test pinning the same layout from the
 // Java side; if either side drifts, one test fails first.
 //
-// Fixtures use uniformly-spaced timesteps, so (start, gap) reconstructs each
-// timestamp exactly; and small-integer positions/deltas round-trip exactly
-// through float32.
-const WIRE_FORMAT_VERSION = 3;
+// Fixtures preserve both time keys explicitly; small-integer position deltas
+// round-trip exactly through float32.
+const WIRE_FORMAT_VERSION = 4;
 
 // Byte-plane shuffle of a float32 plane: byte p of value i → out[p*n + i].
-function writeShuffledFloatPlane(view: DataView, offset: number, values: number[]): number {
+function writeShuffledFloatPlane(
+  view: DataView,
+  offset: number,
+  values: number[],
+): number {
   const n = values.length;
   const scratch = new DataView(new ArrayBuffer(4));
   for (let i = 0; i < n; i++) {
     scratch.setFloat32(0, values[i], true);
-    for (let p = 0; p < 4; p++) view.setUint8(offset + p * n + i, scratch.getUint8(p));
+    for (let p = 0; p < 4; p++)
+      view.setUint8(offset + p * n + i, scratch.getUint8(p));
   }
   return offset + n * 4;
 }
@@ -29,8 +36,12 @@ function buildChunkBytes(
   bodies: Array<{ name: string; mu: number }>,
   timesteps: Array<{
     millis: number;
+    referenceEpoch?: number;
     deltaERelative: number;
-    bodies: Array<{ pos: [number, number, number]; vel: [number, number, number] }>;
+    bodies: Array<{
+      pos: [number, number, number];
+      vel: [number, number, number];
+    }>;
   }>,
   dp853AvgStepSeconds: number = Number.NaN,
   dp853AcceptRate: number = Number.NaN,
@@ -46,12 +57,11 @@ function buildChunkBytes(
     encodedNames.reduce((sum, b) => sum + 2 + b.length + 8, 0) +
     8 + // dp853AvgStepSeconds (float64)
     4 + // dp853AcceptRate (float32)
-    4;  // timestepCount
+    4; // timestepCount
   const bodySection =
     T === 0
       ? 0
-      : 8 + // startMillis
-        8 + // gapMillis
+      : T * 16 + // UTC millis and continuous reference epochs
         T * 4 + // deltaERelative planar
         B * 3 * 8 + // per-body f64 reference
         T * B * 3 * 4 + // f32 position deltas (planar)
@@ -85,12 +95,15 @@ function buildChunkBytes(
 
   if (T === 0) return out;
 
-  const start = timesteps[0].millis;
-  const gap = T > 1 ? (timesteps[T - 1].millis - start) / (T - 1) : 0;
-  view.setBigInt64(offset, BigInt(start), true);
-  offset += 8;
-  view.setFloat64(offset, gap, true);
-  offset += 8;
+  for (const step of timesteps) {
+    view.setBigInt64(offset, BigInt(step.millis), true);
+    view.setBigInt64(
+      offset + 8,
+      BigInt(step.referenceEpoch ?? step.millis),
+      true,
+    );
+    offset += 16;
+  }
 
   // deltaERelative (planar).
   for (let t = 0; t < T; t++) {
@@ -100,9 +113,12 @@ function buildChunkBytes(
 
   // Per-body absolute reference (timestep 0).
   for (let b = 0; b < B; b++) {
-    view.setFloat64(offset, timesteps[0].bodies[b].pos[0], true); offset += 8;
-    view.setFloat64(offset, timesteps[0].bodies[b].pos[1], true); offset += 8;
-    view.setFloat64(offset, timesteps[0].bodies[b].pos[2], true); offset += 8;
+    view.setFloat64(offset, timesteps[0].bodies[b].pos[0], true);
+    offset += 8;
+    view.setFloat64(offset, timesteps[0].bodies[b].pos[1], true);
+    offset += 8;
+    view.setFloat64(offset, timesteps[0].bodies[b].pos[2], true);
+    offset += 8;
   }
 
   // Per-step position deltas, planar by axis (row 0 = 0), byte-shuffled.
@@ -113,7 +129,8 @@ function buildChunkBytes(
         plane.push(
           t === 0
             ? 0
-            : timesteps[t].bodies[b].pos[axis] - timesteps[t - 1].bodies[b].pos[axis],
+            : timesteps[t].bodies[b].pos[axis] -
+                timesteps[t - 1].bodies[b].pos[axis],
         );
       }
     }
@@ -128,7 +145,8 @@ function buildChunkBytes(
         plane.push(
           t === 0
             ? timesteps[0].bodies[b].vel[axis]
-            : timesteps[t].bodies[b].vel[axis] - timesteps[t - 1].bodies[b].vel[axis],
+            : timesteps[t].bodies[b].vel[axis] -
+                timesteps[t - 1].bodies[b].vel[axis],
         );
       }
     }
@@ -162,8 +180,16 @@ describe("parseBinaryChunk", () => {
     const key = "2024-06-05T00:00:00.000Z";
     expect(Object.keys(result.data)).toEqual([key]);
     expect(result.data[key]).toEqual([
-      { name: "Earth", position: { x: 1, y: 2, z: 3 }, velocity: { x: 4, y: 5, z: 6 } },
-      { name: "Moon", position: { x: 7, y: 8, z: 9 }, velocity: { x: 10, y: 11, z: 12 } },
+      {
+        name: "Earth",
+        position: { x: 1, y: 2, z: 3 },
+        velocity: { x: 4, y: 5, z: 6 },
+      },
+      {
+        name: "Moon",
+        position: { x: 7, y: 8, z: 9 },
+        velocity: { x: 10, y: 11, z: 12 },
+      },
     ]);
     expect(result.mu).toEqual({
       Earth: 3.986004418e14,
@@ -332,10 +358,18 @@ describe("parseBinaryChunkToTypedArrays", () => {
     expect(result.timestamps[1]).toBe(Date.UTC(2024, 5, 6));
 
     // Layout: positions[t * bodyCount * 6 + b * 6 + c]
-    expect(Array.from(result.positions.slice(0, 6))).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(Array.from(result.positions.slice(6, 12))).toEqual([7, 8, 9, 10, 11, 12]);
-    expect(Array.from(result.positions.slice(12, 18))).toEqual([13, 14, 15, 16, 17, 18]);
-    expect(Array.from(result.positions.slice(18, 24))).toEqual([19, 20, 21, 22, 23, 24]);
+    expect(Array.from(result.positions.slice(0, 6))).toEqual([
+      1, 2, 3, 4, 5, 6,
+    ]);
+    expect(Array.from(result.positions.slice(6, 12))).toEqual([
+      7, 8, 9, 10, 11, 12,
+    ]);
+    expect(Array.from(result.positions.slice(12, 18))).toEqual([
+      13, 14, 15, 16, 17, 18,
+    ]);
+    expect(Array.from(result.positions.slice(18, 24))).toEqual([
+      19, 20, 21, 22, 23, 24,
+    ]);
   });
 
   it("decodes timestamps as an exact Float64Array at a far-future in-range epoch", () => {
@@ -348,8 +382,16 @@ describe("parseBinaryChunkToTypedArrays", () => {
     const bytes = buildChunkBytes(
       [{ name: "Earth", mu: 3.986004418e14 }],
       [
-        { millis: start, deltaERelative: 0, bodies: [{ pos: [0, 0, 0], vel: [0, 0, 0] }] },
-        { millis: next, deltaERelative: 0, bodies: [{ pos: [0, 0, 0], vel: [0, 0, 0] }] },
+        {
+          millis: start,
+          deltaERelative: 0,
+          bodies: [{ pos: [0, 0, 0], vel: [0, 0, 0] }],
+        },
+        {
+          millis: next,
+          deltaERelative: 0,
+          bodies: [{ pos: [0, 0, 0], vel: [0, 0, 0] }],
+        },
       ],
     );
 
@@ -431,4 +473,28 @@ describe("parseBinaryChunkToTypedArrays", () => {
     // Full chunk must still parse cleanly.
     expect(() => parseBinaryChunkToTypedArrays(full)).not.toThrow();
   });
+});
+
+it("preserves irregular UTC timestamps and distinct reference keys inside a leap second", () => {
+  const steps = [
+    { millis: 1483228799500, referenceEpoch: 536500867684 },
+    { millis: 1483228800500, referenceEpoch: 536500868684 },
+    { millis: 1483228800500, referenceEpoch: 536500869684 },
+  ].map((time) => ({
+    ...time,
+    deltaERelative: 0,
+    bodies: [
+      {
+        pos: [1, 2, 3] as [number, number, number],
+        vel: [0, 0, 0] as [number, number, number],
+      },
+    ],
+  }));
+  const parsed = parseBinaryChunkToTypedArrays(
+    buildChunkBytes([{ name: "EARTH", mu: 1 }], steps),
+  );
+  expect([...parsed.timestamps]).toEqual(steps.map((s) => s.millis));
+  expect([...parsed.referenceEpochs]).toEqual(
+    steps.map((s) => s.referenceEpoch),
+  );
 });

@@ -119,6 +119,7 @@ export async function runStaticClip(
             timestepCount: payload.timestepCount,
             positions: payload.positions,
             timestamps: payload.timestamps,
+            referenceEpochs: payload.referenceEpochs,
             mu: payload.mu,
             deltaERelative: payload.deltaERelative,
             dp853AvgStepSeconds: payload.dp853AvgStepSeconds,

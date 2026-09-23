@@ -14,6 +14,7 @@ export type CelestialBodyWire = components["schemas"]["CelestialBodyWrapper"];
 
 export interface PresetClipParams {
   formatVersion: number;
+  dataRevision?: number;
   presetId: string;
   epoch: string;
   integrator: string;
@@ -43,7 +44,7 @@ export interface ParsedPresetClipBundle {
 
 // Format version in the filename so a wire-format bump busts the edge cache.
 export function clipUrl(presetId: string): string {
-  return `/clip-${presetId}-v3.bin`;
+  return `/clip-${presetId}-v4-science2.bin`;
 }
 
 const utf8Decoder = new TextDecoder("utf-8");

@@ -52,8 +52,42 @@ describe("fetchGroundTruth stale-launch guard", () => {
   it("records anchors when no newer launch superseded the fetch", async () => {
     const store = makeStore();
     await store.dispatch(fetchGroundTruth(args));
-    expect(store.getState().groundTruth.coveredByBody.EARTH.toMs).toBe(5000);
+    expect(store.getState().groundTruth.coveredByBody.EARTH.toMs).toBe(1000);
     expect(store.getState().groundTruth.anchorsByBody.EARTH).toHaveLength(1);
+  });
+
+  it("keeps the newest window when same-launch responses arrive out of order", async () => {
+    const responses: Array<(value: unknown) => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise((resolve) => responses.push(resolve))),
+    );
+    const store = makeStore();
+    const first = store.dispatch(fetchGroundTruth(args));
+    const second = store.dispatch(
+      fetchGroundTruth({ ...args, fromMs: 9000, toMs: 10000 }),
+    );
+    const response = (epochMillis: number) => ({
+      ok: true,
+      json: async () => ({
+        tracks: [
+          {
+            name: "EARTH",
+            anchors: [
+              { epochMillis, position: [1, 2, 3], velocity: [0, 0, 0] },
+            ],
+          },
+        ],
+      }),
+    });
+    responses[1](response(9000));
+    await second;
+    responses[0](response(1000));
+    await first;
+    expect(store.getState().groundTruth.coveredByBody.EARTH).toEqual({
+      fromMs: 9000,
+      toMs: 9000,
+    });
   });
 
   it("drops the response when a newer launch began before it settled", async () => {

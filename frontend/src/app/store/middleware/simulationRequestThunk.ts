@@ -24,6 +24,7 @@ interface ChunkPayload {
   timestepCount: number;
   positions: Float64Array;
   timestamps: Float64Array;
+  referenceEpochs?: Float64Array;
   mu: Record<string, number>;
   deltaERelative: Float32Array;
   dp853AvgStepSeconds: number | null;
@@ -198,6 +199,7 @@ export const requestRunSimulation = createAsyncThunk<
           timestepCount: messageData.timestepCount,
           positions: messageData.positions,
           timestamps: messageData.timestamps,
+          referenceEpochs: messageData.referenceEpochs,
           mu: messageData.mu,
           deltaERelative: messageData.deltaERelative,
           dp853AvgStepSeconds: messageData.dp853AvgStepSeconds,

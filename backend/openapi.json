@@ -33,35 +33,6 @@
         }
       }
     },
-    "/api/simulation/chunk" : {
-      "post" : {
-        "tags" : [ "simulation-controller" ],
-        "operationId" : "getNextChunk",
-        "requestBody" : {
-          "content" : {
-            "application/json" : {
-              "schema" : {
-                "$ref" : "#/components/schemas/SimulationChunkRequest"
-              }
-            }
-          },
-          "required" : true
-        },
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "application/octet-stream" : {
-                "schema" : {
-                  "type" : "string",
-                  "format" : "byte"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/simulation/ground-truth" : {
       "get" : {
         "tags" : [ "simulation-controller" ],
@@ -125,6 +96,61 @@
             }
           }
         }
+      },
+      "post" : {
+        "tags" : [ "simulation-controller" ],
+        "operationId" : "sampleGroundTruth",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/GroundTruthSampleRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/GroundTruthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/chunk" : {
+      "post" : {
+        "tags" : [ "simulation-controller" ],
+        "operationId" : "getNextChunk",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SimulationChunkRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/octet-stream" : {
+                "schema" : {
+                  "type" : "string",
+                  "format" : "byte"
+                }
+              }
+            }
+          }
+        }
       }
     }
   },
@@ -179,6 +205,12 @@
           },
           "orbitingBody" : {
             "type" : "string"
+          },
+          "referenceBodyNames" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
           }
         }
       },
@@ -204,15 +236,24 @@
           }
         }
       },
-      "SimulationChunkRequest" : {
+      "GroundTruthSampleRequest" : {
         "type" : "object",
         "properties" : {
-          "sessionID" : {
+          "body" : {
             "type" : "string"
           },
-          "expectedChunkIndex" : {
-            "type" : "integer",
-            "format" : "int32"
+          "frame" : {
+            "type" : "string"
+          },
+          "referenceEpochs" : {
+            "type" : "array",
+            "items" : {
+              "type" : "integer",
+              "format" : "int64"
+            }
+          },
+          "subtractSun" : {
+            "type" : "boolean"
           }
         }
       },
@@ -234,6 +275,10 @@
         "type" : "object",
         "properties" : {
           "epochMillis" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "referenceEpoch" : {
             "type" : "integer",
             "format" : "int64"
           },
@@ -261,6 +306,18 @@
             "items" : {
               "$ref" : "#/components/schemas/BodyGroundTruthTrack"
             }
+          }
+        }
+      },
+      "SimulationChunkRequest" : {
+        "type" : "object",
+        "properties" : {
+          "sessionID" : {
+            "type" : "string"
+          },
+          "expectedChunkIndex" : {
+            "type" : "integer",
+            "format" : "int32"
           }
         }
       }

@@ -2,16 +2,15 @@
 // backend BinaryResponseSerializer.java. If you change one, change the other —
 // there are tests on each side that pin the format.
 //
-// Wire format version 3 (after zstd, all little-endian):
-//   uint8    formatVersion (= 3)
+// Wire format version 4 (after zstd, all little-endian):
+//   uint8    formatVersion (= 4)
 //   uint16   bodyCount (B)
 //   per body: uint16 nameLength, UTF-8 name bytes, float64 mu
 //   float64  dp853AvgStepSeconds       (NaN if not DP853)
 //   float32  dp853AcceptRate           (NaN if not DP853)
 //   uint32   timestepCount (T)
 //   — present only when T > 0 —
-//   int64    startMillis               (timestamp of timestep 0, millis UTC)
-//   float64  gapMillis                 (uniform spacing; ts[i] = round(start + i*gap))
+//   per timestep: int64 utcMillis, int64 millisFromJ2000 (continuous SI time)
 //   float32  deltaERelative[T]         (planar, UNSHUFFLED)
 //   per body: float64 refX, refY, refZ (absolute position at timestep 0, UNSHUFFLED)
 //   SHUFFLED float32 dPx[T*B]          (per-step position deltas, planar; row 0 = 0)
@@ -53,7 +52,7 @@
 // maps NaN → null for cleaner downstream handling than threading NaN checks
 // through every consumer.
 
-export const WIRE_FORMAT_VERSION = 3;
+export const WIRE_FORMAT_VERSION = 4;
 
 export interface CelestialBody {
   name: string;
@@ -83,6 +82,7 @@ export interface ParsedChunkTypedArrays {
   positions: Float64Array;
   // Length = timestepCount. Millis since UNIX epoch.
   timestamps: Float64Array;
+  referenceEpochs: Float64Array;
   // Per-body µ (m³/s²) keyed by body name.
   mu: Record<string, number>;
   // Length = timestepCount. Per-snapshot (E - E₀) / |E₀| from the backend.
@@ -164,7 +164,11 @@ function parseHeader(view: DataView, bytes: Uint8Array): ParsedHeader {
 // into native little-endian float32 words. Host is little-endian (every browser
 // target), matching the wire; the same assumption the prior code made via
 // `new Float32Array(buffer)`.
-function unshufflePlane(bytes: Uint8Array, offset: number, n: number): Float32Array {
+function unshufflePlane(
+  bytes: Uint8Array,
+  offset: number,
+  n: number,
+): Float32Array {
   const words = new Uint32Array(n);
   const p0 = bytes.subarray(offset, offset + n);
   const p1 = bytes.subarray(offset + n, offset + 2 * n);
@@ -186,11 +190,18 @@ export function parseBinaryChunkToTypedArrays(
 
   const positions = new Float64Array(timestepCount * bodyCount * 6);
   const timestamps = new Float64Array(timestepCount);
+  const referenceEpochs = new Float64Array(timestepCount);
   const deltaERelative = new Float32Array(timestepCount);
 
   if (timestepCount === 0) {
     return {
-      bodyNames, bodyCount, timestepCount, positions, timestamps, mu,
+      bodyNames,
+      bodyCount,
+      timestepCount,
+      positions,
+      timestamps,
+      referenceEpochs,
+      mu,
       deltaERelative,
       dp853AvgStepSeconds: header.dp853AvgStepSeconds,
       dp853AcceptRate: header.dp853AcceptRate,
@@ -205,22 +216,27 @@ export function parseBinaryChunkToTypedArrays(
   //
   // Required layout when T > 0:
   //   header.offset          end of the header region
-  //   + 16                   startMillis (int64, 8) + gapMillis (f64, 8)
+  //   + T * 16               UTC display millis + continuous J2000 millis
   //   + T * 4                deltaERelative plane (one f32 per timestep)
   //   + B * 24               per-body f64 reference (3 x f64 = 24 bytes each)
   //   + 6 * T * B * 4        six shuffled f32 planes (pos x/y/z + vel x/y/z)
   const requiredBytes =
-    offset + 16 + timestepCount * 4 + bodyCount * 24 + 6 * timestepCount * bodyCount * 4;
+    offset +
+    timestepCount * 16 +
+    timestepCount * 4 +
+    bodyCount * 24 +
+    6 * timestepCount * bodyCount * 4;
   if (bytes.byteLength < requiredBytes) {
     throw new RangeError(
       `Binary chunk is truncated: expected at least ${requiredBytes} bytes, got ${bytes.byteLength}`,
     );
   }
 
-  const startMillis = Number(view.getBigInt64(offset, true));
-  offset += 8;
-  const gapMillis = view.getFloat64(offset, true);
-  offset += 8;
+  for (let t = 0; t < timestepCount; t++) {
+    timestamps[t] = Number(view.getBigInt64(offset, true));
+    referenceEpochs[t] = Number(view.getBigInt64(offset + 8, true));
+    offset += 16;
+  }
 
   // deltaERelative (planar).
   for (let t = 0; t < timestepCount; t++) {
@@ -233,9 +249,12 @@ export function parseBinaryChunkToTypedArrays(
   const accY = new Float64Array(bodyCount);
   const accZ = new Float64Array(bodyCount);
   for (let b = 0; b < bodyCount; b++) {
-    accX[b] = view.getFloat64(offset, true); offset += 8;
-    accY[b] = view.getFloat64(offset, true); offset += 8;
-    accZ[b] = view.getFloat64(offset, true); offset += 8;
+    accX[b] = view.getFloat64(offset, true);
+    offset += 8;
+    accY[b] = view.getFloat64(offset, true);
+    offset += 8;
+    accZ[b] = view.getFloat64(offset, true);
+    offset += 8;
   }
 
   const planeLen = timestepCount * bodyCount;
@@ -250,7 +269,7 @@ export function parseBinaryChunkToTypedArrays(
       const tBase = t * stride;
       const pBase = t * bodyCount;
       for (let b = 0; b < bodyCount; b++) {
-        acc[b] += plane[pBase + b];               // row 0 delta is 0
+        acc[b] += plane[pBase + b]; // row 0 delta is 0
         positions[tBase + b * 6 + comp] = acc[b];
       }
     }
@@ -267,20 +286,20 @@ export function parseBinaryChunkToTypedArrays(
       const tBase = t * stride;
       const pBase = t * bodyCount;
       for (let b = 0; b < bodyCount; b++) {
-        vacc[b] += plane[pBase + b];               // row 0 = absolute
+        vacc[b] += plane[pBase + b]; // row 0 = absolute
         positions[tBase + b * 6 + comp] = vacc[b];
       }
     }
   }
 
-  // Timestamps from (start, gap) — round to nearest ms. Stored as float64:
-  // the rounded ms is an integer well below 2^53, so it is exact.
-  for (let t = 0; t < timestepCount; t++) {
-    timestamps[t] = Math.round(startMillis + t * gapMillis);
-  }
-
   return {
-    bodyNames, bodyCount, timestepCount, positions, timestamps, mu,
+    bodyNames,
+    bodyCount,
+    timestepCount,
+    positions,
+    timestamps,
+    referenceEpochs,
+    mu,
     deltaERelative,
     dp853AvgStepSeconds: header.dp853AvgStepSeconds,
     dp853AcceptRate: header.dp853AcceptRate,

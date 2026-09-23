@@ -58,6 +58,7 @@ self.onmessage = async (event: MessageEvent<DecodeRequest>) => {
       timestepCount: parsed.timestepCount,
       positions: parsed.positions,
       timestamps: parsed.timestamps,
+      referenceEpochs: parsed.referenceEpochs,
       mu: parsed.mu,
       deltaERelative: parsed.deltaERelative,
       dp853AvgStepSeconds: parsed.dp853AvgStepSeconds,
@@ -68,6 +69,7 @@ self.onmessage = async (event: MessageEvent<DecodeRequest>) => {
     self.postMessage(response, [
       parsed.positions.buffer,
       parsed.timestamps.buffer,
+      parsed.referenceEpochs.buffer,
       parsed.deltaERelative.buffer,
     ]);
   } catch (err) {
