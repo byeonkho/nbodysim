@@ -8,6 +8,12 @@ import simulationReducer, {
 import requestReducer, {
   setRequestInProgress,
 } from "@/app/store/slices/RequestSlice";
+import {
+  dispatchChunkRequest,
+  cancelChunkStream,
+} from "@/app/store/middleware/simulationRequestThunk";
+import { beginSimulationLaunch } from "./simulationLaunch";
+import { computeNextIndex } from "./animationStep";
 import { beginLaunch } from "@/app/store/launchEpoch";
 import { initializeCelestialBodies } from "./initializeCelestialBodies";
 import { setErrorMessage } from "@/app/store/slices/RequestSlice";
@@ -50,6 +56,7 @@ describe("initializeCelestialBodies", () => {
   });
 
   afterEach(() => {
+    cancelChunkStream();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -254,9 +261,123 @@ describe("initializeCelestialBodies", () => {
     store.dispatch(setCurrentTimeStepIndex(1));
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(store.getState().request.isLaunchInProgress).toBe(true);
+    fetchMock.mockImplementation(() => new Promise(() => {}));
     finish(statusResponse(400));
     expect(await pending).toBe(false);
     expect(store.getState().request.isLaunchInProgress).toBe(false);
-    expect(store.getState().request.isRequestInProgress).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(store.getState().request.isRequestInProgress).toBe(true);
   });
+  it.each([true, false])(
+    "resumes a retained stream without another animation action (buffered=%s)",
+    async (buffered) => {
+      const store = configureStore({
+        reducer: { simulation: simulationReducer, request: requestReducer },
+        middleware: (g) =>
+          g({ serializableCheck: false }).concat(
+            simulationUpdateDataMiddleware,
+          ),
+      });
+      store.dispatch(
+        loadSimulation({
+          celestialBodyPropertiesList: [{ name: "Sun" }],
+          simulationMetaData: { sessionID: "old" },
+        }),
+      );
+      if (buffered)
+        store.dispatch(
+          appendChunkToBuffer({
+            bodyNames: ["Sun"],
+            bodyCount: 1,
+            timestepCount: 4,
+            positions: new Float64Array(24),
+            timestamps: new Float64Array(4),
+            mu: { Sun: 1 },
+            deltaERelative: new Float32Array(4),
+            dp853AvgStepSeconds: null,
+            dp853AcceptRate: null,
+          }),
+        );
+      let finish!: (value: ReturnType<typeof statusResponse>) => void;
+      fetchMock.mockImplementation(
+        (url: string, opts: { signal: AbortSignal }) =>
+          url.endsWith("/initialize")
+            ? new Promise((resolve) => {
+                finish = resolve;
+              })
+            : new Promise((_resolve, reject) =>
+                opts.signal.addEventListener("abort", () =>
+                  reject(new DOMException("Aborted", "AbortError")),
+                ),
+              ),
+      );
+      dispatchChunkRequest(store.dispatch as AppDispatch, { sessionID: "old" });
+      const pending = initializeCelestialBodies(
+        store.dispatch as AppDispatch,
+        REQUEST_BODY,
+      );
+      if (buffered) store.dispatch(setCurrentTimeStepIndex(3));
+      finish(statusResponse(400));
+      expect(await pending).toBe(false);
+      // The real animation controller produces no action at the buffer end,
+      // and returns immediately with no buffer. Recovery cannot depend on it.
+      if (buffered)
+        expect(
+          computeNextIndex({
+            currentIndex: 3,
+            delta: 1 / 60,
+            speedMultiplier: 1,
+            fps: 60,
+            totalTimesteps: 4,
+          }),
+        ).toBe(3);
+      const chunks = fetchMock.mock.calls.filter(([url]) =>
+        url.endsWith("/chunk"),
+      );
+      expect(chunks).toHaveLength(2);
+      expect(JSON.parse(chunks[1][1].body)).toEqual({
+        sessionID: "old",
+        expectedChunkIndex: buffered ? 1 : 0,
+      });
+      expect(store.getState().request.isRequestInProgress).toBe(true);
+    },
+  );
+  it.each(["success", "superseded", "sessionless"])(
+    "does not restart a retained stream for %s launches",
+    async (outcome) => {
+      const store = configureStore({
+        reducer: { simulation: simulationReducer, request: requestReducer },
+        middleware: (g) =>
+          g({ serializableCheck: false }).concat(
+            simulationUpdateDataMiddleware,
+          ),
+      });
+      store.dispatch(
+        loadSimulation({
+          celestialBodyPropertiesList: [],
+          simulationMetaData:
+            outcome === "sessionless" ? null : { sessionID: "old" },
+        }),
+      );
+      let finish!: (value: unknown) => void;
+      fetchMock.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const pending = initializeCelestialBodies(
+        store.dispatch as AppDispatch,
+        REQUEST_BODY,
+      );
+      if (outcome === "superseded")
+        beginSimulationLaunch(store.dispatch as AppDispatch);
+      finish(outcome === "success" ? okResponse("new") : statusResponse(400));
+      expect(await pending).toBe(outcome === "success");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(store.getState().request.isLaunchInProgress).toBe(
+        outcome === "superseded",
+      );
+    },
+  );
 });

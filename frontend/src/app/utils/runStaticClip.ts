@@ -54,6 +54,7 @@ export async function runStaticClip(
   // This launch's identity. Re-checked after every await below so a run that
   // starts mid-decode (live sim, or another clip) is not spliced into.
   const myEpoch = beginSimulationLaunch(dispatch);
+  let loaded = false;
 
   try {
     let bytes: Uint8Array;
@@ -135,8 +136,9 @@ export async function runStaticClip(
 
     if (!isCurrentLaunch(myEpoch)) return "superseded";
     dispatch(setIsPaused(false));
+    loaded = true;
     return true;
   } finally {
-    finishSimulationLaunch(dispatch, myEpoch);
+    finishSimulationLaunch(dispatch, myEpoch, !loaded);
   }
 }

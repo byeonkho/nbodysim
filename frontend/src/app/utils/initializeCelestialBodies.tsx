@@ -62,6 +62,7 @@ export const initializeCelestialBodies = async (
   // effect the moment the user commits, not only once the session id lands.
   const epoch = beginSimulationLaunch(dispatch);
   const signal = currentLaunchSignal();
+  let loaded = false;
   try {
     const maxAttempts = RETRY_DELAYS_MS.length + 1;
 
@@ -93,6 +94,7 @@ export const initializeCelestialBodies = async (
                 : null,
             }),
           );
+          loaded = true;
           return true;
         }
 
@@ -123,7 +125,7 @@ export const initializeCelestialBodies = async (
 
     return false;
   } finally {
-    finishSimulationLaunch(dispatch, epoch);
+    finishSimulationLaunch(dispatch, epoch, !loaded);
   }
 };
 

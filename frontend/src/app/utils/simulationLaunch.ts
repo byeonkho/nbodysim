@@ -1,3 +1,4 @@
+import { resumeRetainedStream } from "@/app/store/slices/SimulationSlice";
 import type { AppDispatch } from "@/app/store/Store";
 import { beginLaunch, isCurrentLaunch } from "@/app/store/launchEpoch";
 import { cancelChunkStream } from "@/app/store/middleware/simulationRequestThunk";
@@ -20,8 +21,12 @@ export function beginSimulationLaunch(dispatch: AppDispatch): number {
 export function finishSimulationLaunch(
   dispatch: AppDispatch,
   epoch: number,
+  failed = false,
 ): void {
   if (!isCurrentLaunch(epoch)) return;
   dispatch(setLaunchInProgress(false));
   dispatch(setRequestInProgress(false));
+  // At an empty or exhausted buffer the animation loop emits no more index
+  // actions. Recheck prefetch now instead of waiting for playback to move.
+  if (failed) dispatch(resumeRetainedStream());
 }
