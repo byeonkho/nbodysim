@@ -234,6 +234,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         if (origin != null) {
             response.setHeader("Access-Control-Allow-Origin", origin);
             response.setHeader("Vary", "Origin");
+            response.setHeader("Access-Control-Expose-Headers", "Retry-After");
         }
 
         response.setStatus(429); // jakarta servlet doesn't define a SC_ constant for 429

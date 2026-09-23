@@ -17,6 +17,13 @@ import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.web.servlet.MockMvc;
 
 import personal.spacesim.services.SimulationSessionService;
+import personal.spacesim.services.SessionCapacityExceededException;
+import personal.spacesim.services.GroundTruthProvider;
+import personal.spacesim.apis.controller.SimulationController;
+import personal.spacesim.simulation.frame.CustomFrameFactory;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -69,6 +76,22 @@ class SimulationControllerTest {
                 1,
                 5000
         );
+    }
+
+    @Test
+    void chunkComputeSaturationReturns503() throws Exception {
+        SimulationSessionService saturated = mock(SimulationSessionService.class);
+        when(saturated.getNextChunkBytes("busy", 0))
+                .thenThrow(new SessionCapacityExceededException("busy"));
+        var controller = new SimulationController(
+                saturated,
+                mock(GroundTruthProvider.class),
+                mock(CustomFrameFactory.class));
+        standaloneSetup(controller).build()
+                .perform(post("/api/simulation/chunk")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sessionID\":\"busy\",\"expectedChunkIndex\":0}"))
+                .andExpect(status().isServiceUnavailable());
     }
 
     @Test

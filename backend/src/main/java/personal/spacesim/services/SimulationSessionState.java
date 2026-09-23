@@ -99,7 +99,8 @@ final class SimulationSessionState {
         if (closed) {
             return false;
         }
-        CompletableFuture<byte[]> next = Objects.requireNonNull(nextFutureFactory.get());
+        // Speculation is optional when the global compute budget is occupied.
+        CompletableFuture<byte[]> next = nextFutureFactory.get();
         servedChunkIndex = chunkIndex;
         lastChunkBytes = payload;
         nextChunkFuture = next;
