@@ -1,3 +1,7 @@
+import {
+  beginSimulationLaunch,
+  finishSimulationLaunch,
+} from "./simulationLaunch";
 // Launch a precomputed preset clip from the static edge asset instead of the
 // live backend. No /initialize, no /chunk, no session: the manifest is applied
 // through the same loadSimulation reducer the live path uses, the bundled
@@ -7,8 +11,9 @@
 // (computeNextIndex clamps to totalTimesteps - 1). Returns false if the preset
 // is unknown, the clip is too large for this client's buffer budget, or the
 // asset is unreachable or corrupt, so the caller can fall back to a live run.
+// "superseded" must never trigger fallback: a newer launch owns the scene.
 import type { AppDispatch } from "@/app/store/Store";
-import { beginLaunch, isCurrentLaunch } from "@/app/store/launchEpoch";
+import { isCurrentLaunch, currentLaunchSignal } from "@/app/store/launchEpoch";
 import {
   appendChunkToBuffer,
   loadSimulation,
@@ -31,7 +36,7 @@ import { clipFitsClientBudget } from "@/app/store/chunkBuffer";
 export async function runStaticClip(
   dispatch: AppDispatch,
   presetId: ClipPreset["id"],
-): Promise<boolean> {
+): Promise<boolean | "superseded"> {
   // Unknown preset, or a clip too large for this client's buffer budget:
   // report "no clip" so every caller falls back to the live streaming path.
   const preset = CLIP_PRESETS.find((p) => p.id === presetId);
@@ -48,81 +53,89 @@ export async function runStaticClip(
 
   // This launch's identity. Re-checked after every await below so a run that
   // starts mid-decode (live sim, or another clip) is not spliced into.
-  const myEpoch = beginLaunch();
+  const myEpoch = beginSimulationLaunch(dispatch);
 
-  let bytes: Uint8Array;
   try {
-    const res = await fetch(clipUrl(presetId));
-    if (!res.ok) return false;
-    bytes = new Uint8Array(await res.arrayBuffer());
-  } catch {
-    return false;
-  }
-
-  // A truncated or garbled asset throws here (bad JSON / out-of-range reads).
-  // Nothing has been dispatched yet, so "no clip" is still a clean answer.
-  let manifest: ParsedPresetClipBundle["manifest"];
-  let chunks: ParsedPresetClipBundle["chunks"];
-  try {
-    ({ manifest, chunks } = parsePresetClipBundle(bytes));
-  } catch {
-    return false;
-  }
-
-  // A newer launch began while the asset was fetching/parsing: abandon this
-  // clip rather than wiping the new run's state with loadSimulation.
-  if (!isCurrentLaunch(myEpoch)) return false;
-
-  // simulationMetaData: null => no session => no chunk prefetch ever.
-  dispatch(
-    loadSimulation({
-      celestialBodyPropertiesList: manifest.celestialBodyPropertiesList,
-      simulationMetaData: null,
-    }),
-  );
-
-  // Parity with the live launch path so status readouts have real values.
-  dispatch(
-    setLastSimRequest({
-      celestialBodyNames: manifest.params.bodies,
-      date: manifest.params.epoch,
-      frame: manifest.params.frame,
-      integrator: manifest.params.integrator,
-      timeStepUnit: manifest.params.timeStepUnit,
-      fidelityBucket: manifest.params.fidelityBucket,
-    }),
-  );
-
-  // Decode + append in order. Each chunk needs its own ArrayBuffer because the
-  // worker transfers (neuters) the buffer it is handed; slice() copies into a
-  // fresh, exactly-sized buffer.
-  try {
-    for (const chunk of chunks) {
-      const payload = await decodeOffMainThread(chunk.slice().buffer);
-      // Superseded mid-decode: stop splicing clip chunks into a run that has
-      // moved on. Mirrors the live chunk thunk's post-decode session check.
-      if (!isCurrentLaunch(myEpoch)) return false;
-      dispatch(
-        appendChunkToBuffer({
-          bodyNames: payload.bodyNames,
-          bodyCount: payload.bodyCount,
-          timestepCount: payload.timestepCount,
-          positions: payload.positions,
-          timestamps: payload.timestamps,
-          mu: payload.mu,
-          deltaERelative: payload.deltaERelative,
-          dp853AvgStepSeconds: payload.dp853AvgStepSeconds,
-          dp853AcceptRate: payload.dp853AcceptRate,
-        }),
-      );
+    let bytes: Uint8Array;
+    try {
+      const res = await fetch(clipUrl(presetId), {
+        signal: currentLaunchSignal(),
+      });
+      if (!isCurrentLaunch(myEpoch)) return "superseded";
+      if (!res.ok) return false;
+      bytes = new Uint8Array(await res.arrayBuffer());
+    } catch {
+      return isCurrentLaunch(myEpoch) ? false : "superseded";
     }
-  } catch {
-    // A mid-loop decode failure leaves earlier chunks in the buffer (still
-    // paused, so nothing plays). Recovery relies on the caller's live
-    // fallback: its loadSimulation dispatch rebuilds the buffer from scratch.
-    return false;
-  }
 
-  dispatch(setIsPaused(false));
-  return true;
+    // A truncated or garbled asset throws here (bad JSON / out-of-range reads).
+    // Nothing has been dispatched yet, so "no clip" is still a clean answer.
+    let manifest: ParsedPresetClipBundle["manifest"];
+    let chunks: ParsedPresetClipBundle["chunks"];
+    try {
+      ({ manifest, chunks } = parsePresetClipBundle(bytes));
+    } catch {
+      return isCurrentLaunch(myEpoch) ? false : "superseded";
+    }
+
+    // A newer launch began while the asset was fetching/parsing: abandon this
+    // clip rather than wiping the new run's state with loadSimulation.
+    if (!isCurrentLaunch(myEpoch)) return "superseded";
+
+    // simulationMetaData: null => no session => no chunk prefetch ever.
+    dispatch(
+      loadSimulation({
+        celestialBodyPropertiesList: manifest.celestialBodyPropertiesList,
+        simulationMetaData: null,
+      }),
+    );
+
+    // Parity with the live launch path so status readouts have real values.
+    dispatch(
+      setLastSimRequest({
+        celestialBodyNames: manifest.params.bodies,
+        date: manifest.params.epoch,
+        frame: manifest.params.frame,
+        integrator: manifest.params.integrator,
+        timeStepUnit: manifest.params.timeStepUnit,
+        fidelityBucket: manifest.params.fidelityBucket,
+      }),
+    );
+
+    // Decode + append in order. Each chunk needs its own ArrayBuffer because the
+    // worker transfers (neuters) the buffer it is handed; slice() copies into a
+    // fresh, exactly-sized buffer.
+    try {
+      for (const chunk of chunks) {
+        const payload = await decodeOffMainThread(chunk.slice().buffer);
+        // Superseded mid-decode: stop splicing clip chunks into a run that has
+        // moved on. Mirrors the live chunk thunk's post-decode session check.
+        if (!isCurrentLaunch(myEpoch)) return "superseded";
+        dispatch(
+          appendChunkToBuffer({
+            bodyNames: payload.bodyNames,
+            bodyCount: payload.bodyCount,
+            timestepCount: payload.timestepCount,
+            positions: payload.positions,
+            timestamps: payload.timestamps,
+            mu: payload.mu,
+            deltaERelative: payload.deltaERelative,
+            dp853AvgStepSeconds: payload.dp853AvgStepSeconds,
+            dp853AcceptRate: payload.dp853AcceptRate,
+          }),
+        );
+      }
+    } catch {
+      // A mid-loop decode failure leaves earlier chunks in the buffer (still
+      // paused, so nothing plays). Recovery relies on the caller's live
+      // fallback: its loadSimulation dispatch rebuilds the buffer from scratch.
+      return isCurrentLaunch(myEpoch) ? false : "superseded";
+    }
+
+    if (!isCurrentLaunch(myEpoch)) return "superseded";
+    dispatch(setIsPaused(false));
+    return true;
+  } finally {
+    finishSimulationLaunch(dispatch, myEpoch);
+  }
 }

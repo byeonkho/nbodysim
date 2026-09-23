@@ -1,20 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { currentLaunchEpoch, isCurrentLaunch } from "@/app/store/launchEpoch";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useDispatch } from "react-redux";
-import { initializeCelestialBodies } from "@/app/utils/initializeCelestialBodies";
 import type { AppDispatch } from "@/app/store/Store";
-import { store } from "@/app/store/Store";
-import { dispatchChunkRequest } from "@/app/store/middleware/simulationRequestThunk";
-import { setIsPaused, setLastSimRequest } from "@/app/store/slices/SimulationSlice";
 import { BODY_DISPLAY, type BodyKey } from "@/app/constants/BodyVisuals";
 import { DEFAULT_SELECTED } from "@/app/constants/BodyCatalog";
-import {
-  DEFAULT_FRAME,
-  FRAME_CODE,
-  type TimeUnit,
-} from "@/app/constants/SimParams";
+import { DEFAULT_FRAME, type TimeUnit } from "@/app/constants/SimParams";
 import {
   INTEGRATOR_DEFAULT_BUCKETS,
   type FidelityBucket,
@@ -24,6 +17,7 @@ import { BodyCatalogPane } from "@/app/components/chrome/simSetup/BodyCatalogPan
 import { matchPresetClip } from "@/app/utils/presetClipMatch";
 import { runStaticClip } from "@/app/utils/runStaticClip";
 import {
+  runSimulation,
   PRESET_EPOCH,
   PRESET_INTEGRATOR,
   PRESET_TIME_UNIT,
@@ -113,12 +107,18 @@ export function SimSetupModal({ open, onOpenChange }: SimSetupModalProps) {
     });
     if (clipId !== null) {
       setSubmitMsg("Starting simulation…");
-      let played = false;
+      let played: boolean | "superseded" = false;
+      const pending = runStaticClip(dispatch, clipId);
+      const clipEpoch = currentLaunchEpoch();
       try {
-        played = await runStaticClip(dispatch, clipId);
+        played = await pending;
       } catch {
         // runStaticClip reports failure by returning false; this backstop
         // keeps a future regression from stranding the disabled Run button.
+      }
+      if (played === "superseded" || !isCurrentLaunch(clipEpoch)) {
+        setSubmitMsg(null);
+        return;
       }
       if (played) {
         setSubmitMsg(null);
@@ -130,13 +130,6 @@ export function SimSetupModal({ open, onOpenChange }: SimSetupModalProps) {
       // button back to enabled for one render.
     }
 
-    // Capture the session this run replaces BEFORE initialize wipes it, so the
-    // backend releases it immediately rather than orphaning it for the full
-    // idle timeout. Undefined (first run) is omitted from the body, a no-op.
-    const previousSessionID =
-      store.getState().simulation.simulationParameters?.simulationMetaData
-        ?.sessionID;
-
     const requestPayload = {
       celestialBodyNames,
       date: epoch,
@@ -147,29 +140,11 @@ export function SimSetupModal({ open, onOpenChange }: SimSetupModalProps) {
     };
     setSubmitMsg("Starting simulation…");
     try {
-      // initializeCelestialBodies retries a cold-starting backend internally
-      // and surfaces its own error toast; it returns false rather than throwing.
-      // Backend wants the frame CODE; lastRequest keeps the LABEL for display.
-      const ok = await initializeCelestialBodies(
-        dispatch,
-        { ...requestPayload, frame: FRAME_CODE[frame] ?? frame, previousSessionID },
-        {
-          onRetry: () =>
-            setSubmitMsg("Waking up the simulator, this can take a few seconds…"),
-        },
-      );
-      if (!ok) return; // error already shown; keep the modal open so they can retry
-
-      const sessionID =
-        store.getState().simulation.simulationParameters?.simulationMetaData
-          ?.sessionID;
-      if (!sessionID) return; // defensive: ok was true, so this should not happen
-      dispatch(setLastSimRequest(requestPayload));
-      dispatchChunkRequest(dispatch, { sessionID });
-      // Auto-start: the controller gates on isPaused AND a populated buffer,
-      // so unpausing now springs the scene into motion the instant the first
-      // chunk arrives.
-      dispatch(setIsPaused(false));
+      const ok = await runSimulation(dispatch, requestPayload, {
+        onRetry: () =>
+          setSubmitMsg("Waking up the simulator, this can take a few seconds…"),
+      });
+      if (!ok) return;
       onOpenChange(false);
     } finally {
       setSubmitMsg(null);
@@ -213,7 +188,10 @@ export function SimSetupModal({ open, onOpenChange }: SimSetupModalProps) {
             }}
           >
             <div>
-              <p className="eyebrow text-accent" style={{ letterSpacing: "0.22em" }}>
+              <p
+                className="eyebrow text-accent"
+                style={{ letterSpacing: "0.22em" }}
+              >
                 Simulation parameters
               </p>
               <Dialog.Title className="text-hi mt-[5px] text-[21px] font-semibold tracking-[-0.02em]">
@@ -270,7 +248,10 @@ export function SimSetupModal({ open, onOpenChange }: SimSetupModalProps) {
           {/* Footer */}
           <div
             className="flex items-center gap-4 border-t border-white/[0.06]"
-            style={{ padding: "16px 28px", background: "rgba(255,255,255,0.02)" }}
+            style={{
+              padding: "16px 28px",
+              background: "rgba(255,255,255,0.02)",
+            }}
           >
             <button
               type="button"

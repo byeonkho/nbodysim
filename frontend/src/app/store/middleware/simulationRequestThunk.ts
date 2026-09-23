@@ -1,6 +1,7 @@
 // Thunk that fetches the next simulation chunk over HTTP, decodes it off-thread
 // via the zstd worker, and dispatches the parsed payload into Redux.
 
+import { currentLaunchEpoch, isCurrentLaunch } from "@/app/store/launchEpoch";
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import {
   appendChunkToBuffer,
@@ -73,7 +74,9 @@ function getDecoderWorker(): Worker {
 
 // Exported so the static-clip path can decode bundled chunks through the same
 // worker the live chunk path uses (one zstd worker for the page session).
-export function decodeOffMainThread(buffer: ArrayBuffer): Promise<ChunkPayload> {
+export function decodeOffMainThread(
+  buffer: ArrayBuffer,
+): Promise<ChunkPayload> {
   const id = ++decodeIdCounter;
   return new Promise((resolve, reject) => {
     pendingDecodes.set(id, { resolve, reject });
@@ -92,6 +95,13 @@ export const requestRunSimulation = createAsyncThunk<
 >(
   "simulation/requestChunk",
   async ({ sessionID }, { dispatch, getState, signal }) => {
+    const epoch = currentLaunchEpoch();
+    const ownsRequest = () =>
+      !signal.aborted &&
+      isCurrentLaunch(epoch) &&
+      getState().simulation.simulationParameters?.simulationMetaData
+        ?.sessionID === sessionID;
+    if (!ownsRequest()) return;
     dispatch(setRequestInProgress(true));
     const tStart = performance.now();
     // The retry coordinator re-enters through dispatchChunkRequest, which is
@@ -113,21 +123,13 @@ export const requestRunSimulation = createAsyncThunk<
         signal,
       });
 
+      if (!ownsRequest()) return;
+
       // Terminal: the session is gone (410, idle-evicted or released on
       // resubmit) or the cursors are out of step (409). Retrying recovers
       // neither; clear the session so the prefetch loop stops and prompt a
       // fresh run.
       if (response.status === 410 || response.status === 409) {
-        // Stale guard: a retry for an OLD session can land here after the user
-        // started a new one (the backend releases the prior session). Only
-        // expire if this response is still for the current session.
-        const current =
-          getState().simulation.simulationParameters?.simulationMetaData
-            ?.sessionID;
-        if (current !== sessionID) {
-          dispatch(setRequestInProgress(false));
-          return;
-        }
         resetChunkRetry();
         dispatch(setRequestInProgress(false));
         dispatch(expireSession());
@@ -168,6 +170,7 @@ export const requestRunSimulation = createAsyncThunk<
         }
         resetChunkRetry();
         dispatch(setRequestInProgress(false));
+        dispatch(expireSession());
         dispatch(
           setErrorMessage(
             "Could not load more of the simulation. Press Run to try again.",
@@ -177,24 +180,10 @@ export const requestRunSimulation = createAsyncThunk<
       }
 
       const buffer = await response.arrayBuffer();
+      if (!ownsRequest()) return;
       const messageData = await decodeOffMainThread(buffer);
 
-      // Superseded while decoding: the abort rejects an in-flight fetch but
-      // can't interrupt the decode await, so check the signal directly. The
-      // newer request owns the in-progress flag and the buffer now; falling
-      // through would append this request's timesteps late.
-      if (signal.aborted) {
-        return;
-      }
-
-      // Drop a decoded chunk when its session no longer matches. Appending it
-      // would splice stale timesteps into the replacement simulation.
-      const currentSessionID =
-        getState().simulation.simulationParameters?.simulationMetaData?.sessionID;
-      if (currentSessionID !== sessionID) {
-        dispatch(setRequestInProgress(false));
-        return;
-      }
+      if (!ownsRequest()) return;
 
       // A good chunk ends any failure streak.
       resetChunkRetry();
@@ -216,6 +205,7 @@ export const requestRunSimulation = createAsyncThunk<
         }),
       );
     } catch (err) {
+      if (!ownsRequest()) return;
       // Aborted by dispatchChunkRequest when a newer request supersedes
       // this one — silent, not a user-facing error. The superseder set
       // isRequestInProgress(true) synchronously at dispatch, before this
@@ -254,8 +244,13 @@ export const requestRunSimulation = createAsyncThunk<
 // the thunk — the fetch above wires `signal` so the network round-trip
 // terminates immediately.
 let currentChunkDispatch:
-  | (Promise<unknown> & { abort: (reason?: string) => void })
-  | null = null;
+  (Promise<unknown> & { abort: (reason?: string) => void }) | null = null;
+
+export function cancelChunkStream(): void {
+  currentChunkDispatch?.abort("new launch");
+  currentChunkDispatch = null;
+  resetChunkRetry();
+}
 
 export function dispatchChunkRequest(
   dispatch: AppDispatch,
@@ -285,9 +280,10 @@ function scheduleChunkRetry(
   if (retryTimer !== null) return; // a retry is already armed
   const delay = delayMs ?? computeBackoffMs(retryAttempt);
   retryAttempt += 1;
+  const epoch = currentLaunchEpoch();
   retryTimer = setTimeout(() => {
     retryTimer = null;
-    dispatchChunkRequest(dispatch, { sessionID });
+    if (isCurrentLaunch(epoch)) dispatchChunkRequest(dispatch, { sessionID });
   }, delay);
 }
 
@@ -317,6 +313,7 @@ function scheduleRetryOrGiveUp(
   if (retryAttempt >= MAX_CHUNK_RETRY_ATTEMPTS) {
     resetChunkRetry();
     dispatch(setRequestInProgress(false));
+    dispatch(expireSession());
     dispatch(
       setErrorMessage("Could not reach the simulator. Press Run to try again."),
     );

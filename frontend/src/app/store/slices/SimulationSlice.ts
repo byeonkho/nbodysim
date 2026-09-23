@@ -326,10 +326,12 @@ export const simulationSlice = createSlice({
       state.timeState.isPaused = !state.timeState.isPaused;
     },
     toggleShowGrid: (state) => {
-      state.simulationParameters.showGrid = !state.simulationParameters.showGrid;
+      state.simulationParameters.showGrid =
+        !state.simulationParameters.showGrid;
     },
     toggleShowAxes: (state) => {
-      state.simulationParameters.showAxes = !state.simulationParameters.showAxes;
+      state.simulationParameters.showAxes =
+        !state.simulationParameters.showAxes;
     },
     toggleShowPlanetInfoOverlay: (state) => {
       state.simulationParameters.showPlanetInfoOverlay =
@@ -376,17 +378,11 @@ export const simulationSlice = createSlice({
         SimConstants.MAX_SPEED_MULTIPLIER,
       );
     },
-    setActiveBody: (
-      state: SimulationState,
-      action: PayloadAction<string>,
-    ) => {
+    setActiveBody: (state: SimulationState, action: PayloadAction<string>) => {
       state.activeBodyState.activeBodyName = action.payload;
       state.activeBodyState.isBodyActive = true;
     },
-    setHoveredBody: (
-      state: SimulationState,
-      action: PayloadAction<string>,
-    ) => {
+    setHoveredBody: (state: SimulationState, action: PayloadAction<string>) => {
       state.hoveredBodyName = action.payload;
     },
     // Clear only if the named body is still the hovered one. Guards the
@@ -493,7 +489,9 @@ export const simulationUpdateDataMiddleware: Middleware =
 
       const currentTimeStepIndex = a.payload;
       const remaining = buffer.totalTimesteps - currentTimeStepIndex;
-      const speedMultiplier = Math.abs(state.simulation.timeState.speedMultiplier);
+      const speedMultiplier = Math.abs(
+        state.simulation.timeState.speedMultiplier,
+      );
       const fps = SimConstants.FPS;
       const fetchLatencyMs = selectFetchLatencyEmaMs(state);
 
@@ -504,7 +502,11 @@ export const simulationUpdateDataMiddleware: Middleware =
         Math.ceil(stepsConsumedDuringFetch * PREFETCH_SAFETY_FACTOR),
       );
 
-      if (remaining <= threshold && !state.request.isRequestInProgress) {
+      if (
+        remaining <= threshold &&
+        !state.request.isRequestInProgress &&
+        !state.request.isLaunchInProgress
+      ) {
         const sessionID = selectSessionID(state);
         if (sessionID) {
           dispatchChunkRequest(store.dispatch as AppDispatch, { sessionID });

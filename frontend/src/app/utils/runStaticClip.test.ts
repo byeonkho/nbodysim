@@ -34,7 +34,8 @@ vi.mock("@/app/utils/presetClipBundle", () => ({
 }));
 
 vi.mock("@/app/store/chunkBuffer", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/app/store/chunkBuffer")>();
+  const actual =
+    await importOriginal<typeof import("@/app/store/chunkBuffer")>();
   return { ...actual, clipFitsClientBudget: () => true };
 });
 
@@ -52,6 +53,7 @@ const decodeMock = vi.fn(async () => ({
 }));
 vi.mock("@/app/store/middleware/simulationRequestThunk", () => ({
   decodeOffMainThread: (buf: ArrayBuffer) => decodeMock(buf),
+  cancelChunkStream: vi.fn(),
 }));
 
 import { runStaticClip } from "./runStaticClip";
@@ -125,7 +127,7 @@ describe("runStaticClip stale-launch guard", () => {
       return action;
     });
     const ok = await runStaticClip(dispatch as never, DEFAULT_CLIP_ID);
-    expect(ok).toBe(false);
+    expect(ok).toBe("superseded");
     expect(appendCount).toBe(1); // the second chunk is dropped by the guard
   });
 
@@ -148,7 +150,7 @@ describe("runStaticClip stale-launch guard", () => {
       return action;
     });
     const ok = await runStaticClip(dispatch as never, DEFAULT_CLIP_ID);
-    expect(ok).toBe(false);
+    expect(ok).toBe("superseded");
     expect(loadCount).toBe(0); // guard fired before the first store mutation
     expect(appendCount).toBe(0);
   });
@@ -184,10 +186,7 @@ describe("runStaticClip stale-launch guard", () => {
       }),
     );
 
-    const ok = await runStaticClip(
-      store.dispatch as never,
-      DEFAULT_CLIP_ID,
-    );
+    const ok = await runStaticClip(store.dispatch as never, DEFAULT_CLIP_ID);
 
     expect(ok).toBe(true);
     const events = store.getState().notableEvents.detectedEvents;

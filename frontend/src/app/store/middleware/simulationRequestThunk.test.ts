@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { configureStore } from "@reduxjs/toolkit";
 import simulationReducer, {
   appendChunkToBuffer,
+  setCurrentTimeStepIndex,
+  simulationUpdateDataMiddleware,
   loadSimulation,
   type SimulationParameters,
 } from "@/app/store/slices/SimulationSlice";
@@ -75,7 +77,10 @@ function sessionParams(sessionID: string): SimulationParameters {
 function buildStore() {
   return configureStore({
     reducer: { simulation: simulationReducer, request: requestReducer },
-    middleware: (getDefault) => getDefault({ serializableCheck: false }),
+    middleware: (getDefault) =>
+      getDefault({ serializableCheck: false }).concat(
+        simulationUpdateDataMiddleware,
+      ),
   });
 }
 
@@ -443,4 +448,40 @@ describe("requestRunSimulation: terminal + backoff handling", () => {
     expect(store.getState().request.isRequestInProgress).toBe(false);
     expect(chunkRetryAttempts()).toBe(0);
   });
+});
+
+describe("terminal chunk failure with buffered playback", () => {
+  afterEach(() => {
+    resetChunkRetry();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it.each([400, 503])(
+    "stops prefetch after terminal failure or exhausted retries (%s)",
+    async (status) => {
+      vi.useFakeTimers();
+      const fetchMock = vi.fn(async () => ({
+        ok: false,
+        status,
+        headers: new Headers(),
+      }));
+      vi.stubGlobal("fetch", fetchMock);
+      const store = buildStore();
+      store.dispatch(loadSimulation(sessionParams("terminal")));
+      store.dispatch(appendChunkToBuffer(cannedPayload()));
+      await store.dispatch(requestRunSimulation({ sessionID: "terminal" }));
+      await vi.runAllTimersAsync();
+      const count = fetchMock.mock.calls.length;
+      expect(
+        store.getState().simulation.simulationParameters.simulationMetaData,
+      ).toBeNull();
+      store.dispatch(setCurrentTimeStepIndex(1));
+      await vi.runAllTimersAsync();
+      expect(fetchMock).toHaveBeenCalledTimes(count);
+      expect(store.getState().simulation.chunkBuffer?.totalTimesteps).toBe(
+        TIMESTEPS,
+      );
+    },
+  );
 });

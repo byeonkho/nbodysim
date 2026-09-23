@@ -1,4 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { configureStore } from "@reduxjs/toolkit";
+import simulationReducer, {
+  appendChunkToBuffer,
+  setCurrentTimeStepIndex,
+  simulationUpdateDataMiddleware,
+} from "@/app/store/slices/SimulationSlice";
+import requestReducer, {
+  setRequestInProgress,
+} from "@/app/store/slices/RequestSlice";
+import { beginLaunch } from "@/app/store/launchEpoch";
 import { initializeCelestialBodies } from "./initializeCelestialBodies";
 import { setErrorMessage } from "@/app/store/slices/RequestSlice";
 import { loadSimulation } from "@/app/store/slices/SimulationSlice";
@@ -51,7 +61,9 @@ describe("initializeCelestialBodies", () => {
     const dispatch = vi.fn() as unknown as AppDispatch;
     const onRetry = vi.fn();
 
-    const promise = initializeCelestialBodies(dispatch, REQUEST_BODY, { onRetry });
+    const promise = initializeCelestialBodies(dispatch, REQUEST_BODY, {
+      onRetry,
+    });
     await vi.runAllTimersAsync();
 
     expect(await promise).toBe(true);
@@ -112,5 +124,139 @@ describe("initializeCelestialBodies", () => {
 
     expect(await promise).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it.each([200, 400, 503])(
+    "ignores a superseded initialization response (%s)",
+    async (status) => {
+      let finish!: (
+        value:
+          ReturnType<typeof okResponse> | ReturnType<typeof statusResponse>,
+      ) => void;
+      fetchMock.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const dispatch = vi.fn() as unknown as AppDispatch;
+      const onRetry = vi.fn();
+      const pending = initializeCelestialBodies(dispatch, REQUEST_BODY, {
+        onRetry,
+      });
+      beginLaunch();
+      finish(status === 200 ? okResponse("old") : statusResponse(status));
+      await vi.runAllTimersAsync();
+      expect(await pending).toBe(false);
+      expect(dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: loadSimulation.type }),
+      );
+      expect(dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: setErrorMessage.type }),
+      );
+      expect(onRetry).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("ignores a response superseded while its JSON body was decoding", async () => {
+    fetchMock.mockResolvedValue({
+      ...okResponse(),
+      json: async () => {
+        beginLaunch();
+        return {
+          celestialBodyPropertiesList: [],
+          simulationMetaData: { sessionID: "old" },
+        };
+      },
+    });
+    const dispatch = vi.fn() as unknown as AppDispatch;
+    expect(await initializeCelestialBodies(dispatch, REQUEST_BODY)).toBe(false);
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: loadSimulation.type }),
+    );
+  });
+
+  it("stops retrying when superseded during backoff", async () => {
+    fetchMock.mockResolvedValue(statusResponse(503));
+    const dispatch = vi.fn() as unknown as AppDispatch;
+    const pending = initializeCelestialBodies(dispatch, REQUEST_BODY);
+    await vi.advanceTimersByTimeAsync(0);
+    beginLaunch();
+    await vi.runAllTimersAsync();
+    expect(await pending).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: setErrorMessage.type }),
+    );
+  });
+  it("releases the old request flag if its replacement fails", async () => {
+    fetchMock.mockResolvedValue(statusResponse(400));
+    const store = configureStore({
+      reducer: { simulation: simulationReducer, request: requestReducer },
+    });
+    store.dispatch(
+      loadSimulation({
+        celestialBodyPropertiesList: [],
+        simulationMetaData: { sessionID: "old" },
+      }),
+    );
+    store.dispatch(setRequestInProgress(true));
+    expect(
+      await initializeCelestialBodies(
+        store.dispatch as AppDispatch,
+        REQUEST_BODY,
+      ),
+    ).toBe(false);
+    expect(store.getState().request.isRequestInProgress).toBe(false);
+    expect(
+      store.getState().simulation.simulationParameters.simulationMetaData
+        ?.sessionID,
+    ).toBe("old");
+  });
+  it("does not prefetch the old session during pending initialization", async () => {
+    let finish!: (value: ReturnType<typeof statusResponse>) => void;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const store = configureStore({
+      reducer: { simulation: simulationReducer, request: requestReducer },
+      middleware: (getDefault) =>
+        getDefault({ serializableCheck: false }).concat(
+          simulationUpdateDataMiddleware,
+        ),
+    });
+    store.dispatch(
+      loadSimulation({
+        celestialBodyPropertiesList: [{ name: "Sun" }],
+        simulationMetaData: { sessionID: "old" },
+      }),
+    );
+    store.dispatch(
+      appendChunkToBuffer({
+        bodyNames: ["Sun"],
+        bodyCount: 1,
+        timestepCount: 4,
+        positions: new Float64Array(24),
+        timestamps: new Float64Array(4),
+        mu: { Sun: 1 },
+        deltaERelative: new Float32Array(4),
+        dp853AvgStepSeconds: null,
+        dp853AcceptRate: null,
+      }),
+    );
+    const pending = initializeCelestialBodies(
+      store.dispatch as AppDispatch,
+      REQUEST_BODY,
+    );
+    store.dispatch(setCurrentTimeStepIndex(1));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(store.getState().request.isLaunchInProgress).toBe(true);
+    finish(statusResponse(400));
+    expect(await pending).toBe(false);
+    expect(store.getState().request.isLaunchInProgress).toBe(false);
+    expect(store.getState().request.isRequestInProgress).toBe(false);
   });
 });

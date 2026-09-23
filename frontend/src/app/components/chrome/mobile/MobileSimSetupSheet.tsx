@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useId } from "react";
+import { currentLaunchEpoch, isCurrentLaunch } from "@/app/store/launchEpoch";
 import { Drawer } from "vaul";
 import { useDispatch } from "react-redux";
 import type { AppDispatch } from "@/app/store/Store";
@@ -42,12 +43,14 @@ import {
 // touch devices.
 function Field({
   label,
+  controlId,
   help,
   note,
   accent,
   children,
 }: {
   label: string;
+  controlId?: string;
   /** Plain-English explanation revealed on tapping the (i) button. */
   help?: React.ReactNode;
   /** Persistent helper line shown inside the box, below the control. */
@@ -60,7 +63,18 @@ function Field({
   return (
     <div className="mb-4">
       <div className="mb-1.5 flex items-center gap-1.5">
-        <span className={accent ? "eyebrow text-accent" : "eyebrow"}>{label}</span>
+        {controlId ? (
+          <label
+            htmlFor={controlId}
+            className={accent ? "eyebrow text-accent" : "eyebrow"}
+          >
+            {label}
+          </label>
+        ) : (
+          <span className={accent ? "eyebrow text-accent" : "eyebrow"}>
+            {label}
+          </span>
+        )}
         {help != null && (
           <button
             type="button"
@@ -104,6 +118,7 @@ export function MobileSimSetupSheet({
   onOpenChange,
 }: MobileSimSetupSheetProps) {
   const dispatch = useDispatch<AppDispatch>();
+  const formId = useId();
 
   const [selectedBodies, setSelectedBodies] = useState<Set<BodyKey>>(
     new Set(DEFAULT_SELECTED),
@@ -173,12 +188,18 @@ export function MobileSimSetupSheet({
     });
     if (clipId !== null) {
       setSubmitMsg("Starting simulation...");
-      let played = false;
+      let played: boolean | "superseded" = false;
+      const pending = runStaticClip(dispatch, clipId);
+      const clipEpoch = currentLaunchEpoch();
       try {
-        played = await runStaticClip(dispatch, clipId);
+        played = await pending;
       } catch {
         // runStaticClip reports failure by returning false; this backstop
         // keeps a future regression from stranding the disabled Run button.
+      }
+      if (played === "superseded" || !isCurrentLaunch(clipEpoch)) {
+        setSubmitMsg(null);
+        return;
       }
       if (played) {
         setSubmitMsg(null);
@@ -219,7 +240,7 @@ export function MobileSimSetupSheet({
   if (typeof document === "undefined") return null;
 
   const selectClass =
-    "w-full appearance-none bg-transparent text-sm text-hi outline-none";
+    "w-full appearance-none bg-transparent text-sm text-hi outline-none focus:outline-solid focus:outline-2 focus:outline-offset-4 focus:outline-accent";
 
   return (
     <Drawer.Root open={open} onOpenChange={onOpenChange}>
@@ -240,7 +261,10 @@ export function MobileSimSetupSheet({
           {/* Header */}
           <div className="flex shrink-0 items-start justify-between border-b border-white/[0.06] px-5 pb-4 pt-1">
             <div>
-              <p className="eyebrow text-accent" style={{ letterSpacing: "0.22em" }}>
+              <p
+                className="eyebrow text-accent"
+                style={{ letterSpacing: "0.22em" }}
+              >
                 Simulation parameters
               </p>
               <Drawer.Title className="mt-1 text-lg font-semibold tracking-tight text-hi">
@@ -270,20 +294,30 @@ export function MobileSimSetupSheet({
           {/* Scrolling body */}
           <div className="flex-1 overflow-y-auto px-5 pt-5">
             {/* Epoch */}
-            <Field label="Epoch" help={EPOCH_COPY}>
+            <Field
+              controlId={`${formId}-epoch`}
+              label="Epoch"
+              help={EPOCH_COPY}
+            >
               <input
+                id={`${formId}-epoch`}
                 type="datetime-local"
                 step="0.001"
                 value={epoch}
                 onChange={(e) => setEpoch(e.target.value)}
-                className="w-full bg-transparent font-mono text-sm text-hi tabular outline-none"
+                className="w-full bg-transparent font-mono text-sm text-hi tabular outline-none focus:outline-solid focus:outline-2 focus:outline-offset-4 focus:outline-accent"
                 style={{ colorScheme: "dark" }}
               />
             </Field>
 
             {/* Reference frame */}
-            <Field label="Reference frame" help={REFERENCE_FRAME_COPY}>
+            <Field
+              controlId={`${formId}-frame`}
+              label="Reference frame"
+              help={REFERENCE_FRAME_COPY}
+            >
               <select
+                id={`${formId}-frame`}
                 value={frame}
                 onChange={(e) => setFrame(e.target.value)}
                 className={selectClass}
@@ -298,15 +332,26 @@ export function MobileSimSetupSheet({
             </Field>
 
             {/* Integrator (accent-highlighted: the headline numerical-engine knob) */}
-            <Field accent label="Integrator" help={INTEGRATOR_COPY} note={INTEGRATOR_HELP}>
+            <Field
+              controlId={`${formId}-integrator`}
+              accent
+              label="Integrator"
+              help={INTEGRATOR_COPY}
+              note={INTEGRATOR_HELP}
+            >
               <select
+                id={`${formId}-integrator`}
                 value={integrator}
                 onChange={(e) => setIntegrator(e.target.value)}
-                className="w-full appearance-none bg-transparent text-sm font-medium text-accent outline-none"
+                className="w-full appearance-none bg-transparent text-sm font-medium text-accent outline-none focus:outline-solid focus:outline-2 focus:outline-offset-4 focus:outline-accent"
                 style={{ colorScheme: "dark" }}
               >
                 {INTEGRATORS.map(([v, l]) => (
-                  <option key={v} value={v} className="bg-bg font-normal text-hi">
+                  <option
+                    key={v}
+                    value={v}
+                    className="bg-bg font-normal text-hi"
+                  >
                     {l}
                   </option>
                 ))}
@@ -314,9 +359,14 @@ export function MobileSimSetupSheet({
             </Field>
 
             {/* Time unit + delta-t */}
-            <Field label="Time step" help={TIME_STEP_COPY}>
+            <Field
+              controlId={`${formId}-time-unit`}
+              label="Time step"
+              help={TIME_STEP_COPY}
+            >
               <div className="flex items-center gap-3">
                 <select
+                  id={`${formId}-time-unit`}
                   value={timeUnit}
                   onChange={(e) => setTimeUnit(e.target.value as TimeUnit)}
                   className={`${selectClass} flex-1`}
@@ -367,7 +417,9 @@ export function MobileSimSetupSheet({
             <div className="flex items-center gap-3">
               <span className="min-w-0 flex-1 truncate font-mono text-[12px] tabular text-dim">
                 {integrator.toUpperCase()} · {frame.split(" ")[0]} ·{" "}
-                <span className="text-accent">{selectedBodies.size} bodies</span>
+                <span className="text-accent">
+                  {selectedBodies.size} bodies
+                </span>
               </span>
               <button
                 type="button"

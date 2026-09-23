@@ -1,5 +1,9 @@
+import {
+  beginSimulationLaunch,
+  finishSimulationLaunch,
+} from "./simulationLaunch";
 import { AppDispatch } from "@/app/store/Store";
-import { beginLaunch } from "@/app/store/launchEpoch";
+import { isCurrentLaunch, currentLaunchSignal } from "@/app/store/launchEpoch";
 import { loadSimulation } from "@/app/store/slices/SimulationSlice";
 import { resetChunkRetry } from "@/app/store/middleware/simulationRequestThunk";
 import { setErrorMessage } from "@/app/store/slices/RequestSlice";
@@ -25,7 +29,17 @@ const RETRYABLE_STATUSES = new Set([502, 503, 504]);
 // visitor after an idle stretch sees a short "waking up" wait, not an error.
 const RETRY_DELAYS_MS = [1000, 2000, 3000, 5000, 8000];
 
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const delay = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    signal.addEventListener("abort", finish, { once: true });
+    if (signal.aborted) finish();
+  });
 
 interface InitializeOptions {
   // Called once before each retry wait, so the caller can swap in a
@@ -46,60 +60,71 @@ export const initializeCelestialBodies = async (
   // A new live run supersedes any in-flight clip decode or ground-truth fetch
   // from a prior launch. Bump before the retry loop so the supersession takes
   // effect the moment the user commits, not only once the session id lands.
-  beginLaunch();
-  const maxAttempts = RETRY_DELAYS_MS.length + 1;
+  const epoch = beginSimulationLaunch(dispatch);
+  const signal = currentLaunchSignal();
+  try {
+    const maxAttempts = RETRY_DELAYS_MS.length + 1;
 
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const isLastAttempt = attempt === maxAttempts - 1;
-    try {
-      const response = await fetch(`${REST_URL}/initialize`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (!isCurrentLaunch(epoch)) return false;
+      const isLastAttempt = attempt === maxAttempts - 1;
+      try {
+        const response = await fetch(`${REST_URL}/initialize`, {
+          method: "POST",
+          signal,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        });
 
-      if (response.ok) {
-        const data: InitializeResponse = await response.json();
-        // A fresh run cancels any pending chunk-retry timer from a prior
-        // session and zeroes the attempt counter, so the backoff window only
-        // ever applies to the current session's failure streak.
-        resetChunkRetry();
-        dispatch(
-          loadSimulation({
-            celestialBodyPropertiesList: data.celestialBodyPropertiesList ?? [],
-            simulationMetaData: data.simulationMetaData
-              ? { sessionID: data.simulationMetaData.sessionID ?? "" }
-              : null,
-          }),
-        );
-        return true;
+        if (!isCurrentLaunch(epoch)) return false;
+        if (response.ok) {
+          const data: InitializeResponse = await response.json();
+          if (!isCurrentLaunch(epoch)) return false;
+          // A fresh run cancels any pending chunk-retry timer from a prior
+          // session and zeroes the attempt counter, so the backoff window only
+          // ever applies to the current session's failure streak.
+          resetChunkRetry();
+          dispatch(
+            loadSimulation({
+              celestialBodyPropertiesList:
+                data.celestialBodyPropertiesList ?? [],
+              simulationMetaData: data.simulationMetaData
+                ? { sessionID: data.simulationMetaData.sessionID ?? "" }
+                : null,
+            }),
+          );
+          return true;
+        }
+
+        // Non-OK: retry the cold-wake / transient gateway statuses; surface
+        // everything else right away.
+        if (!RETRYABLE_STATUSES.has(response.status) || isLastAttempt) {
+          dispatch(setErrorMessage(messageForStatus(response.status)));
+          return false;
+        }
+      } catch (error) {
+        if (!isCurrentLaunch(epoch)) return false;
+        // Network-level failure (offline, DNS, connection refused). Treat as
+        // transient and retry until the attempt budget is spent.
+        if (isLastAttempt) {
+          console.error("Failed to reach the simulator:", error);
+          dispatch(
+            setErrorMessage(
+              "Could not reach the simulator. It may be starting up. Please try again in a moment.",
+            ),
+          );
+          return false;
+        }
       }
 
-      // Non-OK: retry the cold-wake / transient gateway statuses; surface
-      // everything else right away.
-      if (!RETRYABLE_STATUSES.has(response.status) || isLastAttempt) {
-        dispatch(setErrorMessage(messageForStatus(response.status)));
-        return false;
-      }
-    } catch (error) {
-      // Network-level failure (offline, DNS, connection refused). Treat as
-      // transient and retry until the attempt budget is spent.
-      if (isLastAttempt) {
-        console.error("Failed to reach the simulator:", error);
-        dispatch(
-          setErrorMessage(
-            "Could not reach the simulator. It may be starting up. Please try again in a moment.",
-          ),
-        );
-        return false;
-      }
+      options.onRetry?.(attempt + 1);
+      await delay(RETRY_DELAYS_MS[attempt], signal);
     }
 
-    options.onRetry?.(attempt + 1);
-    await delay(RETRY_DELAYS_MS[attempt]);
+    return false;
+  } finally {
+    finishSimulationLaunch(dispatch, epoch);
   }
-
-  return false;
 };
 
 function messageForStatus(status: number): string {

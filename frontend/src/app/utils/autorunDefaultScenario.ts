@@ -1,3 +1,4 @@
+import { currentLaunchEpoch, isCurrentLaunch } from "@/app/store/launchEpoch";
 import type { AppDispatch } from "@/app/store/Store";
 import { DEFAULT_SELECTED } from "@/app/constants/BodyCatalog";
 import { BODY_DISPLAY } from "@/app/constants/BodyVisuals";
@@ -23,8 +24,10 @@ export async function autorunDefaultScenario(
   dispatch: AppDispatch,
   getSessionID: () => string | undefined,
 ): Promise<void> {
-  const ok = await runStaticClip(dispatch, DEFAULT_CLIP_ID);
-  if (ok) return;
+  const pending = runStaticClip(dispatch, DEFAULT_CLIP_ID);
+  const epoch = currentLaunchEpoch();
+  const ok = await pending;
+  if (ok !== false || !isCurrentLaunch(epoch)) return;
   if (getSessionID()) return;
   await runSimulation(dispatch, {
     celestialBodyNames: DEFAULT_SELECTED.map((k) => BODY_DISPLAY[k]),

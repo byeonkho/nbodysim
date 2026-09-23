@@ -6,9 +6,16 @@
 // live chunk path, and unlike sessionID it works for the sessionless clip
 // path (simulationMetaData is null there).
 let launchEpoch = 0;
+let launchController = new AbortController();
 
 export function beginLaunch(): number {
+  launchController.abort();
+  launchController = new AbortController();
   return ++launchEpoch;
+}
+
+export function currentLaunchSignal(): AbortSignal {
+  return launchController.signal;
 }
 
 export function currentLaunchEpoch(): number {
@@ -21,5 +28,7 @@ export function isCurrentLaunch(epoch: number): boolean {
 
 // Test-only: reset the module counter between cases.
 export function resetLaunchEpochForTests(): void {
+  launchController.abort();
+  launchController = new AbortController();
   launchEpoch = 0;
 }
