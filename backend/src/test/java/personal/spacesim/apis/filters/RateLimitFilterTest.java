@@ -2,6 +2,7 @@ package personal.spacesim.apis.filters;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -14,6 +15,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * (and the silent-failure risk) live.
  */
 class RateLimitFilterTest {
+
+    @Test
+    void earlyRateLimitResponseExposesRetryDelayToBrowsers() throws Exception {
+        RateLimitFilter filter = new RateLimitFilter();
+        MockHttpServletResponse response = null;
+        for (int i = 0; i < 21; i++) {
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/simulation/initialize");
+            request.setRemoteAddr("198.51.100.23");
+            request.addHeader("Origin", "https://nbodysim.com");
+            response = new MockHttpServletResponse();
+            filter.doFilterInternal(request, response, (req, res) -> {});
+        }
+        assertEquals(429, response.getStatus());
+        assertEquals("https://nbodysim.com", response.getHeader("Access-Control-Allow-Origin"));
+        assertEquals("Retry-After", response.getHeader("Access-Control-Expose-Headers"));
+        assertTrue(Integer.parseInt(response.getHeader("Retry-After")) > 0);
+    }
 
     // --- per-endpoint limits ---------------------------------------------
 

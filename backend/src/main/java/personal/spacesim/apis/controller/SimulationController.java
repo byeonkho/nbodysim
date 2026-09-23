@@ -192,6 +192,9 @@ public class SimulationController {
             // stop the retry loop and prompt a fresh run instead of hammering a 5xx.
             logger.info("[{}] Chunk request for gone session", sessionID);
             return ResponseEntity.status(HttpStatus.GONE).build();
+        } catch (SessionCapacityExceededException e) {
+            logger.info("[{}] Chunk deferred: compute capacity is busy", sessionID);
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
         } catch (ChunkIndexConflictException e) {
             logger.warn("[{}] {}", sessionID, e.getMessage());
             return ResponseEntity.status(HttpStatus.CONFLICT).build();

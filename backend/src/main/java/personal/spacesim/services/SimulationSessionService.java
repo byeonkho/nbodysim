@@ -1,5 +1,6 @@
 package personal.spacesim.services;
 
+import jakarta.annotation.PreDestroy;
 import org.orekit.time.AbsoluteDate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongSupplier;
 
@@ -36,15 +38,16 @@ public class SimulationSessionService {
     // Sessions idle longer than this are evicted by the periodic sweeper.
     private static final long IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
-    // Hard cap on concurrent live sessions, bounding total heap on a small VM.
-    // Each idle session holds its cached compressed chunk + body state (a few
-    // MB); the precompute pool is bounded to ~cores/2 threads, so only a couple
-    // of sessions sit at serialization peak (~20 MB) at once while the rest hold
-    // their idle footprint. 50 keeps worst-case heap well under a ~1 GB budget
-    // while absorbing a realistic concurrent-visitor spike. Conservative —
-    // refine under load. Complements the idle sweeper, which only reclaims
-    // sessions after IDLE_TIMEOUT_MS.
+    // Admission includes pending initialization, not just published sessions.
+    // This bounds session count; actual heap requirements still need load testing.
     private static final int MAX_CONCURRENT_SESSIONS = 50;
+    private static final int MAX_COMPUTATIONS =
+            Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
+    private final Semaphore sessionSlots;
+    private final int maxSessions;
+    // Both foreground and speculative work reserve before starting. No backlog:
+    // foreground overload returns 503, optional speculation is simply skipped.
+    private final Semaphore computeSlots;
 
     private final ConcurrentHashMap<String, SimulationSessionState> sessions;
     private final SimulationFactory simulationFactory;
@@ -54,13 +57,7 @@ public class SimulationSessionService {
 
     // Bounded executor for precompute work. Threads are daemon so they don't
     // prevent JVM shutdown if a request is in flight at exit.
-    private final ExecutorService precomputeExecutor = Executors.newFixedThreadPool(
-            Math.max(2, Runtime.getRuntime().availableProcessors() / 2),
-            r -> {
-                Thread t = new Thread(r, "spacesim-precompute");
-                t.setDaemon(true);
-                return t;
-            });
+    private final ExecutorService precomputeExecutor;
 
     @Autowired
     public SimulationSessionService(
@@ -78,6 +75,29 @@ public class SimulationSessionService {
             ZstdCompressor zstdCompressor,
             LongSupplier currentTimeMillis
     ) {
+        this(simulationFactory, binaryResponseSerializer, zstdCompressor,
+                currentTimeMillis, MAX_CONCURRENT_SESSIONS, MAX_COMPUTATIONS);
+    }
+
+    SimulationSessionService(
+            SimulationFactory simulationFactory,
+            BinaryResponseSerializer binaryResponseSerializer,
+            ZstdCompressor zstdCompressor,
+            LongSupplier currentTimeMillis,
+            int maxSessions,
+            int maxComputations
+    ) {
+        if (maxSessions < 1 || maxComputations < 1) {
+            throw new IllegalArgumentException("Capacity limits must be positive");
+        }
+        this.maxSessions = maxSessions;
+        this.sessionSlots = new Semaphore(maxSessions);
+        this.computeSlots = new Semaphore(maxComputations);
+        this.precomputeExecutor = Executors.newFixedThreadPool(maxComputations, r -> {
+            Thread t = new Thread(r, "spacesim-precompute");
+            t.setDaemon(true);
+            return t;
+        });
         this.simulationFactory = simulationFactory;
         this.binaryResponseSerializer = binaryResponseSerializer;
         this.zstdCompressor = zstdCompressor;
@@ -94,29 +114,24 @@ public class SimulationSessionService {
             int keyframesPerKept,
             int targetSnapshotsPerChunk
     ) {
-        // Reject before doing the expensive build (body wrappers, possible
-        // Horizons fetches) if we're already at capacity. Soft check — a tiny
-        // race can let a few past the cap, which is harmless for a heap guard.
-        if (sessions.size() >= MAX_CONCURRENT_SESSIONS) {
+        if (!sessionSlots.tryAcquire()) {
             throw new SessionCapacityExceededException(
-                    "Server at capacity (" + MAX_CONCURRENT_SESSIONS + " concurrent sessions)");
+                    "Server at capacity (" + maxSessions + " concurrent sessions)");
         }
-
-        String sessionID = UUID.randomUUID().toString();
-        Simulation simulation = simulationFactory.createSimulation(
-                sessionID,
-                celestialBodyNames,
-                frame,
-                integrator,
-                simStartDate,
-                timeStep,
-                keyframesPerKept,
-                targetSnapshotsPerChunk
-        );
-        sessions.put(sessionID, new SimulationSessionState(
-                simulation, currentTimeMillis.getAsLong()));
-        logger.info("sessionID: {}", sessionID);
-        return sessionID;
+        boolean registered = false;
+        try {
+            String sessionID = UUID.randomUUID().toString();
+            Simulation simulation = simulationFactory.createSimulation(
+                    sessionID, celestialBodyNames, frame, integrator, simStartDate,
+                    timeStep, keyframesPerKept, targetSnapshotsPerChunk);
+            sessions.put(sessionID, new SimulationSessionState(
+                    simulation, currentTimeMillis.getAsLong()));
+            registered = true;
+            logger.info("sessionID: {}", sessionID);
+            return sessionID;
+        } finally {
+            if (!registered) sessionSlots.release();
+        }
     }
 
     public SimulationResponseDTO returnSimulationResponseDTO(String sessionID) {
@@ -180,7 +195,10 @@ public class SimulationSessionService {
             try {
                 payload = cached != null
                         ? cached.get()
-                        : computeChunkBytes(simulation);
+                        : computeOnDemand(simulation);
+            } catch (SessionCapacityExceededException e) {
+                // No state was advanced. The same chunk index remains retryable.
+                throw e;
             } catch (InterruptedException e) {
                 if (cached != null) {
                     cached.cancel(true);
@@ -225,7 +243,7 @@ public class SimulationSessionService {
             return;
         }
         SimulationSessionState.Closure closure = state.close();
-        sessions.remove(sessionID, state);
+        if (sessions.remove(sessionID, state)) sessionSlots.release();
         cancelPrecompute(closure.pendingPrecompute());
     }
 
@@ -249,10 +267,49 @@ public class SimulationSessionService {
         return state == null ? null : state.peekPrecomputedChunk();
     }
 
+    private byte[] computeOnDemand(Simulation simulation) {
+        if (!computeSlots.tryAcquire()) {
+            throw new SessionCapacityExceededException("Simulator compute capacity is busy");
+        }
+        try {
+            return computeChunkBytes(simulation);
+        } finally {
+            computeSlots.release();
+        }
+    }
+
     private CompletableFuture<byte[]> startPrecompute(Simulation simulation) {
-        return CompletableFuture.supplyAsync(
-                () -> computeChunkBytes(simulation),
-                precomputeExecutor);
+        if (!computeSlots.tryAcquire()) return null;
+        CompletableFuture<byte[]> result = new CompletableFuture<>();
+        try {
+            // Do not use supplyAsync: cancelling its future before execution skips
+            // the supplier (including its finally), leaking the reserved slot.
+            precomputeExecutor.execute(() -> {
+                byte[] payload = null;
+                Throwable failure = null;
+                try {
+                    if (!result.isCancelled()) payload = computeChunkBytes(simulation);
+                } catch (Throwable e) {
+                    failure = e;
+                } finally {
+                    // Cancellation never releases early while work is still running.
+                    computeSlots.release();
+                }
+                if (failure == null) result.complete(payload);
+                else result.completeExceptionally(failure);
+            });
+        } catch (RuntimeException e) {
+            computeSlots.release();
+            // Executor shutdown cannot invalidate a successfully computed chunk.
+            return null;
+        }
+        return result;
+    }
+
+    @PreDestroy
+    void shutdown() {
+        // Let queued tasks execute their finally blocks and release reservations.
+        precomputeExecutor.shutdown();
     }
 
     private byte[] computeChunkBytes(Simulation simulation) {
@@ -289,7 +346,7 @@ public class SimulationSessionService {
             if (!closure.closedNow()) {
                 continue;
             }
-            sessions.remove(sessionID, state);
+            if (sessions.remove(sessionID, state)) sessionSlots.release();
             cancelPrecompute(closure.pendingPrecompute());
             logger.info("Evicted idle simulation {}", sessionID);
         }
