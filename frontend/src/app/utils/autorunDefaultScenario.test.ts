@@ -42,4 +42,9 @@ describe("autorunDefaultScenario", () => {
     await autorunDefaultScenario(noDispatch, () => "session-started-meanwhile");
     expect(runSimulationMock).not.toHaveBeenCalled();
   });
+  it("does not fall back when another sessionless clip supersedes autorun", async () => {
+    runStaticClipMock.mockResolvedValue("superseded");
+    await autorunDefaultScenario(noDispatch, () => undefined);
+    expect(runSimulationMock).not.toHaveBeenCalled();
+  });
 });

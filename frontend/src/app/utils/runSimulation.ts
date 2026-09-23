@@ -1,15 +1,14 @@
+import { currentLaunchEpoch, isCurrentLaunch } from "@/app/store/launchEpoch";
 import type { AppDispatch } from "@/app/store/Store";
 import { store } from "@/app/store/Store";
 import { initializeCelestialBodies } from "@/app/utils/initializeCelestialBodies";
 import { dispatchChunkRequest } from "@/app/store/middleware/simulationRequestThunk";
-import { setIsPaused, setLastSimRequest } from "@/app/store/slices/SimulationSlice";
 import {
-  FRAME_CODE,
-  type TimeUnit,
-} from "@/app/constants/SimParams";
-import {
-  type FidelityBucket,
-} from "@/app/constants/PlaybackQuality";
+  setIsPaused,
+  setLastSimRequest,
+} from "@/app/store/slices/SimulationSlice";
+import { FRAME_CODE, type TimeUnit } from "@/app/constants/SimParams";
+import { type FidelityBucket } from "@/app/constants/PlaybackQuality";
 
 // Fixed sim parameters every canonical scenario shares. Same defaults both
 // builders ship with so the backend request shape is identical. Exported so
@@ -48,12 +47,14 @@ export async function runSimulation(
     store.getState().simulation.simulationParameters?.simulationMetaData
       ?.sessionID;
 
-  const ok = await initializeCelestialBodies(
+  const pending = initializeCelestialBodies(
     dispatch,
     { ...req, frame: FRAME_CODE[req.frame] ?? req.frame, previousSessionID },
     { onRetry: opts?.onRetry },
   );
-  if (!ok) return false;
+  const epoch = currentLaunchEpoch();
+  const ok = await pending;
+  if (!ok || !isCurrentLaunch(epoch)) return false;
 
   const sessionID =
     store.getState().simulation.simulationParameters?.simulationMetaData

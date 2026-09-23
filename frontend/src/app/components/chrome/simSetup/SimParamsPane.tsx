@@ -1,3 +1,4 @@
+import { useId } from "react";
 import {
   FRAME_LABELS,
   INTEGRATORS,
@@ -42,24 +43,30 @@ export function SimParamsPane({
   fidelityBucket: FidelityBucket;
   onFidelity: (b: FidelityBucket) => void;
 }) {
+  const formId = useId();
   return (
     <div
       className="w-[372px] shrink-0 overflow-y-auto border-r border-white/[0.06]"
       style={{ padding: "22px 24px" }}
     >
-      <MField label="Epoch" tooltip={EPOCH_COPY}>
+      <MField controlId={`${formId}-epoch`} label="Epoch" tooltip={EPOCH_COPY}>
         <input
+          id={`${formId}-epoch`}
           type="datetime-local"
           value={epoch}
           step="0.001"
           onChange={(e) => onEpoch(e.target.value)}
-          className="text-hi tabular w-full bg-transparent font-mono text-[14px] outline-none"
+          className="text-hi tabular w-full bg-transparent font-mono text-[14px] outline-none focus:outline-solid focus:outline-2 focus:outline-offset-4 focus:outline-accent"
           style={{ colorScheme: "dark" }}
         />
       </MField>
 
-      <MField label="Reference frame" tooltip={REFERENCE_FRAME_COPY}>
-        <Select value={frame} onChange={onFrame}>
+      <MField
+        controlId={`${formId}-frame`}
+        label="Reference frame"
+        tooltip={REFERENCE_FRAME_COPY}
+      >
+        <Select id={`${formId}-frame`} value={frame} onChange={onFrame}>
           {FRAME_LABELS.map((f) => (
             <option key={f} value={f} className="bg-bg">
               {f}
@@ -69,12 +76,19 @@ export function SimParamsPane({
       </MField>
 
       <MField
+        controlId={`${formId}-integrator`}
         label="Integrator"
         highlight
         tooltip={INTEGRATOR_COPY}
         help={INTEGRATOR_HELP}
       >
-        <Select value={integrator} onChange={onIntegrator} accent testId="integrator-select">
+        <Select
+          id={`${formId}-integrator`}
+          value={integrator}
+          onChange={onIntegrator}
+          accent
+          testId="integrator-select"
+        >
           {INTEGRATORS.map(([value, label]) => (
             <option key={value} value={value} className="bg-bg">
               {label}
@@ -84,8 +98,9 @@ export function SimParamsPane({
       </MField>
 
       <div className="grid grid-cols-2 gap-3">
-        <MField label="Time unit">
+        <MField controlId={`${formId}-time-unit`} label="Time unit">
           <Select
+            id={`${formId}-time-unit`}
             value={timeUnit}
             onChange={(v) => onTimeUnit(v as TimeUnit)}
           >
@@ -121,12 +136,14 @@ export function SimParamsPane({
 
 function MField({
   label,
+  controlId,
   help,
   highlight,
   tooltip,
   children,
 }: {
   label: string;
+  controlId?: string;
   help?: string;
   highlight?: boolean;
   /** Optional plain-English explanation shown as a hover chip by the label. */
@@ -135,10 +152,16 @@ function MField({
 }) {
   return (
     <div className="mb-4">
-      <p className="eyebrow mb-[7px] flex items-center gap-1.5 px-0.5">
-        {label}
-        {tooltip && <InfoTooltip label={`What is ${label}?`}>{tooltip}</InfoTooltip>}
-      </p>
+      <div className="eyebrow mb-[7px] flex items-center gap-1.5 px-0.5">
+        {controlId ? (
+          <label htmlFor={controlId}>{label}</label>
+        ) : (
+          <span>{label}</span>
+        )}
+        {tooltip && (
+          <InfoTooltip label={`What is ${label}?`}>{tooltip}</InfoTooltip>
+        )}
+      </div>
       <div
         style={{
           padding: "10px 13px",
@@ -166,12 +189,14 @@ function MField({
 // (Not the mock's transparent-overlay trick; the native control is simpler
 // and fully accessible.)
 function Select({
+  id,
   value,
   onChange,
   accent,
   testId,
   children,
 }: {
+  id: string;
   value: string;
   onChange: (v: string) => void;
   accent?: boolean;
@@ -181,10 +206,11 @@ function Select({
   return (
     <div className="relative">
       <select
+        id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         data-testid={testId}
-        className="w-full cursor-pointer appearance-none bg-transparent pr-5 text-[14px] outline-none"
+        className="w-full cursor-pointer appearance-none bg-transparent pr-5 text-[14px] outline-none focus:outline-solid focus:outline-2 focus:outline-offset-4 focus:outline-accent"
         style={{
           color: accent ? "var(--color-accent)" : "var(--color-hi)",
           fontWeight: accent ? 500 : 400,
