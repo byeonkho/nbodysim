@@ -38,7 +38,9 @@
   ],
   "exclude": [
     "node_modules",
-    "out"
+    "out",
+    "**/*.test.ts",
+    "**/*.test.tsx"
   ],
   "settings": {
     "import/resolver": {
