@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>4.1.0</version>
+		<version>4.1.2</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>personal</groupId>
@@ -73,7 +73,7 @@
 		<dependency>
 			<groupId>org.orekit</groupId>
 			<artifactId>orekit</artifactId>
-			<version>13.1.8</version>
+			<version>13.1.9</version>
 		</dependency>
 
 		<dependency>
@@ -90,7 +90,7 @@
 		<dependency>
 			<groupId>io.sentry</groupId>
 			<artifactId>sentry-spring-boot-4-starter</artifactId>
-			<version>8.57.0</version>
+			<version>8.62.0</version>
 		</dependency>
 
 
@@ -105,13 +105,13 @@
 		<dependency>
 			<groupId>com.github.luben</groupId>
 			<artifactId>zstd-jni</artifactId>
-			<version>1.5.7-19</version>
+			<version>1.5.7-25</version>
 		</dependency>
 
 		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
-			<version>1.18.46</version>
+			<version>1.18.48</version>
 			<scope>provided</scope>
 		</dependency>
 
@@ -133,7 +133,7 @@
 						<path>
 							<groupId>org.projectlombok</groupId>
 							<artifactId>lombok</artifactId>
-							<version>1.18.46</version>
+							<version>1.18.48</version>
 						</path>
 					</annotationProcessorPaths>
 				</configuration>
