@@ -5,9 +5,7 @@ journey("builder controls have visible accessible labels", async (j) => {
   await j.goto("/");
   const tour = j.page.getByRole("dialog", { name: /intro tour/i });
   await tour.waitFor({ state: "visible" });
-  const solo = tour.getByRole("button", { name: /explore solo/i });
-  if (await solo.isVisible()) await solo.click();
-  else await tour.getByRole("button", { name: "Skip" }).click();
+  await tour.getByRole("button", { name: /explore solo|^Skip$/i }).click();
   const desktop = await j.page.getByTestId("open-sim-setup").isVisible();
   if (desktop) await j.page.getByTestId("open-sim-setup").click();
   else await j.page.getByRole("button", { name: "Build simulation" }).click();
@@ -35,7 +33,67 @@ journey("builder controls have visible accessible labels", async (j) => {
   await expect(builder.getByLabel("Integrator", { exact: true })).toHaveValue(
     "euler",
   );
+
+  // Focus and selection can finish before the drawer's entrance animation.
+  // Wait for the actual animation state without skipping the animation itself.
+  await expect
+    .poll(
+      () =>
+        builder.evaluate((element) =>
+          element
+            .getAnimations()
+            .every((animation) => animation.playState === "finished"),
+        ),
+      { message: "Builder entrance animation should finish", timeout: 5000 },
+    )
+    .toBe(true);
+
+  const run = builder.getByRole("button", {
+    name: "Run simulation",
+    exact: true,
+  });
+  await expect(run).toBeEnabled();
+  // Measure before tapping: locator actions may scroll an offscreen button
+  // into view and conceal a footer layout regression.
+  const bounds = await run.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const left = viewport?.offsetLeft ?? 0;
+    const top = viewport?.offsetTop ?? 0;
+    const right = left + (viewport?.width ?? window.innerWidth);
+    const bottom = top + (viewport?.height ?? window.innerHeight);
+    const center = {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    };
+    return {
+      rect: rect.toJSON(),
+      viewport: { left, top, right, bottom },
+      center,
+      fullyInViewport:
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.left >= left &&
+        rect.top >= top &&
+        rect.right <= right &&
+        rect.bottom <= bottom,
+      receivesPointerAtCenter: element.contains(
+        document.elementFromPoint(center.x, center.y),
+      ),
+    };
+  });
+  expect(bounds).toMatchObject({
+    fullyInViewport: true,
+    receivesPointerAtCenter: true,
+  });
   await j.screenshot("named-builder-controls");
+
+  if (desktop) await run.click();
+  else await j.page.touchscreen.tap(bounds.center.x, bounds.center.y);
+  await expect(builder).toBeHidden();
+  await j.waitForRequest("POST", /\/initialize$/, 200);
+  await j.waitForRequest("POST", /\/chunk$/, 200);
+  await j.expectLog(/Chunk served in/);
 });
 
 journey(
